@@ -1,0 +1,5 @@
+allowBuilds:
+  msw: false
+  sharp: false
+  unrs-resolver: set this to true or false
+onlyBuiltDependencies: '[msw,sharp,unrs-resolver]'
