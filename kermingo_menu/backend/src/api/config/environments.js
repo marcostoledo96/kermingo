@@ -18,6 +18,7 @@ const entorno = {
   },
   db: {
     host: process.env.DB_HOST || '',
+    port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || '',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || '',
@@ -29,7 +30,7 @@ const entorno = {
 };
 
 if (esProduccion) {
-  const requeridos = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET'];
+  const requeridos = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET'];
   const faltantes = requeridos.filter((key) => !process.env[key]);
   if (faltantes.length > 0) {
     throw new Error(
