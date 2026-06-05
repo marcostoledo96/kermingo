@@ -71,8 +71,35 @@ docs/scripts/
 docs/.agents/skills/
 ```
 
-## Backend futuro
+## Backend
 
 ```txt
 backend/
+├── package.json          ESM project, express 4.21, cors, cookie-parser, dotenv, nodemon
+├── .env.example         PORT=3001, NODE_ENV=development
+├── .gitignore
+└── src/
+    ├── server.js        Entry point
+    ├── app.js           Express app factory
+    └── api/
+        ├── config/
+        │   └── environments.js   Config centralizada con Object.freeze
+        ├── utils/
+        │   ├── respuesta.utils.js  Helpers respuestaExitosa/respuestaError
+        │   └── errors.js           AppError + ValidationError + NotFoundError + AuthError
+        ├── middlewares/
+        │   └── error.middleware.js  Global error handler
+        ├── routes/
+        │   └── index.routes.js      GET /api/health
+        ├── controllers/.gitkeep     MVC scaffold
+        └── models/.gitkeep         MVC scaffold
+```
+
+## Documentación
+
+```txt
+docs/planificacion/
+docs/docs/
+docs/scripts/
+docs/.agents/skills/
 ```

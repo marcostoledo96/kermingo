@@ -27,11 +27,16 @@ Debe conservarse como base visual fuerte.
 
 ## Backend
 
-Pendiente de crear en:
+**Estado**: ✅ Creado — scaffolding completo, verificado con curl
+
+Ubicación:
 
 ```txt
 backend/
 ```
+
+Stack: Express 4.21 + ESM + cors + cookie-parser + dotenv + nodemon
+Puerto: 3001 (configurable via `.env`)
 
 ## Documentación
 
