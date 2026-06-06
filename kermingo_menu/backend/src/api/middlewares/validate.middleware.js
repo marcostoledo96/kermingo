@@ -4,7 +4,7 @@ import { ValidationError } from '../utils/errors.js';
 export function validateBody(schema) {
   return (req, _res, next) => {
     try {
-      schema.parse(req.body);
+      req.body = schema.parse(req.body);
       next();
     } catch (error) {
       if (error instanceof ZodError) {
@@ -19,7 +19,7 @@ export function validateBody(schema) {
 export function validateQuery(schema) {
   return (req, _res, next) => {
     try {
-      schema.parse(req.query);
+      req.query = schema.parse(req.query);
       next();
     } catch (error) {
       if (error instanceof ZodError) {
@@ -34,7 +34,7 @@ export function validateQuery(schema) {
 export function validateParams(schema) {
   return (req, _res, next) => {
     try {
-      schema.parse(req.params);
+      req.params = schema.parse(req.params);
       next();
     } catch (error) {
       if (error instanceof ZodError) {

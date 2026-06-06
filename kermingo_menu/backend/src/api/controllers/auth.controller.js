@@ -6,12 +6,14 @@ import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { AuthError } from '../utils/errors.js';
 import environments from '../config/environments.js';
 
+const COOKIE_NAME = environments.cookie.name;
+
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: environments.esProduccion,
   sameSite: environments.esProduccion ? 'none' : 'lax',
   path: '/',
-  maxAge: 24 * 60 * 60 * 1000, // 24h
+  maxAge: 24 * 60 * 60 * 1000,
 };
 
 const CLEAR_COOKIE_OPTIONS = {
@@ -27,7 +29,7 @@ export async function login(req, res, next) {
     const pool = getPool();
     const usuario = await findByEmail(pool, email);
     if (!usuario) throw new AuthError('Credenciales inválidas');
-    if (!usuario.activo) throw new AuthError('Cuenta inactiva');
+    if (!usuario.activo) throw new AuthError('Credenciales inválidas');
 
     const valida = await bcrypt.compare(contrasenia, usuario.contrasenia_hash);
     if (!valida) throw new AuthError('Credenciales inválidas');
@@ -36,7 +38,7 @@ export async function login(req, res, next) {
       expiresIn: environments.jwt.expiresIn,
     });
 
-    res.cookie('token', token, COOKIE_OPTIONS);
+    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
     return respuestaExitosa(res, {
       usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email },
     }, 'Sesión iniciada correctamente');
@@ -47,7 +49,7 @@ export async function login(req, res, next) {
 
 export async function logout(req, res, next) {
   try {
-    res.clearCookie('token', CLEAR_COOKIE_OPTIONS);
+    res.clearCookie(COOKIE_NAME, CLEAR_COOKIE_OPTIONS);
     return respuestaExitosa(res, null, 'Sesión cerrada correctamente');
   } catch (err) {
     next(err);

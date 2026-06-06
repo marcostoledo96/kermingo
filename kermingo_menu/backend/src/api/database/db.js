@@ -21,4 +21,3 @@ export function getPool() {
 }
 
 export default pool;
-

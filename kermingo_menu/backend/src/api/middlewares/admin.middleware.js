@@ -3,9 +3,11 @@ import { getPool } from '../database/db.js';
 import { AuthError } from '../utils/errors.js';
 import environments from '../config/environments.js';
 
+const COOKIE_NAME = environments.cookie.name;
+
 export async function requireAdmin(req, res, next) {
   try {
-    const token = req.cookies?.token;
+    const token = req.cookies?.[COOKIE_NAME];
     if (!token) throw new AuthError('Token no encontrado');
 
     const decoded = jwt.verify(token, environments.jwt.secret);

@@ -24,13 +24,13 @@ export const createProductoSchema = z.object({
   stock_actual: z.coerce.number().int().min(0).optional(),
   stock_minimo_alerta: z.coerce.number().int().min(0).default(5),
   activo: z.coerce.number().int().refine((v) => v === 0 || v === 1).default(1),
-});
+}).strict();
 
-export const updateProductoSchema = createProductoSchema.partial();
+export const updateProductoSchema = createProductoSchema.partial().strict();
 
 export const stockAdjustmentSchema = z.object({
   stock_actual: z.coerce.number().int().min(0),
-});
+}).strict();
 
 export const idParamSchema = z.object({
   id: z.coerce.number().int().min(1),

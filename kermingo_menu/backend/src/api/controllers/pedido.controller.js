@@ -9,7 +9,7 @@ import {
   cancelWithTransaction,
 } from '../models/pedido.model.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
-import { NotFoundError, InsufficientStockError } from '../utils/errors.js';
+import { NotFoundError, InsufficientStockError, ValidationError } from '../utils/errors.js';
 
 /**
  * POST /api/pedidos (público)
@@ -17,6 +17,9 @@ import { NotFoundError, InsufficientStockError } from '../utils/errors.js';
  */
 export async function crear(req, res, next) {
   try {
+    if (req.body.metodo_pago === 'transferencia') {
+      throw new ValidationError('Transferencia online requiere comprobante. Usá efectivo o contactá al vendedor.');
+    }
     const pool = getPool();
     const result = await createWithTransaction(pool, {
       ...req.body,
@@ -27,6 +30,9 @@ export async function crear(req, res, next) {
   } catch (err) {
     if (err.message?.includes('Stock insuficiente')) {
       return next(new InsufficientStockError(err.message));
+    }
+    if (err.message?.includes('tienda no está abierta')) {
+      return next(new ValidationError('La tienda no está abierta para pedidos en este momento'));
     }
     next(err);
   }
@@ -48,6 +54,9 @@ export async function crearCaja(req, res, next) {
   } catch (err) {
     if (err.message?.includes('Stock insuficiente')) {
       return next(new InsufficientStockError(err.message));
+    }
+    if (err.message?.includes('tienda no está abierta')) {
+      return next(new ValidationError('La tienda no está abierta para pedidos en este momento'));
     }
     next(err);
   }
@@ -116,7 +125,7 @@ export async function cambiarEstado(req, res, next) {
     const pool = getPool();
     const result = await updateEstadoPedido(pool, req.params.id, req.body.estado_pedido);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
-    if (result === -1) throw new Error('Transición de estado no válida');
+    if (result === -1) throw new ValidationError('Transición de estado no válida');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Estado actualizado correctamente');
   } catch (err) {
@@ -149,7 +158,7 @@ export async function cancelar(req, res, next) {
     const pool = getPool();
     const result = await cancelWithTransaction(pool, req.params.id);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
-    if (result === -1) throw new Error('Solo se puede cancelar pedidos en estado recibido o en preparación');
+    if (result === -1) throw new ValidationError('Solo se puede cancelar pedidos en estado recibido o en preparación');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Pedido cancelado correctamente');
   } catch (err) {

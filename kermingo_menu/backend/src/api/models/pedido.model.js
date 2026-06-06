@@ -5,13 +5,18 @@ import crypto from 'crypto';
 //
 
 function normalizarTelefono(raw) {
-  // Quita +54, 0 inicial, espacios, guiones. Devuelve prefijo país mínimo.
   if (!raw) return null;
-  let t = raw.replace(/[\s\-\(\)]/g, '');
-  if (t.startsWith('+54')) t = t.slice(3);
-  if (t.startsWith('54')) t = t.slice(2);
+  let t = raw.replace(/[^\d]/g, '');
+  if (!t) return null;
+  if (t.startsWith('549')) return t;
+  if (t.startsWith('54') && t.length > 2) {
+    const resto = t.slice(2);
+    if (resto.startsWith('9')) return t;
+    return `549${resto}`;
+  }
   if (t.startsWith('0')) t = t.slice(1);
-  return t || null;
+  if (t.length >= 8 && t.length <= 12) return `549${t}`;
+  return null;
 }
 
 function generarToken() {
@@ -42,49 +47,77 @@ export async function createWithTransaction(pool, data) {
   try {
     await conn.beginTransaction();
 
-    // 1. Validar stock de cada item (SELECT FOR UPDATE)
+    // 0. Verificar configuracion_tienda
+    const [[config]] = await conn.query(
+      'SELECT estado FROM configuracion_tienda WHERE id = 1 FOR UPDATE'
+    );
+    if (!config || config.estado !== 'abierta') {
+      throw new Error('La tienda no está abierta para pedidos');
+    }
+
+    // 1. Expandir items y acumular requerimientos de stock
+    const requerimientos = new Map();
+    const itemsExpandidos = [];
+
     for (const item of data.items) {
       const [prodRows] = await conn.query(
-        'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual FROM producto WHERE id = ? AND activo = 1 FOR UPDATE',
+        'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual FROM producto WHERE id = ? AND activo = 1',
         [item.producto_id]
       );
       const producto = prodRows[0];
       if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
 
-      // Si es promo, validar stock de sus componentes
+      itemsExpandidos.push({
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        precio: producto.precio,
+        tipo: producto.tipo,
+        cantidad: item.cantidad,
+      });
+
       if (producto.tipo === 'promo') {
         const [compRows] = await conn.query(
-          `SELECT cp.producto_id, cp.cantidad, p.nombre, p.stock_actual, p.stock_limitado
-           FROM combo_producto cp
-           JOIN producto p ON p.id = cp.producto_id
-           WHERE cp.combo_id = ? FOR UPDATE`,
+          'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
           [item.producto_id]
         );
         for (const comp of compRows) {
-          if (comp.stock_limitado && comp.stock_actual < comp.cantidad * item.cantidad) {
-            throw new Error(
-              `Stock insuficiente de "${comp.nombre}" (combo). Necesario: ${comp.cantidad * item.cantidad}, disponible: ${comp.stock_actual}`
-            );
-          }
+          const total = comp.cantidad * item.cantidad;
+          requerimientos.set(comp.producto_id, (requerimientos.get(comp.producto_id) || 0) + total);
         }
-      } else if (producto.stock_limitado && producto.stock_actual < item.cantidad) {
-        throw new Error(
-          `Stock insuficiente de "${producto.nombre}". Necesario: ${item.cantidad}, disponible: ${producto.stock_actual}`
-        );
+      } else {
+        requerimientos.set(producto.id, (requerimientos.get(producto.id) || 0) + item.cantidad);
       }
-
-      // Guardar precio snapshot
-      item._precio = producto.precio;
-      item._nombre = producto.nombre;
-      item._tipo = producto.tipo;
     }
 
-    // 2. Calcular total
-    const total = data.items.reduce((sum, item) => {
-      return sum + parseFloat(item._precio) * item.cantidad;
+    // 2. Bloquear productos requeridos con SELECT FOR UPDATE (orden determinístico)
+    const idsRequeridos = [...requerimientos.keys()].sort((a, b) => a - b);
+    if (idsRequeridos.length > 0) {
+      const placeholders = idsRequeridos.map(() => '?').join(',');
+      const [stockRows] = await conn.query(
+        `SELECT id, nombre, stock_limitado, stock_actual FROM producto WHERE id IN (${placeholders}) FOR UPDATE`,
+        idsRequeridos
+      );
+
+      const stockMap = new Map(stockRows.map((r) => [r.id, r]));
+
+      for (const id of idsRequeridos) {
+        const producto = stockMap.get(id);
+        if (!producto) throw new Error(`Producto ${id} no encontrado`);
+        const necesario = requerimientos.get(id);
+        if (producto.stock_limitado && producto.stock_actual < necesario) {
+          throw new Error(
+            `Stock insuficiente de "${producto.nombre}". Necesario: ${necesario}, disponible: ${producto.stock_actual}`
+          );
+        }
+      }
+    }
+
+    // 3. Calcular total
+    const total = itemsExpandidos.reduce((sum, item) => {
+      return sum + parseFloat(item.precio) * item.cantidad;
     }, 0);
 
-    // 3. INSERT pedido
+    // 4. INSERT pedido
     const token = generarToken();
     const [pedidoResult] = await conn.query(
       `INSERT INTO pedido
@@ -108,42 +141,30 @@ export async function createWithTransaction(pool, data) {
 
     const pedidoId = pedidoResult.insertId;
 
-    // 4. Generar y guardar número KMG-XXXX
+    // 5. Generar y guardar número KMG-XXXX
     const numero = formatearNumero(pedidoId);
     await conn.query('UPDATE pedido SET numero = ? WHERE id = ?', [numero, pedidoId]);
 
-    // 5. INSERT pedido_detalle (snapshot)
-    for (const item of data.items) {
-      const subtotal = parseFloat(item._precio) * item.cantidad;
+    // 6. INSERT pedido_detalle (snapshot)
+    for (const item of itemsExpandidos) {
+      const subtotal = parseFloat(item.precio) * item.cantidad;
       await conn.query(
         `INSERT INTO pedido_detalle
          (pedido_id, producto_id, nombre_producto, precio_unitario, cantidad, subtotal)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [pedidoId, item.producto_id, item._nombre, item._precio, item.cantidad, subtotal]
+        [pedidoId, item.producto_id, item.nombre, item.precio, item.cantidad, subtotal]
       );
     }
 
-    // 6. Descontar stock
-    for (const item of data.items) {
-      if (item._tipo === 'promo') {
-        // Descontar stock de cada componente según cantidad del combo
-        const [comps] = await conn.query(
-          'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
-          [item.producto_id]
-        );
-        for (const comp of comps) {
-          const totalCantidad = comp.cantidad * item.cantidad;
-          await conn.query(
-            'UPDATE producto SET stock_actual = stock_actual - ? WHERE id = ? AND stock_limitado = 1',
-            [totalCantidad, comp.producto_id]
-          );
-        }
-      } else {
-        // Producto normal
-        await conn.query(
-          'UPDATE producto SET stock_actual = stock_actual - ? WHERE id = ? AND stock_limitado = 1',
-          [item.cantidad, item.producto_id]
-        );
+    // 7. Descontar stock acumulado con UPDATE defensivo
+    for (const [productoId, cantidad] of requerimientos) {
+      const [result] = await conn.query(
+        'UPDATE producto SET stock_actual = stock_actual - ? WHERE id = ? AND stock_limitado = 1 AND stock_actual >= ?',
+        [cantidad, productoId, cantidad]
+      );
+      if (result.affectedRows === 0) {
+        const [[prod]] = await conn.query('SELECT nombre FROM producto WHERE id = ?', [productoId]);
+        throw new Error(`Stock insuficiente de "${prod?.nombre || productoId}" al descontar`);
       }
     }
 
@@ -221,8 +242,8 @@ export async function findAllAdmin(pool, filters = {}) {
     values.push(filters.origen);
   }
   if (filters.buscar) {
-    conditions.push('AND (p.nombre_cliente LIKE ? OR p.numero LIKE ?)');
-    values.push(`%${filters.buscar}%`, `%${filters.buscar}%`);
+    conditions.push('AND (p.nombre_cliente LIKE ? OR p.numero LIKE ? OR p.telefono_cliente LIKE ?)');
+    values.push(`%${filters.buscar}%`, `%${filters.buscar}%`, `%${filters.buscar}%`);
   }
 
   const where = conditions.length ? `WHERE 1=1\n${conditions.join('\n')}` : '';
@@ -265,7 +286,6 @@ export async function cancelWithTransaction(pool, id) {
   try {
     await conn.beginTransaction();
 
-    // Leer pedido actual
     const [pedRows] = await conn.query(
       "SELECT id, estado_pedido FROM pedido WHERE id = ? FOR UPDATE", [id]
     );
@@ -279,7 +299,6 @@ export async function cancelWithTransaction(pool, id) {
       return -1;
     }
 
-    // Leer detalles
     const [detalles] = await conn.query(
       `SELECT pd.producto_id, pd.cantidad, p.tipo
        FROM pedido_detalle pd
@@ -288,36 +307,37 @@ export async function cancelWithTransaction(pool, id) {
       [id]
     );
 
-    // Reponer stock
+    const reposiciones = new Map();
+
     for (const d of detalles) {
       if (d.tipo === 'promo') {
-        // Reponer componentes del combo
         const [comps] = await conn.query(
           'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
           [d.producto_id]
         );
         for (const comp of comps) {
-          await conn.query(
-            'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-            [comp.cantidad * d.cantidad, comp.producto_id]
-          );
+          const total = comp.cantidad * d.cantidad;
+          reposiciones.set(comp.producto_id, (reposiciones.get(comp.producto_id) || 0) + total);
         }
       } else {
-        await conn.query(
-          'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-          [d.cantidad, d.producto_id]
-        );
+        reposiciones.set(d.producto_id, (reposiciones.get(d.producto_id) || 0) + d.cantidad);
       }
     }
 
-    // Marcar como cancelado
-    await conn.query(
+    for (const [productoId, cantidad] of reposiciones) {
+      await conn.query(
+        'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
+        [cantidad, productoId]
+      );
+    }
+
+    const [updateResult] = await conn.query(
       "UPDATE pedido SET estado_pedido = 'cancelado' WHERE id = ?",
       [id]
     );
 
     await conn.commit();
-    return pedRows.affectedRows;
+    return updateResult.affectedRows;
   } catch (err) {
     await conn.rollback();
     throw err;

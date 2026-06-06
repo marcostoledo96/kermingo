@@ -27,10 +27,13 @@ const entorno = {
     secret: process.env.JWT_SECRET || 'kermingo-dev-secret-cambia-en-produccion',
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
   },
+  cookie: {
+    name: process.env.COOKIE_NAME || 'kermingo_admin_token',
+  },
 };
 
 if (esProduccion) {
-  const requeridos = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET'];
+  const requeridos = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET', 'FRONTEND_URL'];
   const faltantes = requeridos.filter((key) => !process.env[key]);
   if (faltantes.length > 0) {
     throw new Error(

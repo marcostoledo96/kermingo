@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { publicRouter as productoPublicRouter, adminRouter as productoAdminRouter } from './producto.routes.js';
-import authRouter from './auth.routes.js';
 import { publicRouter as pedidoPublicRouter, adminRouter as pedidoAdminRouter } from './pedido.routes.js';
+import authRouter from './auth.routes.js';
 
 const router = Router();
 
