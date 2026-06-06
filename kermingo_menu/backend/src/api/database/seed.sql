@@ -71,4 +71,4 @@ INSERT IGNORE INTO combo_producto (combo_id, producto_id, cantidad) VALUES
 -- Usuario admin (TEMPORAL — contraseña: admin123)
 -- REEMPLAZAR en etapa B4 (Auth) con hash generado por el sistema
 INSERT IGNORE INTO usuario (id, nombre, email, contrasenia_hash, activo) VALUES
-(1, 'Admin', 'admin@kermingo.com', '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 1);
+(1, 'Admin', 'admin@kermingo.com', '$2b$10$NJeTubdE9ncZRJoVj373ZOsT2ubw9hpCMmDDhceBV.O2ZdfhtX23e', 1);

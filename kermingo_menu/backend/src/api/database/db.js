@@ -16,4 +16,9 @@ pool.on('error', (err) => {
   console.error('Error inesperado en el pool de MySQL:', err.message);
 });
 
+export function getPool() {
+  return pool;
+}
+
 export default pool;
+

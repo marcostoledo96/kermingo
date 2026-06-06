@@ -1,174 +1,129 @@
-# 25 — Referencia visual obligatoria del frontend
+# 25 — Referencia visual frontend
 
-## Carpeta absoluta de referencia
+## Regla actualizada
 
-La referencia visual oficial y obligatoria del frontend es:
+Hay dos carpetas relacionadas con frontend:
+
+```txt
+frontend/
+diseno-de-landing-kermingo/
+```
+
+## Carpeta activa de desarrollo
+
+La carpeta donde se trabaja el frontend real es:
+
+```txt
+/home/marcos/Escritorio/Kermingo/kermingo_menu/frontend
+```
+
+Dentro del repo:
+
+```txt
+frontend/
+```
+
+Todo cambio real de frontend debe hacerse ahí.
+
+## Carpeta de referencia visual
+
+La carpeta de referencia visual obligatoria es:
 
 ```txt
 /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
 ```
 
-Dentro del repositorio actual corresponde a:
+Dentro del repo:
 
 ```txt
 diseno-de-landing-kermingo/
 ```
 
-Esta carpeta fue generada a partir del prototipo de v0 que más gustó y debe usarse como base fuerte para el diseño del frontend.
+Esta carpeta fue generada con v0 y se usa como base visual fuerte.
 
-## Regla principal
+## Regla no negociable
 
-Cualquier tarea de frontend debe inspeccionar primero esta carpeta y reutilizar su estructura visual, componentes, estilos y jerarquía antes de proponer rediseños.
+`diseno-de-landing-kermingo/` es **solo lectura**.
 
-No se debe reemplazar la estética por una genérica de IA.
+Permitido:
 
-## Qué contiene
+- leer archivos
+- comparar componentes
+- observar layout
+- tomar clases Tailwind como referencia
+- tomar decisiones de diseño inspiradas en esa carpeta
+- replicar patrones visuales en `frontend/`
 
-```txt
-diseno-de-landing-kermingo/
-├── app/
-│   ├── page.tsx
-│   ├── globals.css
-│   ├── layout.tsx
-│   ├── menu/page.tsx
-│   ├── carrito/page.tsx
-│   ├── confirmar/page.tsx
-│   ├── confirmado/page.tsx
-│   ├── seguimiento/page.tsx
-│   └── admin/
-│       ├── page.tsx
-│       ├── dashboard/page.tsx
-│       ├── productos/page.tsx
-│       ├── pedidos/page.tsx
-│       ├── caja/page.tsx
-│       └── cocina/page.tsx
-├── components/
-│   ├── header.tsx
-│   ├── hero.tsx
-│   ├── cta-buttons.tsx
-│   ├── event-info.tsx
-│   ├── activities.tsx
-│   ├── footer.tsx
-│   ├── menu/
-│   └── admin/
-├── lib/products.ts
-└── public/images/
-```
+No permitido:
 
-## Archivos que toda IA debe leer antes de modificar frontend público
+- modificar archivos dentro de `diseno-de-landing-kermingo/`
+- mover esa carpeta
+- usarla como root activo del deploy
+- instalar dependencias ahí salvo para verla localmente
+- convertirla en fuente de datos o lógica real
+
+## Root Directory en Vercel
+
+El root de Vercel debe ser:
 
 ```txt
-diseno-de-landing-kermingo/app/page.tsx
-diseno-de-landing-kermingo/app/globals.css
-diseno-de-landing-kermingo/components/header.tsx
-diseno-de-landing-kermingo/components/hero.tsx
-diseno-de-landing-kermingo/components/cta-buttons.tsx
-diseno-de-landing-kermingo/components/event-info.tsx
-diseno-de-landing-kermingo/components/activities.tsx
-diseno-de-landing-kermingo/components/footer.tsx
+frontend
 ```
 
-## Archivos que toda IA debe leer antes de modificar menú/carrito/checkout
+No usar:
 
 ```txt
-diseno-de-landing-kermingo/components/menu/cart-context.tsx
-diseno-de-landing-kermingo/components/menu/menu-screen.tsx
-diseno-de-landing-kermingo/components/menu/menu-header.tsx
-diseno-de-landing-kermingo/components/menu/menu-filters.tsx
-diseno-de-landing-kermingo/components/menu/product-card.tsx
-diseno-de-landing-kermingo/components/menu/product-visual.tsx
-diseno-de-landing-kermingo/components/menu/floating-cart.tsx
-diseno-de-landing-kermingo/components/menu/cart-screen.tsx
-diseno-de-landing-kermingo/components/menu/cart-item-row.tsx
-diseno-de-landing-kermingo/components/menu/checkout-screen.tsx
-diseno-de-landing-kermingo/components/menu/ticket-screen.tsx
-diseno-de-landing-kermingo/components/menu/tracking-screen.tsx
-diseno-de-landing-kermingo/lib/products.ts
+diseno-de-landing-kermingo
 ```
 
-## Archivos que toda IA debe leer antes de modificar admin
+## Comandos
 
-```txt
-diseno-de-landing-kermingo/components/admin/admin-header.tsx
-diseno-de-landing-kermingo/components/admin/admin-ui.tsx
-diseno-de-landing-kermingo/components/admin/login-screen.tsx
-diseno-de-landing-kermingo/components/admin/dashboard-screen.tsx
-diseno-de-landing-kermingo/components/admin/products-screen.tsx
-diseno-de-landing-kermingo/components/admin/product-form-dialog.tsx
-diseno-de-landing-kermingo/components/admin/orders-screen.tsx
-diseno-de-landing-kermingo/components/admin/caja-screen.tsx
-diseno-de-landing-kermingo/components/admin/cocina-screen.tsx
+### Frontend activo
+
+```bash
+cd /home/marcos/Escritorio/Kermingo/kermingo_menu/frontend
+pnpm dev
+pnpm lint
+pnpm build
 ```
 
-## ADN visual que debe mantenerse
+### Referencia visual
 
-- Fondo celeste claro.
-- Azul oscuro como color principal.
-- Amarillo/dorado para CTA.
-- Celeste argentino como acento.
-- Cards blancas con bordes grandes.
-- Sombras suaves.
-- Franja argentina.
-- Detalles de Día de la Bandera.
-- Estética Mundial/Argentina.
-- Toque scout sutil.
-- Mobile-first.
-- Botones grandes y claros.
-- Actividades como chips o mini elementos, no cards enormes.
-
-## Pantallas que ya existen y se deben adaptar, no recrear desde cero
-
-```txt
-/                 Landing
-/menu             Catálogo
-/carrito          Carrito
-/confirmar        Checkout actual, luego puede migrar a /checkout
-/confirmado       Confirmación actual, luego puede migrar a /pedido/[token]
-/seguimiento      Seguimiento actual
-/admin            Login actual
-/admin/dashboard  Dashboard
-/admin/productos  ABM productos
-/admin/pedidos    Pedidos
-/admin/caja       Caja rápida
-/admin/cocina     Cocina / Entrega
+```bash
+cd /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
+pnpm dev
 ```
 
-## Pantallas que faltan
+Solo para mirar visualmente.
 
-Crear siguiendo el mismo estilo:
+## Archivos a comparar antes de modificar frontend
 
-```txt
-/admin/comprobantes
-/admin/reportes
-/admin/configuracion
-```
+Cuando se trabaje una pantalla en `frontend/`, primero buscar su equivalente en `diseno-de-landing-kermingo/`.
 
-## Decisión sobre nombres de rutas
+Ejemplos:
 
-El prototipo usa:
+| Pantalla | Archivo activo | Referencia visual |
+|---|---|---|
+| Landing | `frontend/app/page.tsx` | `diseno-de-landing-kermingo/app/page.tsx` |
+| Menú | `frontend/app/menu/page.tsx` | `diseno-de-landing-kermingo/app/menu/page.tsx` |
+| Carrito | `frontend/app/carrito/page.tsx` | `diseno-de-landing-kermingo/app/carrito/page.tsx` |
+| Checkout | `frontend/app/confirmar/page.tsx` o `frontend/app/checkout/page.tsx` | `diseno-de-landing-kermingo/app/confirmar/page.tsx` |
+| Ticket | `frontend/app/confirmado/page.tsx` o `frontend/app/pedido/[token]/page.tsx` | `diseno-de-landing-kermingo/app/confirmado/page.tsx` |
+| Seguimiento | `frontend/app/seguimiento/page.tsx` o `frontend/app/pedido/[token]/page.tsx` | `diseno-de-landing-kermingo/app/seguimiento/page.tsx` |
+| Admin dashboard | `frontend/app/admin/dashboard/page.tsx` | `diseno-de-landing-kermingo/app/admin/dashboard/page.tsx` |
+| Productos | `frontend/app/admin/productos/page.tsx` | `diseno-de-landing-kermingo/app/admin/productos/page.tsx` |
+| Pedidos | `frontend/app/admin/pedidos/page.tsx` | `diseno-de-landing-kermingo/app/admin/pedidos/page.tsx` |
+| Caja | `frontend/app/admin/caja/page.tsx` | `diseno-de-landing-kermingo/app/admin/caja/page.tsx` |
+| Cocina | `frontend/app/admin/cocina/page.tsx` | `diseno-de-landing-kermingo/app/admin/cocina/page.tsx` |
 
-```txt
-/confirmar
-/confirmado
-/seguimiento
-```
+## Criterio de aceptación visual
 
-La planificación final recomienda:
+Una pantalla implementada en `frontend/` se considera aceptable si:
 
-```txt
-/checkout
-/pedido/[token]
-```
-
-No cambiar rutas de golpe. Primero conectar lo existente. Luego migrar rutas con redirects si hace falta.
-
-## Reglas para tareas de frontend
-
-1. Abrir el archivo de pantalla existente.
-2. Abrir los componentes relacionados.
-3. Identificar si usa mocks de `lib/products.ts`.
-4. Reemplazar mocks por servicios API de a poco.
-5. Mantener layout y estilo.
-6. Agregar estados loading/error/empty sin romper la estética.
-7. Probar mobile.
-8. Ejecutar build.
+- respeta el ADN visual de v0
+- no parece una pantalla genérica de IA
+- mantiene mobile-first
+- respeta colores, jerarquía y estilo
+- tiene botones grandes y claros
+- no rompe el flujo de compra
+- no modifica la carpeta de referencia

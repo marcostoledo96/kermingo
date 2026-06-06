@@ -4,9 +4,21 @@ Este archivo es la fuente principal para cualquier agente IA que trabaje en este
 
 ## 0. Regla crítica de estructura real
 
-La estructura actual del proyecto se debe respetar. No renombrar carpetas ni mover el frontend visual sin autorización explícita de Marcos.
+La estructura actual del proyecto se debe respetar. No renombrar carpetas ni mover el frontend sin autorización explícita de Marcos.
 
-La carpeta de referencia visual obligatoria es:
+La carpeta activa de frontend, donde SÍ se trabaja, es:
+
+```txt
+/home/marcos/Escritorio/Kermingo/kermingo_menu/frontend
+```
+
+Dentro del repositorio, esa carpeta corresponde a:
+
+```txt
+frontend/
+```
+
+La carpeta de referencia visual obligatoria, que NO se modifica, es:
 
 ```txt
 /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
@@ -18,7 +30,7 @@ Dentro del repositorio, esa carpeta corresponde a:
 diseno-de-landing-kermingo/
 ```
 
-Esa carpeta contiene el prototipo de diseño generado en v0 y debe ser la base visual fuerte para todo el frontend.
+`diseno-de-landing-kermingo/` contiene el prototipo generado con v0. Se puede leer, comparar, tomar ideas y copiar patrones de diseño con cuidado, pero no se debe modificar. Todo desarrollo real del frontend debe hacerse en `frontend/`.
 
 ## 1. Contexto del proyecto
 
@@ -36,20 +48,22 @@ Kermingo es un sistema web para un evento scout recaudatorio del campamento de v
 ```txt
 kermingo_menu/
 ├── AGENTS.md
-├── diseno-de-landing-kermingo/   # Frontend Next.js y referencia visual obligatoria
-├── backend/                      # A crear: Express + MySQL + API REST + MVC
-└── docs/
-    ├── planificacion/
-    ├── scripts/
-    ├── docs/
-    └── .agents/
+├── backend/                      # Express + MySQL + API REST + MVC
+├── frontend/                     # Frontend activo Next.js + React + TypeScript + TailwindCSS
+├── diseno-de-landing-kermingo/   # Referencia visual v0 de solo lectura
+├── docs/
+│   └── planificacion/
+├── scripts/
+├── openspec/
+└── .agents/
 ```
 
 Importante:
 
-- El frontend actual no está en `frontend/`, sino en `diseno-de-landing-kermingo/`.
-- Para Vercel, el **Root Directory** debe ser `diseno-de-landing-kermingo`.
-- El backend se agregará como carpeta `backend/`.
+- El frontend activo es `frontend/`.
+- La referencia visual es `diseno-de-landing-kermingo/`.
+- Para Vercel, el **Root Directory** debe ser `frontend`.
+- El backend está en `backend/`.
 - La documentación está en `docs/planificacion/`.
 - No implementar EJS. El profesor autorizó React/Next.js para reemplazar el frontend.
 
@@ -76,7 +90,8 @@ Importante:
 - React
 - TypeScript
 - TailwindCSS
-- v0 como base visual fuerte
+- v0 como referencia visual fuerte
+- `frontend/` como carpeta activa de desarrollo
 - shadcn-style components si ya existen en el prototipo
 - lucide-react
 - jsPDF para ticket PDF
@@ -92,7 +107,7 @@ Antes de tocar frontend, inspeccionar esta carpeta:
 /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
 ```
 
-Archivos visuales clave actuales:
+Archivos visuales de referencia:
 
 ```txt
 diseno-de-landing-kermingo/app/page.tsx
@@ -109,27 +124,19 @@ diseno-de-landing-kermingo/app/admin/productos/page.tsx
 diseno-de-landing-kermingo/app/admin/pedidos/page.tsx
 diseno-de-landing-kermingo/app/admin/caja/page.tsx
 diseno-de-landing-kermingo/app/admin/cocina/page.tsx
-diseno-de-landing-kermingo/components/header.tsx
-diseno-de-landing-kermingo/components/hero.tsx
-diseno-de-landing-kermingo/components/cta-buttons.tsx
-diseno-de-landing-kermingo/components/event-info.tsx
-diseno-de-landing-kermingo/components/activities.tsx
-diseno-de-landing-kermingo/components/footer.tsx
-diseno-de-landing-kermingo/components/menu/menu-screen.tsx
-diseno-de-landing-kermingo/components/menu/product-card.tsx
-diseno-de-landing-kermingo/components/menu/cart-context.tsx
-diseno-de-landing-kermingo/components/admin/dashboard-screen.tsx
-diseno-de-landing-kermingo/components/admin/caja-screen.tsx
-diseno-de-landing-kermingo/components/admin/cocina-screen.tsx
+diseno-de-landing-kermingo/components/
+diseno-de-landing-kermingo/components/admin/
+diseno-de-landing-kermingo/components/menu/
 ```
 
 Reglas:
 
+- No modificar `diseno-de-landing-kermingo/`.
 - No rediseñar desde cero.
 - No convertir la home en dashboard.
 - No cambiar el ADN visual sin pedido explícito.
 - Mantener la estética v0: Argentina, Mundial, Día de la Bandera, scout sutil, cards redondeadas, fondo claro, azul/celeste/amarillo, mobile-first.
-- Mejorar lo existente, no destruirlo.
+- Implementar y mejorar en `frontend/`, no en la carpeta de referencia.
 - El dashboard admin puede mejorarse porque Marcos dijo que es la pantalla que menos lo convence.
 
 ## 6. Documentación a leer según tarea
@@ -140,6 +147,7 @@ Reglas:
 AGENTS.md
 docs/planificacion/00-INDICE-MAESTRO.md
 docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
 ```
 
 ### Backend
@@ -151,6 +159,7 @@ docs/planificacion/06-ENDPOINTS_API.md
 docs/planificacion/09-AUTH_COOKIES_CORS.md
 docs/planificacion/11-GOOGLE_DRIVE_ARCHIVOS.md
 docs/planificacion/17-TAREAS_BACKEND_DETALLADAS.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
 ```
 
 ### Frontend
@@ -162,6 +171,7 @@ docs/planificacion/10-CARRITO_LOCALSTORAGE.md
 docs/planificacion/12-DISENO_VISUAL_V0.md
 docs/planificacion/18-TAREAS_FRONTEND_DETALLADAS.md
 docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
 ```
 
 ### Integración/deploy
@@ -172,6 +182,8 @@ docs/planificacion/14-DEPLOY_RAILWAY_VERCEL.md
 docs/planificacion/15-VARIABLES_ENTORNO.md
 docs/planificacion/16-TESTING.md
 docs/planificacion/19-TAREAS_INTEGRACION_DEPLOY_DETALLADAS.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
+docs/planificacion/28-CHECKLIST_MANUAL_TESTING.md
 ```
 
 ## 7. Reglas funcionales no negociables
@@ -199,26 +211,38 @@ docs/planificacion/19-TAREAS_INTEGRACION_DEPLOY_DETALLADAS.md
 
 1. Leer `AGENTS.md`.
 2. Leer el documento de planificación de la etapa.
-3. Leer los archivos fuente indicados en la tarea.
-4. Hacer un plan corto antes de modificar.
-5. Modificar como máximo 1 a 3 archivos relacionados por subtarea.
-6. Ejecutar verificación real.
-7. No decir “terminado” sin evidencia.
-8. Actualizar documentación de estado si corresponde.
+3. Leer `docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md`.
+4. Leer los archivos fuente indicados en la tarea.
+5. Hacer un plan corto antes de modificar.
+6. Modificar como máximo 1 a 3 archivos relacionados por subtarea.
+7. Ejecutar verificación real.
+8. Indicar si corresponde testing manual.
+9. Indicar si corresponde auditoría con ChatGPT.
+10. No decir “terminado” sin evidencia.
+11. Actualizar documentación de estado si corresponde.
 
 ## 9. Comandos esperados
 
-### Frontend actual
+### Frontend activo
 
 ```bash
-cd /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
+cd /home/marcos/Escritorio/Kermingo/kermingo_menu/frontend
 pnpm install
 pnpm dev
 pnpm lint
 pnpm build
 ```
 
-### Backend futuro
+### Referencia visual, solo lectura
+
+```bash
+cd /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
+pnpm dev
+```
+
+Solo usar para mirar/comparar. No modificar.
+
+### Backend
 
 ```bash
 cd /home/marcos/Escritorio/Kermingo/kermingo_menu/backend
@@ -227,59 +251,23 @@ npm run dev
 npm test
 ```
 
-## 10. Verificación mínima por tipo de cambio
+## 10. Checkpoints obligatorios
 
-### Backend
-
-- `npm test` si hay tests.
-- `GET /api/health` si se tocó servidor.
-- Probar endpoint con Postman/curl si se creó o modificó una ruta.
-- Verificar que no se filtren datos sensibles.
-
-### Frontend
-
-- `pnpm lint`
-- `pnpm build`
-- probar pantalla en navegador
-- verificar mobile responsive
-- verificar estados loading/error/empty
-- comparar visualmente contra `diseno-de-landing-kermingo`
-
-### Integración
-
-- compra efectivo completa
-- compra transferencia completa
-- login admin
-- caja rápida
-- cocina
-- cancelación con reposición de stock
-
-## 11. Skills
-
-Las skills locales están actualmente en:
+Al finalizar cada etapa importante, el agente debe indicar uno de estos estados:
 
 ```txt
-docs/.agents/skills/
+Checkpoint automatico: listo
+Checkpoint manual requerido: si/no
+Auditoria con ChatGPT recomendada: si/no
+Bloquea avance a siguiente etapa: si/no
 ```
 
-Si OpenCode no las detecta desde esa ubicación, copiarlas a la raíz:
+Si el checkpoint manual o auditoría bloquea avance, no se debe continuar hasta que Marcos confirme.
+
+Ver detalles en:
 
 ```txt
-.agents/skills/
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
+docs/planificacion/28-CHECKLIST_MANUAL_TESTING.md
+docs/planificacion/29-PROMPT_AUDITORIA_CHATGPT.md
 ```
-
-Se incluye script auxiliar:
-
-```bash
-bash docs/scripts/sincronizar_skills_a_raiz.sh
-```
-
-## 12. Criterio de finalización
-
-Una tarea no está terminada hasta que exista:
-
-- código aplicado
-- verificación ejecutada
-- resultado leído
-- documentación actualizada si corresponde
-- resumen claro de archivos modificados

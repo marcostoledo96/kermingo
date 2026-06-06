@@ -1,149 +1,84 @@
-# 19 — Tareas de integración y deploy detalladas
-
-## Estructura real
-
-Frontend:
-
-```txt
-/home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
-```
-
-Backend:
-
-```txt
-/home/marcos/Escritorio/Kermingo/kermingo_menu/backend
-```
+# 19 — Tareas integración y deploy detalladas con checkpoints
 
 ## Leer antes
 
 ```txt
 AGENTS.md
-docs/planificacion/03-ESTRUCTURA_MONOREPO.md
-docs/planificacion/06-ENDPOINTS_API.md
-docs/planificacion/09-AUTH_COOKIES_CORS.md
+docs/planificacion/13-FLUJOS_FUNCIONALES.md
 docs/planificacion/14-DEPLOY_RAILWAY_VERCEL.md
 docs/planificacion/15-VARIABLES_ENTORNO.md
-docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
+docs/planificacion/16-TESTING.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
+docs/planificacion/28-CHECKLIST_MANUAL_TESTING.md
 ```
 
-## I0 — Contratos API
+## Estructura real
 
-Crear:
+Frontend activo:
 
 ```txt
-docs/api-contracts/productos.md
-docs/api-contracts/pedidos.md
-docs/api-contracts/auth.md
-docs/api-contracts/admin.md
-docs/api-contracts/archivos.md
+frontend/
 ```
 
-Hacer:
-
-- Request/response exacto.
-- Errores esperados.
-- Qué pantalla consume cada endpoint.
-- Archivos frontend asociados.
-
-## I1 — CORS y cookies local
-
-Leer:
+Referencia visual, solo lectura:
 
 ```txt
-backend/src/app.js
-backend/src/api/routes/auth.routes.js
-diseno-de-landing-kermingo/services/authService.ts
-diseno-de-landing-kermingo/components/admin/login-screen.tsx
+diseno-de-landing-kermingo/
 ```
 
-Hacer:
-
-- Backend localhost:3001.
-- Frontend localhost:3000.
-- CORS origin localhost.
-- Cookie local `sameSite=lax`, `secure=false`.
-- Front con `credentials: include`.
-
-Criterio:
-
-- Login setea cookie.
-- `/api/auth/me` responde usuario.
-
-## I2 — Compra local
-
-### Efectivo
-
-Pantallas:
+Backend:
 
 ```txt
-diseno-de-landing-kermingo/components/menu/menu-screen.tsx
-diseno-de-landing-kermingo/components/menu/cart-screen.tsx
-diseno-de-landing-kermingo/components/menu/checkout-screen.tsx
-diseno-de-landing-kermingo/components/menu/ticket-screen.tsx
+backend/
 ```
 
-Criterio:
-
-- Pedido creado.
-- Stock baja.
-- Sin comprobante.
-
-### Transferencia
-
-Criterio:
-
-- Sin comprobante falla.
-- Con comprobante se guarda.
-- Admin puede aprobar.
-
-## I3 — Caja y cocina
-
-Pantallas:
+Vercel root:
 
 ```txt
-diseno-de-landing-kermingo/components/admin/caja-screen.tsx
-diseno-de-landing-kermingo/components/admin/cocina-screen.tsx
+frontend
 ```
 
-Criterio:
+## Etapa I1 — Integración local frontend/backend
 
-- Caja crea pedido.
-- Cocina lo ve.
-- Cambios de estado funcionan.
+### Qué hacer
 
-## I4 — Deploy
+- Levantar backend.
+- Levantar frontend.
+- Configurar `NEXT_PUBLIC_API_URL`.
+- Probar health desde frontend.
+- Probar productos.
+- Probar cookies si auth ya existe.
 
-### Railway backend
+### Testing manual requerido
 
-- Root: `backend`.
-- Variables env.
-- MySQL.
-- Schema/seed.
-- `/api/health`.
+Sí.
 
-### Vercel frontend
+### Auditoría con ChatGPT recomendada
 
-- Root Directory: `diseno-de-landing-kermingo`.
-- Framework: Next.js.
-- Env:
-  - `NEXT_PUBLIC_API_URL`
-  - `NEXT_PUBLIC_APP_URL`.
+Sí si hay problemas CORS/cookies.
 
-### Cookies producción
+## Etapa I2 — Flujo compra local
 
-- CORS permite URL Vercel.
-- Cookie `sameSite=none`, `secure=true`, `httpOnly=true`.
-- Fetch con credentials.
+### Qué hacer
 
-## I5 — Checklist final
+- Menú → carrito → checkout → pedido → seguimiento.
+- Probar efectivo.
+- Probar transferencia.
+- Probar stock.
+- Probar cancelación desde admin.
 
-- Landing.
-- Menú.
-- Carrito persistente.
-- Checkout efectivo.
-- Checkout transferencia.
-- Ticket.
-- Seguimiento.
+### Testing manual requerido
+
+Sí, obligatorio.
+
+### Auditoría con ChatGPT recomendada
+
+Sí, obligatoria antes de deploy.
+
+## Etapa I3 — Admin operativo local
+
+### Qué hacer
+
 - Login.
 - Productos.
 - Pedidos.
@@ -151,9 +86,76 @@ Criterio:
 - Cocina.
 - Comprobantes.
 - Reportes.
-- Configuración tienda.
-- Cancelación repone stock.
-- Stock agotado.
-- Responsive.
-- Build frontend.
-- Tests backend.
+
+### Testing manual requerido
+
+Sí.
+
+### Auditoría con ChatGPT recomendada
+
+Sí.
+
+## Etapa I4 — Deploy Railway backend
+
+### Qué hacer
+
+- Crear servicio Railway.
+- Configurar variables.
+- Conectar MySQL.
+- Probar `/api/health`.
+- Probar CORS con frontend local si corresponde.
+
+### Testing manual requerido
+
+Sí.
+
+### Auditoría con ChatGPT recomendada
+
+Sí si falla cookies/CORS.
+
+## Etapa I5 — Deploy Vercel frontend
+
+### Root Directory
+
+Usar:
+
+```txt
+frontend
+```
+
+No usar:
+
+```txt
+diseno-de-landing-kermingo
+```
+
+### Qué hacer
+
+- Configurar `NEXT_PUBLIC_API_URL`.
+- Deploy.
+- Probar landing.
+- Probar API.
+- Probar login.
+- Probar compra.
+
+### Testing manual requerido
+
+Sí.
+
+### Auditoría con ChatGPT recomendada
+
+Sí, obligatoria antes de evento/entrega.
+
+## Etapa I6 — Auditoría final MVP
+
+Antes de considerar MVP cerrado:
+
+- Pasar ZIP a ChatGPT.
+- Ejecutar testing manual completo.
+- Ejecutar tests automáticos.
+- Verificar build frontend.
+- Verificar backend.
+- Verificar deploy.
+- Verificar flujo evento real.
+
+No cerrar MVP sin auditoría.

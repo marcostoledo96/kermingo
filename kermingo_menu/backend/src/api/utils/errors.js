@@ -24,3 +24,9 @@ export class AuthError extends AppError {
     super(message, 401);
   }
 }
+
+export class InsufficientStockError extends AppError {
+  constructor(message = 'Stock insuficiente') {
+    super(message, 409);
+  }
+}

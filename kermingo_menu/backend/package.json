@@ -9,11 +9,14 @@
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "mysql2": "^3.22.4"
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.22.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

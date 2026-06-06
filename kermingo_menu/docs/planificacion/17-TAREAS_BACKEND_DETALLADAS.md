@@ -1,287 +1,267 @@
-# 17 — Tareas backend detalladas
+# 17 — Tareas backend detalladas con checkpoints
 
-## Ubicación del backend
+## Regla general
 
-El backend debe crearse en:
+Antes de trabajar backend, leer:
 
 ```txt
-/home/marcos/Escritorio/Kermingo/kermingo_menu/backend
+AGENTS.md
+docs/planificacion/00-INDICE-MAESTRO.md
+docs/planificacion/04-BACKEND_API_EXPRESS_MYSQL.md
+docs/planificacion/05-BASE_DE_DATOS_MYSQL.md
+docs/planificacion/06-ENDPOINTS_API.md
+docs/planificacion/09-AUTH_COOKIES_CORS.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
 ```
 
-Dentro del repo:
+Backend activo:
 
 ```txt
 backend/
 ```
 
-## Leer siempre antes de trabajar backend
+Frontend activo:
 
 ```txt
-AGENTS.md
-docs/planificacion/04-BACKEND_API_EXPRESS_MYSQL.md
-docs/planificacion/05-BASE_DE_DATOS_MYSQL.md
-docs/planificacion/06-ENDPOINTS_API.md
-docs/planificacion/09-AUTH_COOKIES_CORS.md
-docs/planificacion/11-GOOGLE_DRIVE_ARCHIVOS.md
+frontend/
 ```
 
-## Regla de coordinación con frontend
-
-Aunque el backend no toca UI, debe respetar los contratos que usará el frontend existente en:
+Referencia visual, solo lectura:
 
 ```txt
-/home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
+diseno-de-landing-kermingo/
 ```
 
-Antes de crear endpoints, revisar también:
+## Checkpoint obligatorio después de cada etapa backend
+
+Al terminar cada etapa backend, responder:
 
 ```txt
-docs/planificacion/18-TAREAS_FRONTEND_DETALLADAS.md
-docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
+Checkpoint automatico:
+Testing manual requerido:
+Auditoria con ChatGPT recomendada:
+Bloquea avance:
+Evidencia:
 ```
 
-## Etapa B0 — Setup backend
+## Etapa B1 — Setup backend terminado
 
-### B0.1 — Crear backend Express profesional
+Marcos informó que esta etapa ya está terminada. Antes de avanzar, hacer checkpoint.
 
-Leer:
-
-```txt
-docs/planificacion/04-BACKEND_API_EXPRESS_MYSQL.md
-docs/planificacion/03-ESTRUCTURA_MONOREPO.md
-```
-
-Crear:
-
-```txt
-backend/package.json
-backend/.env.example
-backend/src/app.js
-backend/src/server.js
-backend/src/api/routes/index.routes.js
-```
-
-Hacer:
-
-- Inicializar backend con ESM.
-- Instalar Express, dotenv, cors, cookie-parser.
-- Crear `app.js` para middlewares y rutas.
-- Crear `server.js` para levantar puerto.
-- Crear `/api/health`.
-- Usar respuesta uniforme.
-
-Criterio:
+### Testing manual requerido
 
 ```bash
-cd backend
+cd /home/marcos/Escritorio/Kermingo/kermingo_menu/backend
+npm install
 npm run dev
-curl http://localhost:3001/api/health
 ```
 
-Debe responder `ok: true`.
-
-### B0.2 — Configuración centralizada
-
-Crear:
+Probar:
 
 ```txt
-backend/src/api/config/environments.js
+GET /api/health
 ```
 
-Hacer:
+### Auditoría con ChatGPT recomendada
 
-- Cargar dotenv.
-- Exportar port, frontendUrl, db config, jwt config, drive config.
-- Evitar `process.env` suelto en controladores.
+Sí. Pasar ZIP para revisar:
 
-## Etapa B1 — MySQL
+- estructura backend
+- app/server
+- package.json
+- `.env.example`
+- rutas iniciales
+- respuestas uniformes
+- documentación
+- AGENTS.md actualizado
 
-### B1.1 — Pool
+### Prompt para OpenCode
 
-Crear:
+```txt
+Antes de avanzar a la Etapa B2, verificá la Etapa B1. Leé AGENTS.md y docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md. Ejecutá npm run dev si es posible, probá /api/health y generá un reporte de checkpoint. No implementes base de datos todavía.
+```
+
+## Etapa B2 — Base de datos MySQL
+
+### Leer antes
+
+```txt
+docs/planificacion/05-BASE_DE_DATOS_MYSQL.md
+docs/planificacion/13-FLUJOS_FUNCIONALES.md
+docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
+```
+
+### Archivos esperados
 
 ```txt
 backend/src/api/database/db.js
-```
-
-Hacer:
-
-- Instalar `mysql2`.
-- Crear `pool` con `mysql2/promise`.
-- Exportar `pool`.
-- No crear conexión por request.
-
-### B1.2 — Schema
-
-Crear:
-
-```txt
 backend/src/api/database/schema.sql
-```
-
-Hacer:
-
-- Tablas en español singular.
-- Relaciones muchos-a-muchos.
-- `producto_categoria`.
-- `combo_producto`.
-- `pedido_detalle`.
-- Índices.
-- Constraints.
-
-### B1.3 — Seed
-
-Crear:
-
-```txt
 backend/src/api/database/seed.sql
-backend/src/api/utils/hash-password.js
+backend/src/api/config/environments.js
+backend/.env.example
 ```
 
-Hacer:
+### Qué hacer
 
-- Categorías Merienda/Cena.
-- Configuración tienda.
-- Usuario admin bcrypt.
-- Productos ejemplo.
-- Combos ejemplo.
+- Implementar pool con `mysql2/promise`.
+- Crear `schema.sql`.
+- Crear `seed.sql`.
+- Respetar tablas en español singular.
+- Incluir relaciones muchos-a-muchos:
+  - `producto_categoria`
+  - `combo_producto`
+- Incluir `pedido_detalle`.
+- Incluir índices.
+- No implementar endpoints todavía si no corresponde.
 
-## Etapa B2 — Validaciones Zod
+### Testing manual requerido
 
-### B2.1 — Middleware validate
+- Correr schema en MySQL local o Railway dev.
+- Correr seed.
+- Verificar tablas.
+- Verificar relaciones.
+- Verificar que combos puedan representarse.
 
-Crear:
+### Auditoría con ChatGPT recomendada
 
-```txt
-backend/src/api/middlewares/validate.middleware.js
-```
+Sí, obligatoria antes de seguir a pedidos/stock.
 
-Hacer:
+## Etapa B3 — Productos API ✅ COMPLETADO
 
-- Validar body/query/params.
-- Devolver 400 uniforme.
+**Implementado y verificado** (11/11 curl tests passed, 8 endpoints, 6 files created/modified).
 
-### B2.2 — Schemas
-
-Crear:
-
-```txt
-backend/src/api/schemas/producto.schema.js
-backend/src/api/schemas/pedido.schema.js
-backend/src/api/schemas/auth.schema.js
-```
-
-Hacer:
-
-- Producto.
-- Pedido.
-- Login.
-- La regla transferencia/comprobante se valida con archivo en controller.
-
-## Etapa B3 — Productos
-
-Crear:
+### Archivos
 
 ```txt
-backend/src/api/models/producto.model.js
-backend/src/api/controllers/producto.controller.js
 backend/src/api/routes/producto.routes.js
+backend/src/api/controllers/producto.controller.js
+backend/src/api/models/producto.model.js
+backend/src/api/schemas/producto.schema.js
+backend/src/api/middlewares/validate.middleware.js
+backend/src/api/middlewares/admin.middleware.js
 ```
 
-Hacer:
+### Endpoints implementados
 
-- GET `/api/productos`.
-- GET `/api/productos/:id`.
-- Admin listar paginado.
-- Crear/editar/desactivar/recuperar/stock.
-- Usar placeholders.
-- `affectedRows` en updates.
+- GET /api/productos — público, filtros (tipo, categoria, buscar)
+- GET /api/productos/:id — público, 404 si inactivo
+- GET /api/admin/productos — admin, paginado (page, limit, estado, tipo)
+- POST /api/admin/productos — crear, validación Zod, 201
+- PUT /api/admin/productos/:id — actualizar, parcial permitido
+- PATCH /api/admin/productos/:id/desactivar — soft delete
+- PATCH /api/admin/productos/:id/recuperar — restaurar
+- PATCH /api/admin/productos/:id/stock — ajustar stock
 
-## Etapa B4 — Auth
+### Testing manual requerido
 
-Crear:
+✅ Completado — 11/11 curl tests passed.
+
+### Auditoría con ChatGPT recomendada
+
+No fue necesaria para esta etapa.
+
+## Etapa B4 — Auth admin ✅ COMPLETADO
+
+**Implementado y verificado** (9/9 curl tests passed, 3 endpoints, 4 files created/modified).
+
+### Archivos
 
 ```txt
+backend/src/api/schemas/auth.schema.js
 backend/src/api/models/usuario.model.js
 backend/src/api/controllers/auth.controller.js
 backend/src/api/routes/auth.routes.js
-backend/src/api/middlewares/auth.middleware.js
+backend/src/api/middlewares/admin.middleware.js  (modificado)
+backend/src/api/routes/index.routes.js           (modificado)
 ```
 
-Hacer:
+### Endpoints implementados
 
-- Login bcrypt.
-- JWT cookie httpOnly 24h.
-- Logout.
-- Me.
-- Middleware `requireAuth`.
+- POST /api/auth/login — validación Zod, bcrypt.compare, JWT en cookie httpOnly
+- POST /api/auth/logout — clearCookie
+- GET /api/auth/me — retorna usuario actual via requireAdmin middleware
 
-## Etapa B5 — Pedidos, stock y combos
+### Middleware
 
-Crear:
+- `requireAdmin` — Verifica JWT en cookie, consulta usuario en DB, valida activo
+
+### Testing manual requerido
+
+✅ Completado — 9/9 curl tests passed:
+1. Login correcto → 200, cookie set, user data returned
+2. Login incorrecto → 401 "Credenciales inválidas"
+3. /me con cookie → 200, user data
+4. /me sin cookie → 401 "Token no encontrado"
+5. Admin productos con cookie → 200, paginated data
+6. Admin productos sin cookie → 401
+7. Logout → 200, clearCookie
+8. /me post-logout → 401
+9. Zod validation → 400 "Email inválido"
+
+### Auditoría con ChatGPT recomendada
+
+Sí, por riesgo de seguridad/CORS. ⚠️ Pendiente de agendar.
+
+## Etapa B5 — Pedidos, stock y combos ✅ COMPLETADO
+
+**Implementado y verificado** (13/13 curl tests passed, 9 endpoints, 6 files created/modified).
+
+### Archivos
 
 ```txt
-backend/src/api/utils/pedido.utils.js
-backend/src/api/utils/telefono.utils.js
-backend/src/api/models/pedido.model.js
-backend/src/api/controllers/pedido.controller.js
-backend/src/api/routes/pedido.routes.js
+backend/src/api/schemas/pedido.schema.js        (creado)
+backend/src/api/models/pedido.model.js          (creado)
+backend/src/api/controllers/pedido.controller.js  (creado)
+backend/src/api/routes/pedido.routes.js         (creado)
+backend/src/api/utils/errors.js                 (modificado — InsufficientStockError)
+backend/src/api/routes/index.routes.js          (modificado — mount pedido routes)
 ```
 
-Hacer:
+### Endpoints implementados
 
-- Número `KMG-0001`.
-- Token seguimiento.
-- Normalizar WhatsApp.
-- Crear pedido transaccional.
-- Recalcular precios desde DB.
-- Validar/descontar stock.
-- Soportar combos.
-- Cancelar y reponer stock.
-- Transferencia requiere comprobante.
-- Efectivo no acepta comprobante.
+- POST /api/pedidos — público, crear pedido online, valida stock, genera KMG-XXXX + token
+- GET /api/pedidos/seguimiento/:token — público, estado del pedido
+- POST /api/admin/pedidos/caja — admin, caja rápida, puede setear pago=pagado
+- GET /api/admin/pedidos — admin, listado paginado con filtros
+- GET /api/admin/pedidos/:id — admin, detalle completo con items
+- PATCH /api/admin/pedidos/:id/estado — admin, transición de estado (máquina de estados)
+- PATCH /api/admin/pedidos/:id/pago — admin, cambiar estado de pago
+- PATCH /api/admin/pedidos/:id/cancelar — admin, cancelar y reponer stock
 
-## Etapa B6 — Drive y archivos
+### Lógica clave verificada
 
-Crear:
+- Transacciones BEGIN/COMMIT/ROLLBACK en creación y cancelación
+- SELECT FOR UPDATE en validación de stock
+- Combos descontant/reponen componentes, no el combo mismo
+- KMG-XXXX generado post-insert (UPDATE después del INSERT)
+- Stock repuesto correctamente al cancelar
+- Zod schemas cubren todos los endpoints
+- Auth middleware `requireAdmin` en todas las rutas admin
+- Error handling uniforme con `InsufficientStockError` (409)
 
-```txt
-backend/src/api/middlewares/upload.middleware.js
-backend/src/api/services/googleDrive.service.js
-backend/src/api/models/archivoDrive.model.js
-```
+### Testing manual requerido
 
-Hacer:
+✅ Completado — 13/13 curl tests passed:
+1. Crear pedido simple → KMG-0002, $5000, estado=recibido
+2. Crear pedido con combo → KMG-0003, $7000 (2x combo merienda)
+3. Seguimiento por token → 200, estado=recibido
+4. Token inexistente → 404
+5. Stock insuficiente → 409 "Medialunas. Necesario: 999, disponible: 19"
+6. Stock repuesto post-cancel → Pancho stock=38
+7. Admin listar pedidos → total pagination works
+8. Admin cambiar estado → recibido→en_preparacion
+9. Admin cancelar → cancelado, stock repuesto
+10. Admin sin cookie → 401
+11. Caja rápida → KMG-0004, pago=pagado
+12. Validación items vacíos → 400
+13. Validación método pago → 400
 
-- Multer memoryStorage.
-- Límite 10 MB.
-- MIME permitidos.
-- Credenciales Drive desde env JSON o archivo local.
-- Guardar metadata.
+### Auditoría con ChatGPT recomendada
 
-## Etapa B7 — Caja, cocina, comprobantes, reportes
+Sí, obligatoria antes de avanzar a B6.
 
-Crear:
+## Etapa B6 — Caja, cocina, comprobantes, reportes
 
-```txt
-backend/src/api/controllers/caja.controller.js
-backend/src/api/routes/caja.routes.js
-backend/src/api/controllers/cocina.controller.js
-backend/src/api/routes/cocina.routes.js
-backend/src/api/controllers/comprobante.controller.js
-backend/src/api/routes/comprobante.routes.js
-backend/src/api/controllers/reporte.controller.js
-backend/src/api/routes/reporte.routes.js
-backend/src/api/services/reporte.service.js
-backend/src/api/controllers/configuracion.controller.js
-backend/src/api/routes/configuracion.routes.js
-backend/src/api/models/configuracion.model.js
-```
+Seguir los endpoints definidos en `06-ENDPOINTS_API.md`.
 
-Hacer:
-
-- Caja rápida.
-- Cocina con productos pendientes.
-- Comprobantes.
-- Reportes Excel.
-- Configuración tienda.
+Cada módulo requiere testing manual y, si toca stock/pago/Drive, auditoría con ChatGPT.

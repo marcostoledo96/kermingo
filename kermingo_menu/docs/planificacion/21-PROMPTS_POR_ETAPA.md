@@ -1,67 +1,58 @@
 # 21 — Prompts por etapa actualizados
 
-## Etapa 0 — Reconocimiento del repo
+## Regla inicial para todas las etapas
+
+Antes de ejecutar cualquier etapa:
 
 ```txt
-Trabajá solo en documentación. Leé AGENTS.md y revisá la estructura real del proyecto en /home/marcos/Escritorio/Kermingo/kermingo_menu. Es fundamental reconocer que el frontend y referencia visual obligatoria está en /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo. Documentá rutas, componentes, mocks, scripts y estado actual en docs/docs/mapa-archivos.md y docs/docs/estado-actual.md. No modifiques código.
+Leé AGENTS.md, docs/planificacion/00-INDICE-MAESTRO.md y docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md.
+Recordá que frontend/ es el frontend activo.
+Recordá que diseno-de-landing-kermingo/ es solo referencia visual y no debe modificarse.
+Al terminar, indicá testing manual y auditoría con ChatGPT si corresponde.
 ```
 
-## Etapa 1 — Estabilizar frontend v0
+## Prompt — Checkpoint después de Etapa 1
 
 ```txt
-Trabajá solo en /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo. Verificá package.json, scripts, pnpm-lock, next.config.mjs, tsconfig y build. Ejecutá pnpm install si hace falta, pnpm lint y pnpm build. Corregí solo errores bloqueantes. No rediseñes. La estética actual es la base obligatoria.
+Ya terminé la Etapa 1. Antes de avanzar, hacé una revisión de checkpoint.
+
+Leé:
+- AGENTS.md
+- docs/planificacion/00-INDICE-MAESTRO.md
+- docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
+- docs/planificacion/17-TAREAS_BACKEND_DETALLADAS.md
+- docs/planificacion/18-TAREAS_FRONTEND_DETALLADAS.md
+
+Verificá:
+- backend/ existe y levanta
+- frontend/ es la carpeta activa
+- diseno-de-landing-kermingo/ existe como referencia visual y no debe modificarse
+- AGENTS.md no contradice la estructura real
+- docs/planificacion está alineado
+- scripts y skills están bien ubicados
+
+No implementes nuevas funcionalidades. Devolvé:
+- diagnóstico
+- comandos de verificación
+- testing manual requerido
+- si conviene auditoría con ChatGPT
+- si bloquea avanzar a Etapa 2
 ```
 
-## Etapa 2 — Crear backend base
+## Prompt — Etapa 2 Base de datos
 
 ```txt
-Trabajá solo en backend/. Creá un backend Express profesional con ESM, src/app.js, src/server.js, dotenv, cors, cookie-parser y GET /api/health. Leé docs/planificacion/04-BACKEND_API_EXPRESS_MYSQL.md antes de empezar. No implementes base de datos todavía.
+Implementá la Etapa 2 de base de datos. Leé primero docs/planificacion/05-BASE_DE_DATOS_MYSQL.md y docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md. Trabajá solo en backend/. No toques frontend/. No modifiques diseno-de-landing-kermingo/. Al terminar, indicá testing manual de schema/seed y si corresponde auditoría con ChatGPT.
 ```
 
-## Etapa 3 — Base de datos MySQL
+## Prompt — Etapa frontend visual
 
 ```txt
-Trabajá solo en backend. Implementá mysql2/promise, createPool, schema.sql y seed.sql según docs/planificacion/05-BASE_DE_DATOS_MYSQL.md. Usá tablas en español singular. Incluí relaciones producto_categoria, combo_producto y pedido_detalle.
+Trabajá en frontend/. Antes de modificar una pantalla, comparala con su equivalente en diseno-de-landing-kermingo/, que es solo referencia visual. No modifiques la referencia. Mantené el diseño v0. Al terminar, ejecutá pnpm lint/build si es posible y avisá qué testing manual debo hacer.
 ```
 
-## Etapa 4 — Productos API + frontend menú
+## Prompt — Auditoría antes de avanzar
 
 ```txt
-Primero implementá backend productos con MVC. Después conectá el menú del frontend existente en diseno-de-landing-kermingo/components/menu/menu-screen.tsx. No cambies el diseño visual. Reemplazá mocks gradualmente por productoService.
-```
-
-## Etapa 5 — Auth admin
-
-```txt
-Implementá auth backend con bcrypt y JWT en cookie httpOnly. Luego conectá diseno-de-landing-kermingo/components/admin/login-screen.tsx. No guardar token en localStorage. Usar credentials include.
-```
-
-## Etapa 6 — Carrito, checkout y pedido
-
-```txt
-Trabajá sobre el CartContext existente en diseno-de-landing-kermingo/components/menu/cart-context.tsx. Asegurá localStorage. Luego conectá checkout-screen.tsx al backend. Transferencia muestra comprobante; efectivo lo oculta. Al crear pedido, limpiar carrito y navegar al ticket por token.
-```
-
-## Etapa 7 — Admin operativo
-
-```txt
-Conectá productos, pedidos, caja y cocina a API real. Leer primero los componentes existentes en diseno-de-landing-kermingo/components/admin/. Mantener diseño v0. Mejorar dashboard solo en sentido operativo, no rediseñar genérico.
-```
-
-## Etapa 8 — Comprobantes, reportes y configuración
-
-```txt
-Crear pantallas faltantes /admin/comprobantes, /admin/reportes y /admin/configuracion dentro de diseno-de-landing-kermingo, siguiendo el estilo de admin-ui.tsx y dashboard-screen.tsx. Conectar a endpoints reales.
-```
-
-## Etapa 9 — Drive y archivos
-
-```txt
-Implementá Multer memoryStorage y Google Drive API en backend. El frontend envía FormData. Productos pueden usar imagen pública directa si conviene; comprobantes deben estar protegidos para admin.
-```
-
-## Etapa 10 — Deploy
-
-```txt
-Deploy backend en Railway desde backend/. Deploy frontend en Vercel con Root Directory diseno-de-landing-kermingo. Configurá CORS, cookies cross-site, envs, MySQL y Google Drive. Probar flujo completo en producción.
+No implementes código. Revisá el estado actual de la etapa terminada y generá un informe para decidir si puedo avanzar. Indicá errores críticos, mejoras, testing manual pendiente, auditoría con ChatGPT recomendada y riesgos.
 ```
