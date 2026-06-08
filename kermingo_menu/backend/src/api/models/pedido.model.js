@@ -185,6 +185,20 @@ export async function createWithTransaction(pool, data) {
   }
 }
 
+export async function findKitchenPedidos(pool) {
+  const [rows] = await pool.query(
+    `SELECT p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
+            p.estado_pago, p.observaciones, p.created_at, p.total,
+            COUNT(pd.id) AS cantidad_items
+     FROM pedido p
+     LEFT JOIN pedido_detalle pd ON pd.pedido_id = p.id
+     WHERE p.estado_pedido IN ('recibido', 'en_preparacion', 'listo')
+     GROUP BY p.id
+     ORDER BY FIELD(p.estado_pedido, 'recibido', 'en_preparacion', 'listo'), p.created_at ASC`
+  );
+  return rows;
+}
+
 export async function findByToken(pool, token) {
   const [rows] = await pool.query(
     `SELECT p.id, p.numero, p.token_seguimiento, p.origen, p.nombre_cliente,
