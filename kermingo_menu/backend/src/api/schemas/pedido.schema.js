@@ -54,6 +54,22 @@ export const updateEstadoPagoSchema = z.object({
   estado_pago: z.enum(['pendiente', 'comprobante_subido', 'pagado', 'rechazado']),
 }).strict();
 
+export const editPedidoSchema = z.object({
+  nombre_cliente: z.string().min(1).max(150).optional(),
+  mesa: z.string().max(20).optional(),
+  telefono_cliente: z.string().max(40).optional(),
+  observaciones: z.string().max(500).optional(),
+  metodo_pago: z.enum(['transferencia', 'efectivo']).optional(),
+  items: z
+    .array(
+      z.object({
+        producto_id: z.coerce.number().int().min(1),
+        cantidad: z.coerce.number().int().min(1),
+      }).strict()
+    )
+    .min(1, 'Al menos un producto requerido'),
+}).strict();
+
 export const idParamSchema = z.object({
   id: z.coerce.number().int().min(1),
 });

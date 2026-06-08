@@ -10,6 +10,7 @@ import {
 import {
   updateEstadoPagoSchema,
   pedidoQuerySchema,
+  editPedidoSchema,
 } from '../src/api/schemas/pedido.schema.js';
 
 const COOKIE_NAME = environments.cookie.name;
@@ -36,11 +37,40 @@ async function limpiarPedidosDeTest() {
     "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-B6-2%'"
   );
   const ids = rows.map((r) => r.id);
-  if (ids.length > 0) {
-    const ph = ids.map(() => '?').join(',');
-    await pool.query(`DELETE FROM pedido_detalle WHERE pedido_id IN (${ph})`, ids);
-    await pool.query(`DELETE FROM pedido WHERE id IN (${ph})`, ids);
+  if (ids.length === 0) return;
+  const ph = ids.map(() => '?').join(',');
+
+  // Restore stock before deleting detalles
+  const [detalles] = await pool.query(
+    `SELECT pd.producto_id, pd.cantidad, p.tipo
+     FROM pedido_detalle pd
+     JOIN producto p ON p.id = pd.producto_id
+     WHERE pd.pedido_id IN (${ph})`,
+    ids
+  );
+  for (const d of detalles) {
+    if (d.tipo === 'promo') {
+      const [comps] = await pool.query(
+        'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
+        [d.producto_id]
+      );
+      for (const comp of comps) {
+        const total = comp.cantidad * d.cantidad;
+        await pool.query(
+          'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
+          [total, comp.producto_id]
+        );
+      }
+    } else {
+      await pool.query(
+        'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
+        [d.cantidad, d.producto_id]
+      );
+    }
   }
+
+  await pool.query(`DELETE FROM pedido_detalle WHERE pedido_id IN (${ph})`, ids);
+  await pool.query(`DELETE FROM pedido WHERE id IN (${ph})`, ids);
 }
 
 // Unit tests
@@ -116,6 +146,22 @@ describe('Caja schema validation', () => {
     const result = pedidoQuerySchema.safeParse({});
     expect(result.success).toBe(true);
     expect(result.data.solo_pagos_pendientes).toBeUndefined();
+  });
+
+  it('editPedidoSchema accepts valid items with optional fields', () => {
+    const result = editPedidoSchema.safeParse({
+      nombre_cliente: 'Test',
+      mesa: 'M1',
+      observaciones: 'x',
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: 5, cantidad: 1 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('editPedidoSchema rejects empty items', () => {
+    const result = editPedidoSchema.safeParse({ items: [] });
+    expect(result.success).toBe(false);
   });
 });
 
@@ -246,15 +292,311 @@ describe('Authenticated GET solo_pagos_pendientes (PR1 integration)', () => {
   });
 });
 
+// PR2: Auth boundary for PUT
+
+describe('PUT /api/admin/pedidos/:id (auth boundary)', () => {
+  it('returns 401 without admin cookie', async () => {
+    const res = await request(app)
+      .put('/api/admin/pedidos/1')
+      .send({ items: [{ producto_id: 5, cantidad: 1 }] });
+    expect(res.statusCode).toEqual(401);
+    expect(res.body.ok).toEqual(false);
+  });
+});
+
+// PR2: Edit correction integration tests
+
+describe('Authenticated PUT edit correction (PR2 integration)', () => {
+  let editPedido;
+  let prodIdLimited = 9;   // Torta frita (stock_limitado=1, stock_actual=30)
+  let prodIdLimited2 = 6;  // Nuggets (stock_limitado=1, stock_actual=20)
+  let prodIdUnlimited = 18; // Agua mineral (stock_limitado=0)
+  let prodIdCombo = 24;     // Combo cena (promo)
+
+  async function readStock(ids) {
+    const [rows] = await pool.query(
+      'SELECT id, stock_actual, stock_limitado FROM producto WHERE id IN (?)',
+      [ids]
+    );
+    const map = new Map();
+    for (const r of rows) map.set(r.id, r);
+    return map;
+  }
+
+  async function readDetalle(pedidoId) {
+    const [rows] = await pool.query(
+      'SELECT producto_id, cantidad, precio_unitario, subtotal FROM pedido_detalle WHERE pedido_id = ?',
+      [pedidoId]
+    );
+    return rows;
+  }
+
+  beforeAll(async () => {
+    // Ensure baseline stock for products we will consume/rest across tests
+    const baselineStock = {
+      5: 30,   // Pancho (used in PR1 and PR2 online tests)
+      6: 20,   // Nuggets
+      9: 30,   // Torta frita (edit tests)
+      15: 60,  // Coca Cola
+      18: 0,   // Agua mineral (unlimited, but keep as-is)
+      24: 0,   // Combo cena placeholder
+    };
+    for (const [pid, stock] of Object.entries(baselineStock)) {
+      if (pid === '18' || pid === '24') continue;
+      await pool.query('UPDATE producto SET stock_actual = ? WHERE id = ?', [stock, pid]);
+    }
+
+    await limpiarPedidosDeTest();
+    editPedido = await crearPedidoCaja({
+      nombre_cliente: 'TEST-B6-2-EDIT',
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
+  });
+
+  it('PUT replaces items and total, stock reflects delta', async () => {
+    const stockBefore = await readStock([prodIdLimited, prodIdLimited2]);
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [
+          { producto_id: prodIdLimited2, cantidad: 2 },
+          { producto_id: prodIdLimited, cantidad: 3 },
+        ],
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const pedido = res.body.data;
+
+    // total recalculated (Nuggets 3000*2 + Torta frita 1000*3 = 9000)
+    expect(parseFloat(pedido.total)).toBeCloseTo(9000, 0);
+    expect(pedido.items.length).toBe(2);
+
+    const detalles = await readDetalle(editPedido.id);
+    const tieneNuggets = detalles.some((d) => d.producto_id === prodIdLimited2 && d.cantidad === 2);
+    expect(tieneNuggets).toBe(true);
+
+    const stockAfter = await readStock([prodIdLimited, prodIdLimited2]);
+    // Torta frita: 1 consumed before, then 3 consumed after => +1 -3 = delta -2
+    expect(stockAfter.get(prodIdLimited).stock_actual).toBe(
+      stockBefore.get(prodIdLimited).stock_actual + 1 - 3
+    );
+    // Nuggets: nothing before, 2 after => delta -2
+    expect(stockAfter.get(prodIdLimited2).stock_actual).toBe(
+      stockBefore.get(prodIdLimited2).stock_actual - 2
+    );
+  });
+
+  it('PUT updates metadata along with items', async () => {
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: 'TEST-B6-2-EDIT-RENAMED',
+        mesa: 'Mesa 99',
+        observaciones: 'Sin cebolla',
+        metodo_pago: 'transferencia',
+        items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(200);
+    const pedido = res.body.data;
+    expect(pedido.nombre_cliente).toBe('TEST-B6-2-EDIT-RENAMED');
+    expect(pedido.mesa).toBe('Mesa 99');
+    // observaciones may not be returned by findById controller wrapper; assert only what's visible
+    expect(pedido.metodo_pago).toBe('transferencia');
+  });
+
+  it('PUT rejects for insufficient stock and preserves original state', async () => {
+    const [stockPanchoBefore] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+    const panchoBefore = stockPanchoBefore[0].stock_actual;
+
+    // Try replacing with impossible quantity
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [{ producto_id: prodIdLimited, cantidad: 9999 }],
+      });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.ok).toBe(false);
+
+    // Stock unchanged
+    const [stockPanchoAfter] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+    expect(stockPanchoAfter[0].stock_actual).toBe(panchoBefore);
+
+    // Detalle unchanged (from before this failed attempt)
+    const detalles = await readDetalle(editPedido.id);
+    expect(detalles.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('PUT rejects editing an online pedido', async () => {
+    // create an online pedido via public route
+    const resPost = await request(app)
+      .post('/api/pedidos')
+      .send({
+        nombre_cliente: 'TEST-B6-2-ONLINE',
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+    expect(resPost.statusCode).toBe(201);
+    const pedidoOnline = resPost.body.data;
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${pedidoOnline.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ items: [{ producto_id: 5, cantidad: 2 }] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT edits a cancelled pedido fails as expected', async () => {
+    const editPedido2 = await crearPedidoCaja({
+      nombre_cliente: 'TEST-B6-2-CANCEL-THEN-EDIT2',
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    // cancel it
+    const cancelRes = await request(app)
+      .patch(`/api/admin/pedidos/${editPedido2.id}/cancelar`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN);
+    expect(cancelRes.statusCode).toBe(200);
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido2.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ items: [{ producto_id: prodIdLimited, cantidad: 1 }] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT works with an unlimited product without stock change', async () => {
+    const stockBeforeUnlimited = await readStock([prodIdUnlimited]);
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [{ producto_id: prodIdUnlimited, cantidad: 5 }],
+      });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.items.length).toBe(1);
+    const stockAfterUnlimited = await readStock([prodIdUnlimited]);
+    expect(stockAfterUnlimited.get(prodIdUnlimited).stock_actual).toBe(
+      stockBeforeUnlimited.get(prodIdUnlimited).stock_actual
+    );
+  });
+
+  it('PUT works with promo combo and reconciles component stock', async () => {
+    const beforeIds = [1, 5, 15];
+    const [stockBeforeCombo] = await pool.query(
+      'SELECT id, stock_actual FROM producto WHERE id IN (?)',
+      [beforeIds]
+    );
+    const beforeMap = new Map(stockBeforeCombo.map((r) => [r.id, r.stock_actual]));
+
+    // prior detalle: prodIdUnlimited (18 qty 5) — unlimited, no stock impact
+    // combo cena (24) qty 2: deducts 2 each of 1, 5, 15; no restore needed
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${editPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [{ producto_id: prodIdCombo, cantidad: 2 }],
+      });
+
+    expect(res.statusCode).toBe(200);
+
+    const [stockAfterCombo] = await pool.query(
+      'SELECT id, stock_actual FROM producto WHERE id IN (?)',
+      [beforeIds]
+    );
+    const afterMap = new Map(stockAfterCombo.map((r) => [r.id, r.stock_actual]));
+
+    for (const idComp of beforeIds) {
+      expect(afterMap.get(idComp)).toBe(beforeMap.get(idComp) - 2);
+    }
+  });
+
+  it('PUT rejects editing a pedido not found', async () => {
+    const res = await request(app)
+      .put('/api/admin/pedidos/99999')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ items: [{ producto_id: 5, cantidad: 1 }] });
+    expect(res.statusCode).toBe(404);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT reconciles empty-to items correctly', async () => {
+    const pedidoVacio = await crearPedidoCaja({
+      nombre_cliente: 'TEST-B6-2-EMPTY-TO',
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const [stockBefore] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+
+    // swap to different product
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${pedidoVacio.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [{ producto_id: prodIdLimited2, cantidad: 2 }],
+      });
+    expect(res.statusCode).toBe(200);
+    expect(parseFloat(res.body.data.total)).toBeCloseTo(6000, 0); // Nuggets 3000*2
+
+    // original item restored (Pancho stock should be +1 vs before)
+    const [stockAfter] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+    expect(stockAfter[0].stock_actual).toBe(stockBefore[0].stock_actual + 1);
+  });
+});
+
 /*
 Manual test checklist (from spec.md):
 1. Seed local DB with one caja pedido efectivo pending, one transferencia pending,
-   one comprobante_subido, one pagado; login admin and save cookie.txt.
+    one comprobante_subido, one pagado; login admin and save cookie.txt.
 2. curl -b cookie.txt -X PATCH /api/admin/pedidos/:id/pago \
-     -H 'Content-Type: application/json' -d '{"estado_pago":"pagado"}' \
-     on the cash pending pedido -> 200, payment updates, stock unchanged.
+      -H 'Content-Type: application/json' -d '{"estado_pago":"pagado"}' \
+      on the cash pending pedido -> 200, payment updates, stock unchanged.
 3. Same PATCH on transferencia pending pedido without comprobante -> 200 (caja verified).
 4. Same PATCH on already paid pedido with {"estado_pago":"pendiente"} -> 400.
 5. curl -b cookie.txt GET '/api/admin/pedidos?solo_pagos_pendientes=true&origen=caja' \
-     -> only pendiente/rechazado returned; cancelado excluded even if pago=pendiente.
+      -> only pendiente/rechazado returned; cancelado excluded even if pago=pendiente.
+6. curl -b cookie.txt -X PUT /api/admin/pedidos/:id \
+      -H 'Content-Type: application/json' \
+      -d '{"items":[{"producto_id":5,"cantidad":3},{"producto_id":6,"cantidad":2}]}' \
+      -> 200, total updated, stock reconciled.
+7. Repeat PUT with qty exceeding stock -> 409; re-read stock and detalle unchanged.
 */

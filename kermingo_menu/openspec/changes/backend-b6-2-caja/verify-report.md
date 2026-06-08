@@ -1,90 +1,103 @@
 ## Verification Report
 
-**Change**: backend-b6-2-caja
-**Scope**: PR 1 / Work Unit 1 — payment-state machine, pending-payment filter, targeted test/runtime re-verify
-**Mode**: Standard
+**Change**: backend-b6-2-caja  
+**Scope**: PR 2 / Work Unit 2 — admin pedido edit endpoint, transactional stock reconciliation, and PR1 regression checks  
+**Mode**: Standard  
 **Date**: 2026-06-08
 
 ### Completeness
 | Metric | Value |
 |--------|-------|
-| Scoped PR1 tasks reviewed | 8 |
-| Scoped PR1 tasks evidenced | 8 |
-| Deferred by PR boundary | 5 (PR 2 edit slice only) |
+| Scoped PR2 tasks reviewed | 10 |
+| Scoped PR2 tasks evidenced in code/tests/runtime | 10 |
+| Scoped PR2 tasks incomplete in implementation | 0 |
+| Artifact drift found | 2 local SDD artifacts (`tasks`, `apply-progress`) |
 
 Notes:
-- Verification was limited to PR 1 / Work Unit 1 as requested.
-- PR 2 edit/reconciliation work remains intentionally out of scope.
-- Required local SDD artifacts were present and matched the OpenSpec slice boundary.
+- Runtime code and tests show PR2 is implemented.
+- Local `sdd/backend-b6-2-caja/tasks` and `apply-progress` still describe PR2 as deferred/remaining, so artifact state is stale even though implementation is present.
 
 ### Build & Tests Execution
 **Build**: ➖ Not applicable (backend has no separate build step)
 
-**Tests**: ✅ Passed
+**Tests**: ✅ Passed with warnings
 ```text
-Command: node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/caja.test.js --forceExit
-Result: PASS (24/24)
+Command: npm test -- --runInBand --runTestsByPath tests/caja.test.js -t "Authenticated PUT edit correction (PR2 integration)" --forceExit
+Result: PASS (9/9 scoped PR2 tests)
 
-Command: npm test
-Result: PASS (32/32)
-Note: Jest still reports open handles after completion, so the process does not exit cleanly without an explicit force-exit strategy in focused runs.
+Command: npm test -- --runInBand --forceExit
+Result: PASS (44/44 full backend suite)
+
+Command: npm test -- --runInBand --runTestsByPath tests/caja.test.js --detectOpenHandles -t "Authenticated PUT edit correction (PR2 integration)"
+Result: PASS (9/9), but Jest reported one open handle (TCPWRAP) originating from the shared MySQL pool used by tests.
 ```
 
 ### Focused Runtime Evidence
 **Runtime local API evidence**: ✅ Passed
 ```text
-1. POST /api/admin/pedidos/caja (efectivo, pendiente) -> 201
-2. PATCH /api/admin/pedidos/:id/pago -> pagado -> 200
-3. Product 5 stock after create: 23; after pago PATCH: 23 (unchanged)
-4. POST /api/admin/pedidos/caja (transferencia, pendiente) -> 201
-5. PATCH /api/admin/pedidos/:id/pago -> pagado without comprobante -> 200
-6. Product 5 stock after create: 22; after pago PATCH: 22 (unchanged)
-7. POST /api/admin/pedidos/caja (efectivo, pendiente) -> 201 [filter-positive fixture]
-8. POST /api/admin/pedidos/caja (efectivo, pendiente) -> 201 [cancel fixture]
-9. PATCH /api/admin/pedidos/:id/cancelar -> 200; pedido remained estado_pago=pendiente and moved to estado_pedido=cancelado
-10. GET /api/admin/pedidos?solo_pagos_pendientes=true&origen=caja&buscar=VERIFY-RT&limit=100 -> 200; returned only VERIFY-RT-PENDING (pendiente/recibido), excluded paid and cancelado fixtures
+Local server: node src/server.js
+Auth: POST /api/auth/login -> 200
+
+Payment regression checks:
+- POST /api/admin/pedidos/caja (transferencia pendiente) -> 201
+- PATCH /api/admin/pedidos/:id/pago -> pagado -> 200
+- Same pedido PATCH back to pendiente -> 400
+- Product 5 stock before payment PATCH: 39; after PATCH: 39 (unchanged)
+- GET /api/admin/pedidos?solo_pagos_pendientes=true&origen=caja&buscar=VERIFY-B62 -> returned only unpaid fixture(s), excluded paid fixture
+
+PR2 edit checks:
+- POST /api/admin/pedidos/caja (edit fixture) -> 201
+- PUT /api/admin/pedidos/:id with [{6 x2}, {9 x3}] -> 200
+- Response total -> 9000.00
+- Persisted detalle after edit -> producto 6 x2, producto 9 x3
+- Persisted stock after success -> producto 6 = 18, producto 9 = 27
+- PUT /api/admin/pedidos/:id with impossible quantity ({9 x9999}) -> 409
+- Error message preserved transactional intent: stock insuficiente with restored-stock availability shown
 ```
 
 ### Spec Compliance Matrix
 | Requirement | Scenario | Evidence | Result |
 |-------------|----------|----------|--------|
-| Admin payment-state machine for caja follow-up | Valid admin payment progression | Focused Jest integration + runtime PATCH from pendiente/comprobante-compatible flow to pagado | ✅ COMPLIANT |
-| Admin payment-state machine for caja follow-up | Invalid backward payment transition | Focused Jest integration: pagado -> pendiente and pagado -> rechazado both return 400 | ✅ COMPLIANT |
-| Caja manual mark-paid behavior | Caja cash sale marked paid | Focused Jest integration + runtime PATCH on efectivo caja pedido | ✅ COMPLIANT |
-| Caja manual mark-paid behavior | Caja verified transfer marked paid without comprobante | Focused Jest integration + runtime PATCH on transferencia caja pedido without comprobante | ✅ COMPLIANT |
-| Pending-payment visibility for caja | Filter unpaid pedidos for caja | Focused Jest integration + runtime filtered GET returned only pending/rechazado and excluded pagado/cancelado | ✅ COMPLIANT |
+| Caja pedido correction with stock reconciliation | Edit caja pedido successfully | Focused Jest PR2 integration + runtime PUT success with persisted detalle/total/stock evidence | ✅ COMPLIANT |
+| Caja pedido correction with stock reconciliation | Edit fails for insufficient stock | Focused Jest PR2 integration + runtime PUT 409 with no post-failure mutation relative to successful state | ✅ COMPLIANT |
+| Admin payment-state machine for caja follow-up | Invalid backward payment transition | Existing PR1 integration test + runtime PATCH `pagado -> pendiente` returned 400 | ✅ COMPLIANT |
+| Caja manual mark-paid behavior | Caja verified transfer marked paid without comprobante | Existing PR1 integration test + runtime PATCH `pendiente -> pagado` on transferencia returned 200 | ✅ COMPLIANT |
+| Pending-payment visibility for caja | Filter unpaid pedidos for caja | Existing PR1 integration test + runtime filtered GET excluded paid fixture | ✅ COMPLIANT |
 
-**Compliance summary**: 5/5 scoped PR1 scenarios compliant
+**Compliance summary**: 5/5 scoped scenarios compliant
 
 ### Correctness (Static + Runtime Evidence)
 | Requirement | Status | Notes |
 |------------|--------|-------|
-| `PAGO_TRANSITIONS` restricts backward transitions | ✅ Implemented | `pedido.model.js` explicit map remains aligned with design. |
-| `PATCH /api/admin/pedidos/:id/pago` leaves stock untouched | ✅ Runtime verified | Stock was unchanged across both efectivo and transferencia payment PATCH operations. |
-| `solo_pagos_pendientes` query flag is accepted | ✅ Implemented | `pedido.schema.js` parses `true/false` and controller passes it through. |
-| Unpaid filter isolates actionable follow-up items | ✅ Implemented | `findAllAdmin()` now excludes `estado_pedido = 'cancelado'`. |
-| Automated tests are sufficient for this PR1 slice | ⚠️ Sufficient with caveat | Core authenticated PATCH/GET paths now exist and pass, but stock invariance is proven by runtime verification rather than an explicit committed Jest assertion. |
+| `PUT /api/admin/pedidos/:id` route is wired and validated | ✅ Implemented | Route, params, origin guard, and body schema are present in `pedido.routes.js` / `pedido.schema.js`. |
+| Edit flow is transaction-based and locks pedido/product rows | ✅ Implemented | `editWithTransaction()` uses explicit transaction plus `FOR UPDATE` locking on pedido and affected products. |
+| Old reservations are restored before validating new stock | ✅ Implemented | Validation uses `stock_actual + restore` per affected product. |
+| Failed edit leaves persisted state unchanged | ✅ Runtime verified | After 409 attempt, persisted detalle remained at the successful replacement set and stock stayed at post-success values. |
+| PR1 payment/filter behavior remains intact | ✅ Verified | Focused PR1 tests still pass inside `caja.test.js`, and runtime PATCH/filter regression checks passed. |
 
 ### Coherence (Design)
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
-| Explicit payment transition map in model | ✅ Yes | Matches design and existing state-machine pattern. |
-| Reuse existing admin pedidos list with query flag | ✅ Yes | Implemented via `solo_pagos_pendientes`. |
-| PR 1 limited to payment/filter slice | ✅ Yes | No PR 2 edit logic leaked into this work unit. |
-| Unpaid filter excludes non-actionable cancelled pedidos | ✅ Yes | Verified in code and runtime response. |
+| Reuse existing admin pedido surface for correction | ✅ Yes | Edit behavior is exposed through `PUT /api/admin/pedidos/:id`. |
+| Keep payment changes stock-neutral | ✅ Yes | Runtime stock before/after payment PATCH was unchanged. |
+| Make reconciliation atomic | ✅ Yes | Transaction restores prior reservations, validates, rewrites detail, updates total, then commits. |
+| Preserve PR1 slice while adding PR2 logic | ✅ Yes | Payment/filter scenarios still pass after PR2 implementation. |
 
 ### Issues Found
 **CRITICAL**
 - None.
 
 **WARNING**
-- `backend/tests/caja.test.js` still does not assert stock invariance directly inside the committed automated test, so that sub-condition is currently protected by focused runtime verification rather than by a permanent regression assertion.
-- Jest leaves open handles after test completion; `npm test` passes, but focused verification needed `--forceExit` for deterministic command completion.
+- `backend/package.json` still points `npm test` at Jest without `--forceExit`, and `--detectOpenHandles` shows an open MySQL TCP handle from the shared pool. The suite passes, but the default command does not terminate cleanly in local verification.
+- `backend/tests/caja.test.js` is not concurrency-safe: it mutates shared stock and cleans fixtures by broad `LIKE 'TEST-B6-2%'` prefixes, so parallel verification runs can delete each other’s pedidos and produce false 404/stock failures.
+- Local SDD artifacts are stale: `sdd/backend-b6-2-caja/tasks` and `apply-progress` still mark PR2 as deferred even though code/tests are present. That reduces artifact trustworthiness for downstream phases.
 
 **SUGGESTION**
-- Add a DB-backed assertion in `caja.test.js` that captures stock immediately before and after `PATCH /:id/pago` to lock the stock-invariance rule into automated regression coverage.
-- Close/pool-cleanup test handles so focused Jest runs can complete cleanly without `--forceExit`.
+- Add explicit pool teardown or test lifecycle cleanup so plain `npm test` exits cleanly without verify-only flags.
+- Isolate DB-backed test fixtures with per-run unique prefixes or transaction/seed reset helpers so concurrent runs cannot interfere.
+- Sync local SDD `tasks` and `apply-progress` with the implemented PR2 state before archive.
 
 ### Verdict
 PASS WITH WARNINGS
-PR 1 / Work Unit 1 is behaviorally correct after the targeted fixes, the unpaid caja filter now excludes `cancelado`, and authenticated transition coverage exists. The slice is ready for commit/PR, with non-blocking follow-up recommended for the stock-invariance assertion and Jest handle cleanup.
+
+PR 2 / Work Unit 2 is behaviorally correct and ready for commit/PR: edit reconciliation works, rollback-on-409 holds, and PR1 payment/filter behavior remains intact. The remaining concerns are test-harness quality and stale local SDD bookkeeping, not a functional blocker for this slice.
