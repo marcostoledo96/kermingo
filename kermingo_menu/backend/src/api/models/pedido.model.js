@@ -33,14 +33,37 @@ const TRANSICIONES_VALIDAS = {
   listo: ['entregado'],
 };
 
-function transicionEstadoValida(actual, siguiente) {
-  if (actual === siguiente) return true;
-  return (TRANSICIONES_VALIDAS[actual] || []).includes(siguiente);
+/**
+ * Payment-state machine for admin caja follow-up.
+ * Valid transitions: pendiente -> pagado|comprobante_subido,
+ * comprobante_subido -> pagado|rechazado, rechazado -> pendiente, pagado terminal.
+ */
+export const PAGO_TRANSITIONS = {
+  pendiente: ['pagado', 'comprobante_subido'],
+  comprobante_subido: ['pagado', 'rechazado'],
+  rechazado: ['pendiente'],
+  pagado: [], // terminal
+};
+
+/**
+ * Validates an admin payment-state transition.
+ * @param {string} from - current estado_pago
+ * @param {string} to - requested estado_pago
+ * @returns {boolean}
+ */
+export function validatePaymentTransition(from, to) {
+  if (from === to) return true;
+  return (PAGO_TRANSITIONS[from] || []).includes(to);
 }
 
 //
 // ── Public ─────────────────────────────────────────────────────────
 //
+
+function transicionEstadoValida(actual, siguiente) {
+  if (actual === siguiente) return true;
+  return (TRANSICIONES_VALIDAS[actual] || []).includes(siguiente);
+}
 
 export async function createWithTransaction(pool, data) {
   const conn = await pool.getConnection();
@@ -250,10 +273,6 @@ export async function findAllAdmin(pool, filters = {}) {
     conditions.push('AND p.estado_pedido = ?');
     values.push(filters.estado_pedido);
   }
-  if (filters.estado_pago) {
-    conditions.push('AND p.estado_pago = ?');
-    values.push(filters.estado_pago);
-  }
   if (filters.metodo_pago) {
     conditions.push('AND p.metodo_pago = ?');
     values.push(filters.metodo_pago);
@@ -265,6 +284,16 @@ export async function findAllAdmin(pool, filters = {}) {
   if (filters.buscar) {
     conditions.push('AND (p.nombre_cliente LIKE ? OR p.numero LIKE ? OR p.telefono_cliente LIKE ?)');
     values.push(`%${filters.buscar}%`, `%${filters.buscar}%`, `%${filters.buscar}%`);
+  }
+
+  // unpaid/caja filter: overrides estado_pago if present
+  // excludes cancelados — a cancelled pedido is not actionable for caja payment follow-up
+  if (filters.solo_pagos_pendientes) {
+    conditions.push("AND p.estado_pago IN ('pendiente','rechazado')");
+    conditions.push("AND p.estado_pedido != 'cancelado'");
+  } else if (filters.estado_pago) {
+    conditions.push('AND p.estado_pago = ?');
+    values.push(filters.estado_pago);
   }
 
   const where = conditions.length ? `WHERE 1=1\n${conditions.join('\n')}` : '';
@@ -295,6 +324,10 @@ export async function updateEstadoPedido(pool, id, nuevoEstado) {
 }
 
 export async function updateEstadoPago(pool, id, nuevoEstado) {
+  const pedido = await findById(pool, id);
+  if (!pedido) return 0;
+  if (!validatePaymentTransition(pedido.estado_pago, nuevoEstado)) return -1;
+
   const [result] = await pool.query(
     'UPDATE pedido SET estado_pago = ? WHERE id = ?',
     [nuevoEstado, id]
