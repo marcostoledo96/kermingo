@@ -27,7 +27,7 @@ Debe conservarse como base visual fuerte.
 
 ## Backend
 
-**Estado**: ✅ Creado — scaffolding completo, verificado con curl
+**Estado**: ✅ Creado, con Base de Datos (Schema, Seed e Índices) alineados al tipo `promo`, Lógica de Stock corregida contra stock ilimitado y deadlocks, y Tests unitarios y de salud pasando con Jest/Supertest.
 
 Ubicación:
 
@@ -35,7 +35,7 @@ Ubicación:
 backend/
 ```
 
-Stack: Express 4.21 + ESM + cors + cookie-parser + dotenv + nodemon
+Stack: Express 4.21 + MySQL + ESM + cors + cookie-parser + dotenv + nodemon + Jest + Supertest
 Puerto: 3001 (configurable via `.env`)
 
 ## Documentación
@@ -48,7 +48,4 @@ docs/planificacion/
 
 ## Próximo paso recomendado
 
-1. Verificar que `diseno-de-landing-kermingo` compile.
-2. Crear backend base.
-3. Crear MySQL schema/seed.
-4. Conectar productos públicos.
+1. Avanzar a la Etapa B6 (Caja, Cocina, Comprobantes, Google Drive y Reportes).

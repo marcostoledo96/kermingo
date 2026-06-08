@@ -107,9 +107,10 @@ Al cancelar:
 
 - repone stock en transacción
 
-## Combos
+## Promos (Combos)
 
-Al vender combo:
+Al vender promo:
 
-- se registra combo en pedido_detalle
-- se descuenta stock de productos internos definidos en `combo_producto`
+- se registra la promo en pedido_detalle
+- se descuenta stock de los productos internos (componentes) definidos en `combo_producto`
+- las promos no tienen stock propio (`stock_limitado = 0`, `stock_actual = NULL`), sino que dependen del stock de sus componentes.

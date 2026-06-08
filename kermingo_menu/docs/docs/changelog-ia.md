@@ -1,5 +1,39 @@
 # Changelog IA
 
+## Fase B5.2 — Alineación de Schema, Seed, Stock e Harness de Testing (2026-06-06)
+
+### Cambios aplicados
+
+- **Base de datos (`schema.sql` y `seed.sql`)**:
+  - Modificado el tipo de producto (`producto.tipo`) de `'combo'` a `'promo'` en el ENUM de base de datos.
+  - Modificada la columna `pedido.numero` para permitir valores `NULL` y conservar la restricción de unicidad (`VARCHAR(20) NULL UNIQUE`). Esto soluciona los fallos de inserción inicial previa a la generación del código formateado `KMG-XXXX`.
+  - Depurado `schema.sql` eliminando los índices redundantes duplicados que ya están definidos y controlados en `indexes.sql`.
+  - Actualizados los combos semilla (`Combo merienda` y `Combo cena`) a tipo `'promo'`, estableciendo `stock_limitado = 0` y `stock_actual = NULL` (puesto que el stock de una promo depende de sus componentes).
+  - Configurado `Pizza sin TACC` y `Helados palito` para arrancar con `stock_actual = 0` (agotados de inicio).
+  - Corregido el comentario `-- Combos` a `-- Promos` en `seed.sql`.
+- **Lógica de negocio (`pedido.model.js`)**:
+  - Ajustado el proceso de descuento defensivo en `createWithTransaction` para omitir la actualización de productos ilimitados (`stock_limitado = 0`), evitando que retorne `affectedRows = 0` y lance un error falso de stock insuficiente.
+  - Rediseñado el proceso de cancelación y reposición en `cancelWithTransaction` para prevenir deadlocks en la base de datos: se consultan las reposiciones sin bloqueo `FOR UPDATE` en el join inicial, se extraen y ordenan de manera determinista (ascendente) las IDs de producto, y se ejecuta el bloqueo `FOR UPDATE` en dicho orden antes de actualizar.
+  - Ajustada la reposición de stock al cancelar para omitir productos ilimitados.
+- **Seguridad (`auth.routes.js`)**:
+  - Aplicado el middleware `requireTrustedOrigin` en la ruta `POST /api/auth/logout` para protegerla de ataques CSRF de cierre de sesión.
+- **Entorno y Pruebas (`.env.example` y `package.json`)**:
+  - Creado el archivo de plantilla `backend/.env.example` con todas las variables necesarias para el despliegue local del backend.
+  - Añadidas las dependencias `jest` y `supertest` en `devDependencies` de `package.json`.
+  - Añadido el test de salud de integración básico en `backend/tests/health.test.js` alineado con el formato de respuesta del API (`ok: true`).
+- **Documentación y OpenSpec**:
+  - Actualizada la documentación técnica e histórica en `docs/docs/estado-actual.md`, `docs/docs/mapa-archivos.md` y `docs/planificacion/05-BASE_DE_DATOS_MYSQL.md`, `docs/planificacion/13-FLUJOS_FUNCIONALES.md`.
+  - Creados los entregables OpenSpec (`explore.md`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`, `verify-report.md`) en la carpeta `openspec/changes/backend-b5-2-schema-seed-alignment/`.
+
+### Verificación
+
+| Test | Resultado |
+|------|-----------|
+| `npm install` | ✅ Completado sin vulnerabilidades críticas adicionales |
+| `npm test` | ✅ Jest ejecutó con éxito el test de salud integrando supertest |
+| Lógica stock ilimitado | ✅ Verificada en código (se salta la query de stock para `stock_limitado = 0`) |
+| Bloqueo determinista | ✅ Implementado usando IDs ordenadas en cancelaciones preventivas |
+
 ## Fase 1 — Backend Base Scaffolding (2026-06-05)
 
 ### Cambios aplicados

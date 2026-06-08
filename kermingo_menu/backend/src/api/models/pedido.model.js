@@ -80,6 +80,9 @@ export async function createWithTransaction(pool, data) {
           'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
           [item.producto_id]
         );
+        if (compRows.length === 0) {
+          throw new Error(`La promo "${producto.nombre}" no tiene componentes configurados en combo_producto`);
+        }
         for (const comp of compRows) {
           const total = comp.cantidad * item.cantidad;
           requerimientos.set(comp.producto_id, (requerimientos.get(comp.producto_id) || 0) + total);
@@ -91,14 +94,15 @@ export async function createWithTransaction(pool, data) {
 
     // 2. Bloquear productos requeridos con SELECT FOR UPDATE (orden determinístico)
     const idsRequeridos = [...requerimientos.keys()].sort((a, b) => a - b);
+    let stockMap = new Map();
     if (idsRequeridos.length > 0) {
       const placeholders = idsRequeridos.map(() => '?').join(',');
       const [stockRows] = await conn.query(
-        `SELECT id, nombre, stock_limitado, stock_actual FROM producto WHERE id IN (${placeholders}) FOR UPDATE`,
+        `SELECT id, nombre, stock_limitado, stock_actual FROM producto WHERE id IN (${placeholders}) ORDER BY id FOR UPDATE`,
         idsRequeridos
       );
 
-      const stockMap = new Map(stockRows.map((r) => [r.id, r]));
+      stockMap = new Map(stockRows.map((r) => [r.id, r]));
 
       for (const id of idsRequeridos) {
         const producto = stockMap.get(id);
@@ -158,13 +162,16 @@ export async function createWithTransaction(pool, data) {
 
     // 7. Descontar stock acumulado con UPDATE defensivo
     for (const [productoId, cantidad] of requerimientos) {
+      const prod = stockMap.get(productoId);
+      if (!prod || !prod.stock_limitado) {
+        continue; // Saltar productos ilimitados
+      }
       const [result] = await conn.query(
         'UPDATE producto SET stock_actual = stock_actual - ? WHERE id = ? AND stock_limitado = 1 AND stock_actual >= ?',
         [cantidad, productoId, cantidad]
       );
       if (result.affectedRows === 0) {
-        const [[prod]] = await conn.query('SELECT nombre FROM producto WHERE id = ?', [productoId]);
-        throw new Error(`Stock insuficiente de "${prod?.nombre || productoId}" al descontar`);
+        throw new Error(`Stock insuficiente de "${prod.nombre || productoId}" al descontar`);
       }
     }
 
@@ -303,7 +310,7 @@ export async function cancelWithTransaction(pool, id) {
       `SELECT pd.producto_id, pd.cantidad, p.tipo
        FROM pedido_detalle pd
        JOIN producto p ON p.id = pd.producto_id
-       WHERE pd.pedido_id = ? FOR UPDATE`,
+       WHERE pd.pedido_id = ?`,
       [id]
     );
 
@@ -324,7 +331,25 @@ export async function cancelWithTransaction(pool, id) {
       }
     }
 
+    // 1. Ordenar IDs de forma determinista
+    const idsAReponer = [...reposiciones.keys()].sort((a, b) => a - b);
+    let stockMap = new Map();
+    if (idsAReponer.length > 0) {
+      const placeholders = idsAReponer.map(() => '?').join(',');
+      // 2. Bloquear en orden determinista
+      const [stockRows] = await conn.query(
+        `SELECT id, stock_limitado FROM producto WHERE id IN (${placeholders}) ORDER BY id FOR UPDATE`,
+        idsAReponer
+      );
+      stockMap = new Map(stockRows.map((r) => [r.id, r]));
+    }
+
+    // 3. Ejecutar actualizaciones defensivas omitiendo productos ilimitados
     for (const [productoId, cantidad] of reposiciones) {
+      const prod = stockMap.get(productoId);
+      if (!prod || !prod.stock_limitado) {
+        continue; // Omitir ilimitados
+      }
       await conn.query(
         'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
         [cantidad, productoId]

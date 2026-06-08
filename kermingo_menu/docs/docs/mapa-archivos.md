@@ -75,24 +75,43 @@ docs/.agents/skills/
 
 ```txt
 backend/
-├── package.json          ESM project, express 4.21, cors, cookie-parser, dotenv, nodemon
-├── .env.example         PORT=3001, NODE_ENV=development
+├── package.json          ESM project, express 4.21, cors, cookie-parser, dotenv, nodemon, jest, supertest
+├── .env.example          PORT=3001, NODE_ENV=development, etc.
 ├── .gitignore
-└── src/
-    ├── server.js        Entry point
-    ├── app.js           Express app factory
-    └── api/
-        ├── config/
-        │   └── environments.js   Config centralizada con Object.freeze
-        ├── utils/
-        │   ├── respuesta.utils.js  Helpers respuestaExitosa/respuestaError
-        │   └── errors.js           AppError + ValidationError + NotFoundError + AuthError
-        ├── middlewares/
-        │   └── error.middleware.js  Global error handler
-        ├── routes/
-        │   └── index.routes.js      GET /api/health
-        ├── controllers/.gitkeep     MVC scaffold
-        └── models/.gitkeep         MVC scaffold
+├── src/
+│   ├── server.js        Entry point
+│   ├── app.js           Express app factory
+│   └── api/
+│       ├── config/
+│       │   └── environments.js   Config centralizada con Object.freeze
+│       ├── utils/
+│       │   ├── respuesta.utils.js  Helpers respuestaExitosa/respuestaError
+│       │   └── errors.js           AppError + ValidationError + NotFoundError + AuthError
+│       ├── middlewares/
+│       │   ├── error.middleware.js  Global error handler
+│       │   ├── admin.middleware.js  Middleware de verificación de administrador
+│       │   ├── origin.middleware.js Middleware de origen de confianza (Origin/Referer)
+│       │   └── validate.middleware.js Middleware de validación con Zod
+│       ├── database/
+│       │   ├── db.js            Pool de conexiones mysql2/promise
+│       │   ├── schema.sql       Definición de tablas (tipo 'promo', pedido.numero nullable)
+│       │   ├── seed.sql         Carga de datos iniciales
+│       │   └── indexes.sql      Creación de índices de base de datos
+│       ├── routes/
+│       │   ├── index.routes.js  Enrutador principal
+│       │   ├── auth.routes.js   Rutas de autenticación (logout protegido por origen)
+│       │   ├── producto.routes.js Rutas de gestión de productos
+│       │   └── pedido.routes.js Rutas de gestión de pedidos
+│       ├── controllers/
+│       │   ├── auth.controller.js Controlador de login, logout y me
+│       │   ├── producto.controller.js Controlador de CRUD de productos
+│       │   └── pedido.controller.js Controlador de gestión de pedidos
+│       └── models/
+│           ├── usuario.model.js Modelo de base de datos para usuarios admin
+│           ├── producto.model.js Modelo de base de datos para productos
+│           └── pedido.model.js Modelo transaccional para pedidos y control de stock
+└── tests/
+    └── health.test.js    Test de integración básico del health check
 ```
 
 ## Documentación

@@ -56,7 +56,7 @@ CREATE TABLE producto (
   nombre VARCHAR(120) NOT NULL,
   descripcion TEXT NULL,
   precio DECIMAL(10,2) NOT NULL,
-  tipo ENUM('comida','bebida','combo') NOT NULL,
+  tipo ENUM('comida','bebida','promo') NOT NULL,
   stock_limitado TINYINT(1) NOT NULL DEFAULT 1,
   stock_actual INT NULL,
   stock_minimo_alerta INT NOT NULL DEFAULT 5,
@@ -72,7 +72,7 @@ CREATE TABLE producto (
 
 Campos no obvios:
 
-- `tipo`: diferencia comida, bebida y combo.
+- `tipo`: diferencia comida, bebida y promo.
 - `stock_limitado`: si es 0, el producto no controla stock.
 - `stock_actual`: solo se usa si `stock_limitado = 1`.
 - `stock_minimo_alerta`: umbral para alertas en dashboard.
@@ -112,9 +112,9 @@ CREATE TABLE combo_producto (
 
 Campos no obvios:
 
-- `combo_id`: producto de tipo `combo`.
+- `combo_id`: producto de tipo `promo`.
 - `producto_id`: producto interno que descuenta stock.
-- `cantidad`: cantidad del producto interno por cada combo vendido.
+- `cantidad`: cantidad del producto interno por cada promo vendida.
 
 ## Tabla `pedido`
 
@@ -123,7 +123,7 @@ Representa una compra online o de caja.
 ```sql
 CREATE TABLE pedido (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  numero VARCHAR(20) NOT NULL UNIQUE,
+  numero VARCHAR(20) NULL UNIQUE,
   token_seguimiento VARCHAR(100) NOT NULL UNIQUE,
   origen ENUM('online','caja') NOT NULL,
   nombre_cliente VARCHAR(150) NOT NULL,
