@@ -30,3 +30,9 @@ export class InsufficientStockError extends AppError {
     super(message, 409);
   }
 }
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Acceso denegado') {
+    super(message, 403);
+  }
+}

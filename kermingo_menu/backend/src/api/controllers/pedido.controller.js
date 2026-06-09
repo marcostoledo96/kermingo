@@ -7,6 +7,7 @@ import {
   updateEstadoPedido,
   updateEstadoPago,
   cancelWithTransaction,
+  editWithTransaction,
 } from '../models/pedido.model.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { NotFoundError, InsufficientStockError, ValidationError } from '../utils/errors.js';
@@ -142,9 +143,36 @@ export async function cambiarPago(req, res, next) {
     const pool = getPool();
     const result = await updateEstadoPago(pool, req.params.id, req.body.estado_pago);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
+    if (result === -1) throw new ValidationError('Transicion de estado de pago no valida');
+    if (result === -2) throw new ValidationError('No se puede modificar el pago de un pedido cancelado');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Estado de pago actualizado correctamente');
   } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /api/admin/pedidos/:id (admin)
+ * Edita un pedido de caja con reconciliación de stock.
+ */
+export async function editar(req, res, next) {
+  try {
+    const pool = getPool();
+    const result = await editWithTransaction(pool, req.params.id, req.body);
+    if (result === 0) throw new NotFoundError('Pedido no encontrado');
+    if (result === -1) throw new ValidationError('No se puede editar un pedido cancelado o entregado');
+    if (result === -2) throw new ValidationError('Solo se pueden editar pedidos de caja');
+    const pedido = await findById(pool, req.params.id);
+    return respuestaExitosa(res, pedido, 'Pedido actualizado correctamente');
+  } catch (err) {
+    if (err.esOperacional) return next(err);
+    if (err.message?.includes('Stock insuficiente')) {
+      return next(new InsufficientStockError(err.message));
+    }
+    if (err.message?.includes('no encontrado o inactivo')) {
+      return next(new ValidationError(err.message));
+    }
     next(err);
   }
 }
