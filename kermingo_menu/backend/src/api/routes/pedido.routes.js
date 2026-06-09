@@ -8,6 +8,7 @@ import {
   pedidoQuerySchema,
   updateEstadoPedidoSchema,
   updateEstadoPagoSchema,
+  editPedidoSchema,
   idParamSchema,
 } from '../schemas/pedido.schema.js';
 import {
@@ -19,6 +20,7 @@ import {
   cambiarEstado,
   cambiarPago,
   cancelar,
+  editar,
 } from '../controllers/pedido.controller.js';
 
 const publicRouter = Router();
@@ -49,5 +51,13 @@ adminRouter.patch(
   cambiarPago
 );
 adminRouter.patch('/:id/cancelar', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), cancelar);
+adminRouter.put(
+  '/:id',
+  requireAdmin,
+  requireTrustedOrigin,
+  validateParams(idParamSchema),
+  validateBody(editPedidoSchema),
+  editar
+);
 
 export { publicRouter, adminRouter };

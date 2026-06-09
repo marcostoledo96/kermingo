@@ -417,3 +417,202 @@ export async function cancelWithTransaction(pool, id) {
     conn.release();
   }
 }
+
+/**
+ * Edita un pedido de caja transaccionalmente, reconciliando stock.
+ * Restaura stock anterior, valida nuevo set, descuenta stock nuevo.
+ * Rechaza si estado_pedido es 'cancelado' o 'entregado'.
+ * @param {mysql2.Pool} pool
+ * @param {number} id - pedido_id
+ * @param {object} data - payload con items y metadatos opcionales
+ * @returns {Promise<number>} affectedRows
+ * @throws {Error} con mensaje descriptivo para 400/409
+ */
+export async function editWithTransaction(pool, id, data) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Bloquear pedido
+    const [pedRows] = await conn.query(
+      'SELECT id, estado_pedido, origen FROM pedido WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    const pedido = pedRows[0];
+    if (!pedido) {
+      await conn.rollback();
+      return 0; // not found
+    }
+    if (pedido.origen !== 'caja') {
+      await conn.rollback();
+      return -2; // only caja pedidos editable
+    }
+    if (['cancelado', 'entregado'].includes(pedido.estado_pedido)) {
+      await conn.rollback();
+      return -1; // not allowed
+    }
+
+    // 2. Leer detalle actual y calcular reposiciones (stock a devolver)
+    const [detalles] = await conn.query(
+      `SELECT pd.producto_id, pd.cantidad, p.tipo
+       FROM pedido_detalle pd
+       JOIN producto p ON p.id = pd.producto_id
+       WHERE pd.pedido_id = ?`,
+      [id]
+    );
+
+    const reposiciones = new Map();
+    for (const d of detalles) {
+      if (d.tipo === 'promo') {
+        const [comps] = await conn.query(
+          'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
+          [d.producto_id]
+        );
+        for (const comp of comps) {
+          const total = comp.cantidad * d.cantidad;
+          reposiciones.set(comp.producto_id, (reposiciones.get(comp.producto_id) || 0) + total);
+        }
+      } else {
+        reposiciones.set(d.producto_id, (reposiciones.get(d.producto_id) || 0) + d.cantidad);
+      }
+    }
+
+    // 3. Expandir nuevo set de items
+    const nuevosRequerimientos = new Map();
+    const itemsExpandidos = [];
+
+    for (const item of data.items) {
+      const [prodRows] = await conn.query(
+        'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual FROM producto WHERE id = ? AND activo = 1',
+        [item.producto_id]
+      );
+      const producto = prodRows[0];
+      if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
+
+      itemsExpandidos.push({
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        precio: producto.precio,
+        tipo: producto.tipo,
+        cantidad: item.cantidad,
+        stock_limitado: producto.stock_limitado,
+        stock_actual: producto.stock_actual,
+      });
+
+      if (producto.tipo === 'promo') {
+        const [compRows] = await conn.query(
+          'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
+          [item.producto_id]
+        );
+        if (compRows.length === 0) {
+          throw new Error(`La promo "${producto.nombre}" no tiene componentes configurados`);
+        }
+        for (const comp of compRows) {
+          const total = comp.cantidad * item.cantidad;
+          nuevosRequerimientos.set(comp.producto_id, (nuevosRequerimientos.get(comp.producto_id) || 0) + total);
+        }
+      } else {
+        nuevosRequerimientos.set(producto.id, (nuevosRequerimientos.get(producto.id) || 0) + item.cantidad);
+      }
+    }
+
+    // 4. Calcular stock disponible con reposicion aplicada
+    const unionIds = new Set([...reposiciones.keys(), ...nuevosRequerimientos.keys()]);
+    const idsOrdenados = [...unionIds].sort((a, b) => a - b);
+    let stockMap = new Map();
+
+    if (idsOrdenados.length > 0) {
+      const placeholders = idsOrdenados.map(() => '?').join(',');
+      const [stockRows] = await conn.query(
+        `SELECT id, nombre, stock_limitado, stock_actual FROM producto WHERE id IN (${placeholders}) ORDER BY id FOR UPDATE`,
+        idsOrdenados
+      );
+      stockMap = new Map(stockRows.map((r) => [r.id, r]));
+    }
+
+    for (const idProd of nuevosRequerimientos.keys()) {
+      const prod = stockMap.get(idProd);
+      if (!prod) throw new Error(`Producto ${idProd} no encontrado`);
+      const necesario = nuevosRequerimientos.get(idProd);
+      const restore = reposiciones.get(idProd) || 0;
+      const disponible = prod.stock_limitado ? prod.stock_actual + restore : Infinity;
+      if (disponible < necesario) {
+        throw new Error(
+          `Stock insuficiente de "${prod.nombre}". Necesario: ${necesario}, disponible (con reposicion): ${disponible}`
+        );
+      }
+    }
+
+    // 5. Aplicar delta (restaurar viejo + descontar nuevo)
+    for (const idProd of idsOrdenados) {
+      const prod = stockMap.get(idProd);
+      if (!prod || !prod.stock_limitado) continue;
+      const restore = reposiciones.get(idProd) || 0;
+      const deduct = nuevosRequerimientos.get(idProd) || 0;
+      const net = restore - deduct;
+      await conn.query(
+        'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
+        [net, idProd]
+      );
+    }
+
+    // 6. Recalcular total
+    const total = itemsExpandidos.reduce((sum, item) => {
+      return sum + parseFloat(item.precio) * item.cantidad;
+    }, 0);
+
+    // 7. Borrar detalle anterior y reescribir
+    await conn.query('DELETE FROM pedido_detalle WHERE pedido_id = ?', [id]);
+    for (const item of itemsExpandidos) {
+      const subtotal = parseFloat(item.precio) * item.cantidad;
+      await conn.query(
+        `INSERT INTO pedido_detalle
+         (pedido_id, producto_id, nombre_producto, precio_unitario, cantidad, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, item.producto_id, item.nombre, item.precio, item.cantidad, subtotal]
+      );
+    }
+
+    // 8. Actualizar metadatos del pedido
+    const campos = [];
+    const valores = [];
+    if (data.nombre_cliente !== undefined) {
+      campos.push('nombre_cliente = ?');
+      valores.push(data.nombre_cliente);
+    }
+    if (data.mesa !== undefined) {
+      campos.push('mesa = ?');
+      valores.push(data.mesa || null);
+    }
+    if (data.telefono_cliente !== undefined) {
+      campos.push('telefono_cliente = ?');
+      valores.push(data.telefono_cliente || null);
+      campos.push('telefono_whatsapp = ?');
+      valores.push(normalizarTelefono(data.telefono_cliente));
+    }
+    if (data.observaciones !== undefined) {
+      campos.push('observaciones = ?');
+      valores.push(data.observaciones || null);
+    }
+    if (data.metodo_pago !== undefined) {
+      campos.push('metodo_pago = ?');
+      valores.push(data.metodo_pago);
+    }
+    campos.push('total = ?');
+    valores.push(total);
+
+    valores.push(id);
+    await conn.query(
+      `UPDATE pedido SET ${campos.join(', ')} WHERE id = ?`,
+      valores
+    );
+
+    await conn.commit();
+    return 1;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
