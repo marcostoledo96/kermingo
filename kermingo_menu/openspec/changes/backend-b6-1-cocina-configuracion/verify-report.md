@@ -1,111 +1,113 @@
 ## Verification Report
 
 **Change**: backend-b6-1-cocina-configuracion  
-**Slice**: PR 1 / Work Unit 1 — cocina  
+**Slice**: PR 2 / Work Unit 2 — configuracion  
 **Mode**: Standard quick verify (slice-scoped)
 
 ### Scope Verified
-- `GET /api/admin/cocina/pedidos`
-- `GET /api/admin/cocina/pedidos/:id`
-- `PATCH /api/admin/cocina/pedidos/:id/estado`
-- mount under `/api/admin/cocina`
+- `GET /api/configuracion-tienda`
+- `GET /api/admin/configuracion-tienda`
+- `PUT /api/admin/configuracion-tienda`
+- mounts under `/api/configuracion-tienda` and `/api/admin/configuracion-tienda`
 - admin auth protection
-- test evidence quality for cocina
+- update behavior on existing `configuracion_tienda.id=1`
+- automated test process exit after the open-handle fix
 
 ### Deferred From This Slice
-- `configuracion-tienda` public/admin endpoints belong to PR 2 / Work Unit 2 and were not scored as failures here.
+- Cocina list/detail/estado verification belongs to PR 1 / Work Unit 1 and is already reported separately.
+- Full manual task 4.2 for kitchen estado progression remains outside this PR2 scope.
 
 ### Completeness
 | Metric | Value |
 |--------|-------|
-| Relevant PR1 tasks | 7 |
-| Verified complete | 5 |
-| Partial / incomplete | 2 |
+| Relevant PR2 tasks | 6 |
+| Verified complete | 6 |
+| Partial / incomplete | 0 |
 
 Notes:
-- Completed: 1.1, 1.2, 1.3, 1.4, mount portion of 3.1.
-- Partial: 4.1 test coverage exists but only covers unauthenticated gating.
-- Not actually satisfied: 5.1 says kitchen should reuse pedido state rules without duplication; current controller duplicates the transition map.
+- Completed in this slice: 2.1, 2.2, 2.3, 2.4, configuracion portion of 3.1, 4.1, and configuracion portion of 4.2.
+- Quality gap remains: automated coverage is still thin for authenticated config read/update paths.
+- Behavioral gap remains: the API can set `mensaje_publico` / `cena_habilitada_desde`, but cannot clear them back to `null` through the validated admin endpoint.
 
 ### Build & Tests Execution
 **Build**: ➖ Not applicable (`backend/package.json` has no build script)
 
-**Automated tests**: ✅ Passed
+**Automated tests**: ✅ 8 passed / 0 failed / 0 skipped
 ```text
 Command: npm test
-Result: 2 suites passed, 4 tests passed, 0 failed
-Covered cocina evidence: backend/tests/cocina.test.js
+Result: 3 suites passed, 8 tests passed, 0 failed
+Exit behavior: completed cleanly without timeout
+
+Command: npm test -- --detectOpenHandles
+Result: 3 suites passed, 8 tests passed, 0 failed
+Exit behavior: completed cleanly with no open-handle report
 ```
 
 **Manual runtime verification**: ✅ Passed against local DB + local server
 ```text
 Server: node src/server.js
-Seeded DB pedidos: recibido(id=8), en_preparacion(id=9), listo(id=10), cancelado(id=11)
+Health: GET /api/health -> 200
+Public read: GET /api/configuracion-tienda -> 200
+Admin read without cookie: GET /api/admin/configuracion-tienda -> 401
 Login: POST /api/auth/login -> 200
-Unauth list: GET /api/admin/cocina/pedidos -> 401
-Auth list: GET /api/admin/cocina/pedidos -> 200
-Detail: GET /api/admin/cocina/pedidos/9 -> 200
-Missing detail: GET /api/admin/cocina/pedidos/999999 -> 404
-Invalid jump: PATCH /api/admin/cocina/pedidos/8/estado {"estado_pedido":"listo"} -> 400
-Valid step: PATCH /api/admin/cocina/pedidos/9/estado {"estado_pedido":"listo"} -> 200
-Final step: PATCH /api/admin/cocina/pedidos/10/estado {"estado_pedido":"entregado"} -> 200
-List verification: included recibido/en_preparacion/listo seeded pedidos; excluded cancelado seeded pedido
-Detail verification: returned header fields + 1 item + current estado_pedido
+Admin read with cookie: GET /api/admin/configuracion-tienda -> 200
+Valid update: PUT /api/admin/configuracion-tienda {estado, mensaje_publico, cena_habilitada_desde} -> 200
+Public read after update: GET /api/configuracion-tienda -> 200 and reflected updated estado/mensaje_publico
+Invalid update: PUT /api/admin/configuracion-tienda {estado:"no_existe"} -> 400
+Environment restore: singleton row restored locally after verification
 ```
 
 ### Spec Compliance Matrix
 | Requirement | Scenario | Test / Evidence | Result |
 |-------------|----------|-----------------|--------|
-| Admin kitchen pedido listing and view | List operational kitchen pedidos | Manual curl + seeded DB (`GET /api/admin/cocina/pedidos`) | ✅ COMPLIANT |
-| Admin kitchen pedido listing and view | View one kitchen pedido | Manual curl + seeded DB (`GET /api/admin/cocina/pedidos/9`) | ✅ COMPLIANT |
-| Admin kitchen pedido listing and view | Kitchen pedido not found | Manual curl + seeded DB (`GET /api/admin/cocina/pedidos/999999`) | ✅ COMPLIANT |
-| Admin kitchen estado progression | Valid next-step transition | Manual curl + seeded DB (`PATCH /api/admin/cocina/pedidos/9/estado`, `PATCH /api/admin/cocina/pedidos/10/estado`) | ✅ COMPLIANT |
-| Admin kitchen estado progression | Invalid kitchen transition | Manual curl + seeded DB (`PATCH /api/admin/cocina/pedidos/8/estado` recibido -> listo) | ✅ COMPLIANT |
-| Admin kitchen estado progression | Unauthorized kitchen transition | Automated test `backend/tests/cocina.test.js` + manual unauth GET list 401 | ✅ COMPLIANT |
+| Minimal store configuration read and update | Public configuration read | `npm test` (`tests/configuracion.test.js` public GET) + local `GET /api/configuracion-tienda` | ✅ COMPLIANT |
+| Minimal store configuration read and update | Admin updates store configuration | Local auth + `PUT /api/admin/configuracion-tienda`; follow-up public GET reflected persisted values | ✅ COMPLIANT |
+| Minimal store configuration read and update | Invalid store configuration update | Local auth + `PUT /api/admin/configuracion-tienda` with invalid `estado` -> 400 | ✅ COMPLIANT |
 
-**Compliance summary**: 6/6 cocina scenarios compliant for PR1 scope.
+**Compliance summary**: 3/3 configuracion scenarios compliant for PR2 scope.
 
 ### Correctness (Static Evidence)
 | Requirement | Status | Notes |
 |------------|--------|-------|
-| Kitchen routes mounted | ✅ Implemented | `backend/src/api/routes/index.routes.js` mounts `/admin/cocina`. |
-| Kitchen routes auth-protected | ✅ Implemented | All three kitchen routes use `requireAdmin`; PATCH also uses `requireTrustedOrigin`. |
-| Kitchen list excludes cancelado | ✅ Implemented | `findKitchenPedidos()` filters `estado_pedido IN ('recibido','en_preparacion','listo')`. |
-| Kitchen detail returns pedido + items | ✅ Implemented | Controller reuses `findById()` and returns item snapshot. |
-| Kitchen PATCH persists estado | ✅ Implemented | `updateEstadoPedido()` persists, then controller reloads pedido. |
-| Reuse of pedido state rules | ⚠️ Partial | Controller still defines `TRANSICIONES_COCINA`, so the rule source is duplicated instead of fully centralized. |
+| Public route mounted | ✅ Implemented | `backend/src/api/routes/index.routes.js` mounts `configuracionPublicRouter` at `/configuracion-tienda`. |
+| Admin route mounted | ✅ Implemented | `backend/src/api/routes/index.routes.js` mounts `configuracionAdminRouter` at `/admin/configuracion-tienda`. |
+| Admin routes protected | ✅ Implemented | `backend/src/api/routes/configuracion.routes.js` applies `requireAdmin` to admin GET and PUT. |
+| Read/update target existing singleton row | ✅ Implemented | `backend/src/api/models/configuracion.model.js` reads and updates `WHERE id = 1`. |
+| Minimal validation for `estado` | ✅ Implemented | `backend/src/api/schemas/configuracion.schema.js` restricts `estado` to `abierta|cerrada|demo`; runtime invalid request returned 400. |
+| Test process cleanup after configuracion suite | ✅ Implemented | `backend/tests/configuracion.test.js` now allows `npm test` and `--detectOpenHandles` to exit cleanly. |
+| Nullable fields can be cleared through API | ⚠️ Partial | Schema allows omission but rejects explicit `null`, so admin cannot clear existing values once set. |
 
 ### Coherence (Design)
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
-| Reuse pedido transition logic as single source of truth | ⚠️ Partial | Mutation path is reused via `updateEstadoPedido()`, but guard rules are duplicated in `cocina.controller.js`. |
-| Keep kitchen HTTP module thin | ✅ Yes | Route/controller/schema split is narrow and matches existing backend style. |
-| Keep config work isolated to PR2 | ✅ Yes | No accidental config implementation leaked into PR1. |
+| Separate public and admin configuration surfaces | ✅ Yes | Split routers match the design intent and existing backend conventions. |
+| Protect admin configuration changes with cookie auth | ✅ Yes | Runtime unauthenticated admin GET returned 401; authenticated GET/PUT succeeded. |
+| Update singleton store configuration row instead of creating records | ✅ Yes | Runtime verification operated only on the existing `id=1` row. |
 
 ### Issues Found
 **CRITICAL**
 - None.
 
 **WARNING**
-- `backend/tests/cocina.test.js` only verifies unauthenticated 401 behavior. There is no automated runtime coverage for kitchen happy-path list/detail/transition behavior; current confidence comes from manual curl + DB-backed verification.
-- `backend/src/api/controllers/cocina.controller.js` duplicates the kitchen transition map (`TRANSICIONES_COCINA`) instead of fully reusing the pedido state rule source, creating drift risk with `/api/admin/pedidos/:id/estado`.
+- `backend/tests/configuracion.test.js` still only proves public route reachability and unauthenticated 401 behavior. It does not cover authenticated admin GET/PUT success or invalid-body 400 with a real admin session, so regression confidence for configuracion still depends partly on manual verification.
+- The admin API cannot clear `mensaje_publico` or `cena_habilitada_desde` back to `null` because `updateConfiguracionSchema` rejects explicit nulls even though the DB columns are nullable.
 
 **SUGGESTION**
-- Add seeded or mocked integration tests for: list excludes `cancelado`, detail 404/200, valid next-step PATCH 200, invalid jump 400.
-- Remove the redundant dotenv path setup in `backend/tests/cocina.test.js` (`../backend/.env` resolves incorrectly and is currently unnecessary when tests run from `backend/`).
+- Add authenticated integration tests for: admin GET 200, valid PUT 200, invalid `estado` 400, and persistence on `id=1`.
+- Decide intentionally whether `mensaje_publico` and `cena_habilitada_desde` should be clearable to `null`; if yes, make schema and update semantics explicit.
 
 ### Slice Readiness
 - **Ready for commit**: Yes
-- **Ready for PR**: Yes, with warnings
+- **Ready for PR**: Yes
 - **Blocked by manual validation gaps**: No
 
 ### Checkpoint de etapa
 - Checkpoint automatico: completado
 - Testing manual requerido: si
 - Auditoria con ChatGPT recomendada: si
-- Bloquea avance a siguiente etapa: no para PR1; sí para cerrar el cambio completo hasta verificar PR2/configuración
+- Bloquea avance a siguiente etapa: no
 
 ### Verdict
 **PASS WITH WARNINGS**
 
-PR1/WU1 cocina is functionally working and locally verified with real runtime evidence, but it should not be treated as fully clean because automated coverage is thin and transition rules are duplicated in the controller.
+PR2/WU2 configuracion now clears the automated verification gate because `npm test` exits cleanly after the open-handle fix, and the local configuracion read/update contract was reconfirmed at runtime. Remaining issues are quality warnings, not blockers for commit/PR.

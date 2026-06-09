@@ -4,6 +4,7 @@ import { publicRouter as productoPublicRouter, adminRouter as productoAdminRoute
 import { publicRouter as pedidoPublicRouter, adminRouter as pedidoAdminRouter } from './pedido.routes.js';
 import authRouter from './auth.routes.js';
 import cocinaRouter from './cocina.routes.js';
+import { publicRouter as configuracionPublicRouter, adminRouter as configuracionAdminRouter } from './configuracion.routes.js';
 
 const router = Router();
 
@@ -20,6 +21,10 @@ router.use('/auth', authRouter);
 
 // ── Rutas de cocina ──
 router.use('/admin/cocina', cocinaRouter);
+
+// ── Rutas de configuración ──
+router.use('/configuracion-tienda', configuracionPublicRouter);
+router.use('/admin/configuracion-tienda', configuracionAdminRouter);
 
 // ── Health check ──
 router.get('/health', (req, res) => {

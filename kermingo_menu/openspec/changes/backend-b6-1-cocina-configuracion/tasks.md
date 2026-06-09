@@ -27,21 +27,21 @@
 
 ## Phase 2: Configuracion Module Core
 
-- [ ] 2.1 Create `backend/src/api/schemas/configuracion.schema.js` — Zod for `estado`, `mensaje_publico`, `cena_habilitada_desde`.
-- [ ] 2.2 Create `backend/src/api/models/configuracion.model.js` — `findPublic` / `findAdmin` / `updateMinimal` on row `id=1`.
-- [ ] 2.3 Create `backend/src/api/controllers/configuracion.controller.js` — Public GET, admin GET/PUT handlers.
-- [ ] 2.4 Create `backend/src/api/routes/configuracion.routes.js` — Public GET and admin GET/PUT with requireAdmin.
+- [x] 2.1 Create `backend/src/api/schemas/configuracion.schema.js` — Zod for `estado`, `mensaje_publico`, `cena_habilitada_desde`.
+- [x] 2.2 Create `backend/src/api/models/configuracion.model.js` — `findPublic` / `findAdmin` / `updateMinimal` on row `id=1`.
+- [x] 2.3 Create `backend/src/api/controllers/configuracion.controller.js` — Public GET, admin GET/PUT handlers.
+- [x] 2.4 Create `backend/src/api/routes/configuracion.routes.js` — Public GET and admin GET/PUT with requireAdmin.
 
 ## Phase 3: Integration
 
-- [x] 3.1 (partial) Modify `backend/src/api/routes/index.routes.js` — Mount `/admin/cocina` completed; `/configuracion-tienda`, `/admin/configuracion-tienda` to be added in PR 2.
+- [x] 3.1 Modify `backend/src/api/routes/index.routes.js` — Mount `/admin/cocina`, `/configuracion-tienda`, `/admin/configuracion-tienda`.
 
 ## Phase 4: Testing & Verification
 
-- [x] 4.1 (partial) Auth/gate tests created at `backend/tests/cocina.test.js`; full integration tests need DB harness or controller mocks.
+- [x] 4.1 Auth/gate tests created at `backend/tests/cocina.test.js` and `backend/tests/configuracion.test.js`; manual integration tests need DB harness or local server + real cookie.
 - [ ] 4.2 Manual test — curl progression `recibido` -> `en_preparacion` -> `listo` -> `entregado`; invalid jump returns 400; public config read; admin update; invalid `estado` 400.
 
 ## Phase 5: Cleanup
 
 - [x] 5.1 Verify no duplicated transition rules in cocina.controller (reuses pedido model state machine).
-- [ ] 5.2 Confirm `configuracion_tienda.id=1` exists in seed/docs.
+- [x] 5.2 Confirm `configuracion_tienda.id=1` exists in seed/docs.
