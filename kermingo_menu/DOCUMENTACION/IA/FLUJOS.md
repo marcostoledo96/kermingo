@@ -1,0 +1,177 @@
+# Flujos End-to-End — Kermingo
+
+> Leé este archivo cuando necesites entender cómo es el recorrido completo
+> de un usuario o administrador en el sistema.
+
+---
+
+## Índice
+
+1. [Compra online](#1-compra-online)
+2. [Caja rápida](#2-caja-rápida)
+3. [Cancelación con reposición](#3-cancelación-con-reposición)
+4. [Edición de caja](#4-edición-de-caja)
+5. [Configuración de tienda](#5-configuración-de-tienda)
+6. [Flujo de cocina](#6-flujo-de-cocina)
+7. [Verificación de pago](#7-verificación-de-pago)
+
+---
+
+## 1. Compra online
+
+```
+[Visitante]
+    │
+    ├── GET /api/configuracion-tienda
+    │   └── Verifica: ¿estado === 'abierta'? Si no, muestra mensaje.
+    │
+    ├── GET /api/productos
+    │   └── Carga la carta filtrada por categoría.
+    │
+    ├── Agrega items al carrito (localStorage)
+    │   └── Si es promo, se acumulan las cantidades necesarias.
+    │
+    ├── POST /api/pedidos
+    │   ├── Body: { nombre_cliente, items, metodo_pago: 'efectivo' }
+    │   ├── Backend valida stock con transacción.
+    │   ├── Si stock insuficiente → 409 (InsufficientStockError).
+    │   ├── Si tienda cerrada → 400 (ValidationError).
+    │   ├── Si OK → descuenta stock, genera KMG-XXXX y token.
+    │   └── Response: { ok, data: { pedido }, message }
+    │
+    └── GET /api/pedidos/seguimiento/:token
+        └── Muestra estado del pedido y items.
+```
+
+**Regla:** Los pedidos online solo permiten `metodo_pago: 'efectivo'`. Si el visitante elige transferencia, el backend lanza error (B6.3: comprobantes sin implementar completamente).
+
+---
+
+## 2. Caja rápida
+
+```
+[Admin logueado]
+    │
+    ├── POST /api/auth/login
+    │   └── Cookie httpOnly con JWT.
+    │
+    ├── POST /api/admin/pedidos/caja
+    │   ├── Body: { nombre_cliente, items, metodo_pago, estado_pago?, estado_pedido? }
+    │   ├── Requiere: requireAdmin + requireTrustedOrigin
+    │   ├── Puede setear estado_pago='pagado' directamente.
+    │   ├── Puede setear estado_pedido inicial (recibido, en_preparacion, listo, entregado).
+    │   ├── Backend valida stock con transacción.
+    │   └── Crea pedido con origen='caja'.
+    │
+    └── PATCH /api/admin/pedidos/:id/pago
+        └── Marca como pagado si fue efectivo y ya se cobró.
+```
+
+**Ventaja:** El admin puede crear un pedido ya pagado y con estado avanzado, ideal para ventas presenciales.
+
+---
+
+## 3. Cancelación con reposición
+
+```
+[Admin logueado]
+    │
+    ├── PATCH /api/admin/pedidos/:id/cancelar
+    │   ├── Requiere: requireAdmin + requireTrustedOrigin
+    │   ├── Backend verifica: estado_pedido IN ('recibido', 'en_preparacion')
+    │   ├── Si no cumple → 400 (ValidationError)
+    │   ├── Obtiene items del pedido.
+    │   ├── Expande combos → acumula cantidades a reponer.
+    │   ├── SELECT ... FOR UPDATE (bloqueo determinístico por ID).
+    │   ├── UPDATE producto SET stock_actual = stock_actual + ? WHERE stock_limitado = 1
+    │   ├── UPDATE pedido SET estado_pedido = 'cancelado'
+    │   └── Commit.
+```
+
+**Qué se repone:** Todo el stock deducido al crear el pedido, incluyendo los componentes de las promos.
+
+**Qué NO se repone:** Productos con `stock_limitado = 0` (ilimitados).
+
+---
+
+## 4. Edición de caja
+
+Los pedidos creados desde caja (`origen='caja'`) son editables por el admin. Los pedidos online no se pueden editar, solo cancelar.
+
+La edición de items (agregar/quitar productos) no está implementada todavía en el MVP actual. El admin puede:
+
+1. Cambiar estado del pedido.
+2. Cambiar estado de pago.
+3. Cancelar el pedido (que repone stock).
+
+---
+
+## 5. Configuración de tienda
+
+```
+[Admin logueado]
+    │
+    ├── GET /api/admin/configuracion-tienda
+    │   └── Muestra config completa (estado, mensaje, hora de cena).
+    │
+    └── PUT /api/admin/configuracion-tienda
+        ├── Body: { estado: 'abierta'|'cerrada'|'demo', mensaje_publico?, cena_habilitada_desde? }
+        ├── Requiere: requireAdmin + requireTrustedOrigin
+        └── Actualiza el singleton id=1.
+```
+
+**Estados:**
+
+| Estado | Efecto |
+|---|---|
+| `'abierta'` | Se pueden crear pedidos (online y caja) |
+| `'cerrada'` | `createWithTransaction` lanza error |
+| `'demo'` | Reservado para frontend sin crear pedidos reales |
+
+El mensaje público se muestra en el frontend cuando la tienda está cerrada.
+
+---
+
+## 6. Flujo de cocina
+
+```
+[Admin logueado en vista cocina]
+    │
+    ├── GET /api/admin/cocina/pedidos
+    │   └── Pedidos en estados: recibido, en_preparacion, listo.
+    │       Ordenados por prioridad (recibido primero).
+    │
+    ├── PATCH /api/admin/cocina/pedidos/:id/estado
+    │   ├── Body: { estado_pedido: 'en_preparacion'|'listo'|'entregado' }
+    │   ├── Valida transición: recibido → en_preparacion → listo → entregado
+    │   └── Si transición inválida → 400 (ValidationError)
+    │
+    └── Cockpit visual: cards con estado, nombre, items.
+```
+
+La cocina usa la misma state machine que el flujo de admin normal, pero con una vista optimizada.
+
+---
+
+## 7. Verificación de pago
+
+```
+[Admin logueado]
+    │
+    ├── GET /api/admin/pedidos?estado_pago=pendiente
+    │   └── Lista pedidos con pago pendiente.
+    │
+    ├── PATCH /api/admin/pedidos/:id/pago
+    │   ├── Body: { estado_pago: 'pagado'|'rechazado' }
+    │   └── Marca el pago como confirmado o rechazado.
+    │
+    └── Nota: Cambiar estado_pago NO afecta el stock.
+```
+
+**Estado futuro (B6.3):** Cuando se implemente la subida de comprobantes, el flujo será:
+
+```
+pendiente → comprobante_subido → pagado (o rechazado)
+```
+
+Actualmente, `comprobante_subido` y `rechazado` existen en el enum pero no tienen comprobante real adjunto.

@@ -139,51 +139,63 @@ Reglas:
 - Implementar y mejorar en `frontend/`, no en la carpeta de referencia.
 - El dashboard admin puede mejorarse porque Marcos dijo que es la pantalla que menos lo convence.
 
-## 6. Documentación a leer según tarea
+## 6. Documentación de referencia (fuente de verdad)
+
+> La documentación del sistema vive en `DOCUMENTACION/IA/`.
+> Leer el doc correspondiente **ANTES** de escribir código en esa área.
+> El `sdd-archive` debe mantener estos docs al día al cerrar un change.
 
 ### Siempre leer primero
 
+| Pregunta | Archivo |
+|----------|---------|
+| ¿Dónde está cada doc y cuándo leerlo? | `DOCUMENTACION/IA/INDEX.md` |
+
+### Arquitectura y stack
+
+| Pregunta que responde | Archivo |
+|-----------------------|---------|
+| ¿Cómo está organizado el proyecto? ¿Qué carpetas y capas existen? | `DOCUMENTACION/IA/ARQUITECTURA.md` |
+| ¿Cómo funciona cada endpoint HTTP? ¿Qué hace cada controller? | `DOCUMENTACION/IA/API.md` |
+| ¿Cómo funciona la lógica de negocio? ¿State machines, reglas de stock, combos? | `DOCUMENTACION/IA/CORE.md` |
+| ¿Cómo está la base de datos? ¿Pool, seed, tablas? | `DOCUMENTACION/IA/INFRA.md` |
+| ¿Cómo está armado el frontend? ¿Rutas, componentes, carrito? | `DOCUMENTACION/IA/WEBAPP.md` |
+
+### Auth y seguridad
+
+| Pregunta que responde | Archivo |
+|-----------------------|---------|
+| ¿Cómo funciona JWT, cookies, requireAdmin, CSRF? | `DOCUMENTACION/IA/AUTENTICACION.md` |
+
+### Funcionalidad y dominio
+
+| Pregunta que responde | Archivo |
+|-----------------------|---------|
+| ¿Qué puede hacer cada rol? ¿Qué funcionalidades existen? | `DOCUMENTACION/IA/FUNCIONALIDADES.md` |
+| ¿Cómo es un flujo de punta a punta? | `DOCUMENTACION/IA/FLUJOS.md` |
+| ¿Qué significa este término? | `DOCUMENTACION/IA/GLOSARIO.md` |
+
+### Infraestructura y operaciones
+
+| Pregunta que responde | Archivo |
+|-----------------------|---------|
+| ¿Cómo hacer el deploy? ¿Qué variables de entorno van? | `DOCUMENTACION/IA/DEPLOY.md` |
+| ¿Cómo correr los tests? ¿Cómo estructurar uno nuevo? | `DOCUMENTACION/IA/TESTING.md` |
+| ¿Dónde están las credenciales y API keys? | `DOCUMENTACION/IA/SECRETS.md` |
+
+### Errores y decisiones
+
+| Pregunta que responde | Archivo |
+|-----------------------|---------|
+| ¿Hay bugs o trampas conocidas? | `DOCUMENTACION/IA/GOTCHAS.md` |
+
+### Documentos de planificación (complementarios)
+
+Estos docs en `docs/planificacion/` tienen las decisiones de planeamiento originales y las auditorías. Consultarlos para contexto histórico, no como fuente de verdad actual.
+
 ```txt
-AGENTS.md
 docs/planificacion/00-INDICE-MAESTRO.md
-docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
 docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
-```
-
-### Backend
-
-```txt
-docs/planificacion/04-BACKEND_API_EXPRESS_MYSQL.md
-docs/planificacion/05-BASE_DE_DATOS_MYSQL.md
-docs/planificacion/06-ENDPOINTS_API.md
-docs/planificacion/09-AUTH_COOKIES_CORS.md
-docs/planificacion/11-GOOGLE_DRIVE_ARCHIVOS.md
-docs/planificacion/17-TAREAS_BACKEND_DETALLADAS.md
-docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
-```
-
-### Frontend
-
-```txt
-docs/planificacion/07-FRONTEND_NEXTJS_V0.md
-docs/planificacion/08-RUTAS_FRONTEND.md
-docs/planificacion/10-CARRITO_LOCALSTORAGE.md
-docs/planificacion/12-DISENO_VISUAL_V0.md
-docs/planificacion/18-TAREAS_FRONTEND_DETALLADAS.md
-docs/planificacion/25-REFERENCIA_VISUAL_FRONTEND.md
-docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
-```
-
-### Integración/deploy
-
-```txt
-docs/planificacion/13-FLUJOS_FUNCIONALES.md
-docs/planificacion/14-DEPLOY_RAILWAY_VERCEL.md
-docs/planificacion/15-VARIABLES_ENTORNO.md
-docs/planificacion/16-TESTING.md
-docs/planificacion/19-TAREAS_INTEGRACION_DEPLOY_DETALLADAS.md
-docs/planificacion/27-CHECKPOINTS_TESTING_AUDITORIA.md
-docs/planificacion/28-CHECKLIST_MANUAL_TESTING.md
 ```
 
 ## 7. Reglas funcionales no negociables
