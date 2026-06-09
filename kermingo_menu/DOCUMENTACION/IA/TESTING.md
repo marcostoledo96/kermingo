@@ -155,7 +155,7 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
 | Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 9 suites, **124 tests** | `npm test` para conteo exacto |
+| **Total** | 9 suites, **126 tests** | `npm test` para conteo exacto |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 

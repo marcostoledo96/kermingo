@@ -41,6 +41,12 @@ cancelado  (solo desde 'recibido' o 'en_preparacion')
 - No se puede pasar de `entregado` a nada.
 - `cancelado` solo desde `recibido` o `en_preparacion` (enforce en `cancelWithTransaction`).
 - La cocina usa la misma state machine vía `cocina.controller.js` → `updateEstadoPedido`.
+- `updateEstadoPedido` es atómico:
+  1. Abre transacción (`conn.beginTransaction`).
+  2. Bloquea el pedido con `SELECT ... FOR UPDATE`.
+  3. Valida la transición bajo lock.
+  4. Actualiza el estado dentro de la transacción.
+  5. Hace commit o rollback según resultado.
 
 ---
 

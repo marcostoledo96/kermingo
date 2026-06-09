@@ -94,17 +94,17 @@ Protección CSRF para métodos unsafe (`POST`, `PUT`, `PATCH`, `DELETE`):
 
 ```
 requireTrustedOrigin(req, res, next)
-  → Si método es GET/HEAD/OPTIONS → next() (saltea)
-  → Lee header 'origin'
-  → Si origin === FRONTEND_URL → next()
-  → Si origin no está, lee 'referer'
-  → Si referer empieza con FRONTEND_URL → next()
-  → Si no cumple → AuthError (401, 'Origen no permitido')
+  → Si método es GET/HEAD/OPTIONS → next()
+  → Lee header Origin
+  → Si Origin existe y coincide exactamente con FRONTEND_URL → next()
+  → Si Origin existe y no coincide → ForbiddenError 403
+  → Si Origin no existe, lee Referer
+  → Parsea Referer con new URL(referer).origin
+  → Si refererOrigin coincide con FRONTEND_URL → next()
+  → Si no cumple → ForbiddenError 403
 ```
 
 **`FRONTEND_URL`** se configura en `environments.js` (default: `http://localhost:3000`).
-
-**Fix retroactivo (B6.2.1):** Originalmente se usaba `ForbiddenError` (403) para rechazos de origen. Se cambió a `AuthError` (401) para que el frontend lo maneje como error de auth y no como prohibido. Ver `GOTCHAS.md`.
 
 ---
 
@@ -141,6 +141,6 @@ La tabla `usuario` tiene campo `activo` (TINYINT) para desactivar cuentas, pero 
 | Usuario no encontrado | 401 | ID del token no existe en DB |
 | Cuenta inactiva | 401 | Campo `activo = 0` |
 | Credenciales inválidas | 401 | Email o contraseña incorrectos |
-| Origen no permitido | 401 | CSRF failure (origin/referer no coincide) |
+| Origen no permitido | 403 | CSRF failure (origin/referer no coincide) |
 
-**Todas usan `AuthError`** con código 401. El frontend trata 401 como "no autenticado" y redirige al login.
+Los errores 401 usan `AuthError`; el error 403 de CSRF usa `ForbiddenError`. El frontend trata 401 como "no autenticado" y redirige al login. El 403 indica "prohibido" (origen no confiable).

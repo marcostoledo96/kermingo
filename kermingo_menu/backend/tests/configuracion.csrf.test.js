@@ -49,14 +49,10 @@ const CONFIG_ADMIN_ROW = {
   cena_habilitada_desde: '20:30:00',
 };
 
-// ─── Tests CSRF (FIX retroactivo P1) ────────────────────────────────
-// NOTA sobre status code: `requireTrustedOrigin` lanza `AuthError` (401),
-// no 403. Esto es semánticamente incorrecto — un cliente autenticado
-// que envía un Origin no confiable debería ser 403 Forbidden, no
-// 401 Unauthorized. Es un bug pre-existente del middleware que excede
-// el scope de este change retroactivo. Documentado como WARNING en
-// `verify-report.md`. Tests esperan 401 para reflejar el comportamiento
-// actual.
+// ─── Tests CSRF ─────────────────────────────────────────────────────
+// `requireTrustedOrigin` lanza `ForbiddenError` (403) para orígenes
+// no confiables. Los tests esperan 403 para reflejar el comportamiento
+// actual del middleware.
 
 describe('Configuración — CSRF con origin middleware real', () => {
   beforeEach(() => {
@@ -75,7 +71,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  it('PUT con Origin http://evil.com → 401 (FIX retroactivo CSRF bloquea)', async () => {
+  it('PUT con Origin http://evil.com → 403 (CSRF bloquea origen no confiable)', async () => {
     const res = await request(app)
       .put('/api/admin/configuracion-tienda')
       .set('Origin', 'http://evil.com')
@@ -96,7 +92,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  it('PUT con Referer http://evil.com → 401 (FIX retroactivo CSRF bloquea)', async () => {
+  it('PUT con Referer http://evil.com → 403 (CSRF bloquea referer no confiable)', async () => {
     const res = await request(app)
       .put('/api/admin/configuracion-tienda')
       .set('Referer', 'http://evil.com/admin')
@@ -106,7 +102,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
     expect(res.body.ok).toBe(false);
   });
 
-  it('PUT sin Origin ni Referer → 401 (FIX retroactivo CSRF bloquea)', async () => {
+  it('PUT sin Origin ni Referer → 403 (CSRF bloquea sin headers de origen)', async () => {
     const res = await request(app)
       .put('/api/admin/configuracion-tienda')
       .send({ estado: 'abierta' });

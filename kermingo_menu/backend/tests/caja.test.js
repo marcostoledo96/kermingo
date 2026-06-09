@@ -49,9 +49,9 @@ async function limpiarPedidosDeTest() {
   );
   for (const pedido of rows) {
     if (['listo', 'entregado'].includes(pedido.estado_pedido)) {
-      // Test bug: shouldn't leave terminal orders behind
-      // If this fires, the test that created this order is missing cleanup
-      console.warn(`Cleanup: pedido ${pedido.id} en estado ${pedido.estado_pedido} — no cancelable, borrando sin reponer stock`);
+      throw new Error(
+        `Cleanup encontró pedido terminal ${pedido.id} en estado ${pedido.estado_pedido}. El test que lo creó debe restaurar stock explícitamente.`
+      );
     }
     try {
       await cancelWithTransaction(pool, pedido.id);
