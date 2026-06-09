@@ -3,6 +3,7 @@ import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { publicRouter as productoPublicRouter, adminRouter as productoAdminRouter } from './producto.routes.js';
 import { publicRouter as pedidoPublicRouter, adminRouter as pedidoAdminRouter } from './pedido.routes.js';
 import authRouter from './auth.routes.js';
+import cocinaRouter from './cocina.routes.js';
 
 const router = Router();
 
@@ -16,6 +17,9 @@ router.use('/admin/pedidos', pedidoAdminRouter);
 
 // ── Rutas de auth ──
 router.use('/auth', authRouter);
+
+// ── Rutas de cocina ──
+router.use('/admin/cocina', cocinaRouter);
 
 // ── Health check ──
 router.get('/health', (req, res) => {
