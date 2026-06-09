@@ -17,6 +17,7 @@
 8. [Estados de pago sin comprobante real (B6.3)](#8-estados-de-pago-sin-comprobante-real-b63)
 9. [Pedidos online solo permiten efectivo](#9-pedidos-online-solo-permiten-efectivo)
 10. [Transacciones de stock determinísticas](#10-transacciones-de-stock-determinísticas)
+11. [Cancelación/edición de promos depende de la composición actual de combo_producto](#11-cancelaciónedición-de-promos-depende-de-la-composición-actual-de-combo_producto)
 
 ---
 
@@ -157,3 +158,18 @@ const idsRequeridos = [...requerimientos.keys()].sort((a, b) => a - b);
 **Regla:** Nunca hacer `SELECT ... FOR UPDATE` sin ORDER BY cuando hay múltiples locks. Siempre ordenar por ID para que las transacciones adquieran locks en el mismo orden.
 
 **Archivos afectados:** `pedido.model.js` (`createWithTransaction`, `cancelWithTransaction`).
+
+---
+
+## 11. Cancelación/edición de promos depende de la composición actual de combo_producto
+
+Cuando se cancela o edita un pedido con una promo, el backend consulta los componentes actuales en `combo_producto` para reponer o recalcular stock. Esto funciona mientras los componentes de la promo no cambien después de la venta.
+
+Si en una etapa futura de ABM productos se permite modificar la composición de una promo ya vendida, la cancelación o edición puede reponer componentes equivocados.
+
+**Fix requerido antes de habilitar ABM de combos:** elegir una de:
+- Opción A: No permitir modificar componentes de promos con ventas asociadas.
+- Opción B: Guardar snapshot de componentes consumidos por pedido en una tabla `pedido_detalle_componente`.
+- Opción C: Expandir componentes en una tabla de movimientos de stock al vender.
+
+Para el MVP actual sin ABM avanzado de combos, es deuda documentada aceptable.

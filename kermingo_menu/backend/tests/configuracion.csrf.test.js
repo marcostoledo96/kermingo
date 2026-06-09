@@ -12,6 +12,9 @@
  */
 import { jest } from '@jest/globals';
 import request from 'supertest';
+import environments from '../src/api/config/environments.js';
+
+const ORIGIN = environments.frontendUrl;
 
 // ─── Mocks (sin mockear origin.middleware.js) ───────────────────────
 
@@ -121,5 +124,25 @@ describe('Configuración — CSRF con origin middleware real', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+
+  it('PUT con Referer que empieza igual pero dominio distinto → 403 (no acepta prefijo engañoso)', async () => {
+    const maliciousReferer = `${ORIGIN}.evil.com/admin/configuracion-tienda`;
+    const res = await request(app)
+      .put('/api/admin/configuracion-tienda')
+      .set('Referer', maliciousReferer)
+      .send({ estado: 'abierta' });
+    expect(res.statusCode).toBe(403);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT con Origin inválido aunque Referer sea válido → 403 (Origin tiene prioridad)', async () => {
+    const res = await request(app)
+      .put('/api/admin/configuracion-tienda')
+      .set('Origin', 'https://evil.example.com')
+      .set('Referer', `${ORIGIN}/admin/configuracion-tienda`)
+      .send({ estado: 'abierta' });
+    expect(res.statusCode).toBe(403);
+    expect(res.body.ok).toBe(false);
   });
 });

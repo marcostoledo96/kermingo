@@ -309,7 +309,7 @@ export async function findAllAdmin(pool, filters = {}) {
 
   // unpaid/caja filter: overrides estado_pago if present
   // excludes cancelados — a cancelled pedido is not actionable for caja payment follow-up
-  if (filters.solo_pagos_pendientes) {
+  if (filters.solo_pagos_pendientes === true) {
     conditions.push("AND p.estado_pago IN ('pendiente','rechazado')");
     conditions.push("AND p.estado_pedido != 'cancelado'");
   } else if (filters.estado_pago) {
@@ -333,15 +333,40 @@ export async function findAllAdmin(pool, filters = {}) {
 }
 
 export async function updateEstadoPedido(pool, id, nuevoEstado) {
-  const pedido = await findById(pool, id);
-  if (!pedido) return 0;
-  if (!transicionEstadoValida(pedido.estado_pedido, nuevoEstado)) return -1;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  const [result] = await pool.query(
-    'UPDATE pedido SET estado_pedido = ? WHERE id = ?',
-    [nuevoEstado, id]
-  );
-  return result.affectedRows;
+    const [rows] = await conn.query(
+      'SELECT id, estado_pedido FROM pedido WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    const pedido = rows[0];
+
+    if (!pedido) {
+      await conn.rollback();
+      return 0;
+    }
+
+    if (!transicionEstadoValida(pedido.estado_pedido, nuevoEstado)) {
+      await conn.rollback();
+      return -1;
+    }
+
+    const [result] = await conn.query(
+      'UPDATE pedido SET estado_pedido = ? WHERE id = ?',
+      [nuevoEstado, id]
+    );
+
+    await conn.commit();
+    return result.affectedRows;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 export async function updateEstadoPago(pool, id, nuevoEstado) {

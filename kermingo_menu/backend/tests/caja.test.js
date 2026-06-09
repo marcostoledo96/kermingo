@@ -44,18 +44,24 @@ async function crearPedidoCaja(payload) {
  */
 async function limpiarPedidosDeTest() {
   const [rows] = await pool.query(
-    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-%'"
+    'SELECT id, estado_pedido FROM pedido WHERE nombre_cliente LIKE ?',
+    [`${RUN_ID}%`]
   );
-  for (const { id } of rows) {
+  for (const pedido of rows) {
+    if (['listo', 'entregado'].includes(pedido.estado_pedido)) {
+      // Test bug: shouldn't leave terminal orders behind
+      // If this fires, the test that created this order is missing cleanup
+      console.warn(`Cleanup: pedido ${pedido.id} en estado ${pedido.estado_pedido} — no cancelable, borrando sin reponer stock`);
+    }
     try {
-      await cancelWithTransaction(pool, id);
+      await cancelWithTransaction(pool, pedido.id);
     } catch (err) {
-      // cancelWithTransaction falla si el pedido está en estado
-      // terminal. En ese caso seguimos con DELETE directo.
+      // cancelWithTransaction may fail for terminal states — fall through to DELETE
     }
   }
   const [remaining] = await pool.query(
-    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-%'"
+    'SELECT id FROM pedido WHERE nombre_cliente LIKE ?',
+    [`${RUN_ID}%`]
   );
   const ids = remaining.map((r) => r.id);
   if (ids.length > 0) {
@@ -820,7 +826,7 @@ describe('Caja cancelled payment block (integration)', () => {
 
 // Pool cleanup — must be last afterAll
 afterAll(async () => {
-  await pool.end();
+  try { await pool.end(); } catch (_) { /* pool ya cerrado por otra suite */ }
 });
 
 /*
@@ -842,9 +848,3 @@ Manual test checklist (from spec.md):
       -> 200, total updated, stock reconciled.
  7. Repeat PUT with qty exceeding stock -> 409; re-read stock and detalle unchanged.
 */
-
-// FIX retroactivo: cerrar pool al final del archivo para evitar open handles
-// (Copilot Medium en PR #4 + mismo fix que PR #3).
-afterAll(async () => {
-  try { await pool.end(); } catch (_) { /* pool ya cerrado por otra suite */ }
-});

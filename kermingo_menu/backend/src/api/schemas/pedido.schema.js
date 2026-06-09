@@ -39,7 +39,7 @@ export const pedidoQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
-});
+}).strict();
 
 export const updateEstadoPedidoSchema = z.object({
   estado_pedido: z.enum([
