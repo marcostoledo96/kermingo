@@ -5,6 +5,7 @@ import pool from '../src/api/database/db.js';
 import environments from '../src/api/config/environments.js';
 import {
   validatePaymentTransition,
+  transitionsByMethod,
   PAGO_TRANSITIONS,
 } from '../src/api/models/pedido.model.js';
 import {
@@ -12,6 +13,8 @@ import {
   pedidoQuerySchema,
   editPedidoSchema,
 } from '../src/api/schemas/pedido.schema.js';
+
+const RUN_ID = `TEST-B6-2-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 const COOKIE_NAME = environments.cookie.name;
 const JWT_SECRET = environments.jwt.secret;
@@ -34,38 +37,46 @@ async function crearPedidoCaja(payload) {
 
 async function limpiarPedidosDeTest() {
   const [rows] = await pool.query(
-    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-B6-2%'"
+    'SELECT id, estado_pedido FROM pedido WHERE nombre_cliente LIKE ?',
+    [`${RUN_ID}%`]
   );
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return;
   const ph = ids.map(() => '?').join(',');
 
-  // Restore stock before deleting detalles
-  const [detalles] = await pool.query(
-    `SELECT pd.producto_id, pd.cantidad, p.tipo
-     FROM pedido_detalle pd
-     JOIN producto p ON p.id = pd.producto_id
-     WHERE pd.pedido_id IN (${ph})`,
-    ids
-  );
-  for (const d of detalles) {
-    if (d.tipo === 'promo') {
-      const [comps] = await pool.query(
-        'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
-        [d.producto_id]
-      );
-      for (const comp of comps) {
-        const total = comp.cantidad * d.cantidad;
+  // Read estado_pedido per pedido to skip stock restoration for cancelled ones
+  const cancelledIds = rows.filter((r) => r.estado_pedido === 'cancelado').map((r) => r.id);
+  const activeIds = ids.filter((id) => !cancelledIds.includes(id));
+
+  // Restore stock only for non-cancelled pedidos
+  if (activeIds.length > 0) {
+    const phActive = activeIds.map(() => '?').join(',');
+    const [detalles] = await pool.query(
+      `SELECT pd.producto_id, pd.cantidad, p.tipo
+       FROM pedido_detalle pd
+       JOIN producto p ON p.id = pd.producto_id
+       WHERE pd.pedido_id IN (${phActive})`,
+      activeIds
+    );
+    for (const d of detalles) {
+      if (d.tipo === 'promo') {
+        const [comps] = await pool.query(
+          'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
+          [d.producto_id]
+        );
+        for (const comp of comps) {
+          const total = comp.cantidad * d.cantidad;
+          await pool.query(
+            'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
+            [total, comp.producto_id]
+          );
+        }
+      } else {
         await pool.query(
           'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-          [total, comp.producto_id]
+          [d.cantidad, d.producto_id]
         );
       }
-    } else {
-      await pool.query(
-        'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-        [d.cantidad, d.producto_id]
-      );
     }
   }
 
@@ -76,23 +87,23 @@ async function limpiarPedidosDeTest() {
 // Unit tests
 
 describe('Caja payment-state machine (unit)', () => {
-  it('pendiente -> pagado is valid', () => {
+  it('pendiente -> pagado is valid (generic)', () => {
     expect(validatePaymentTransition('pendiente', 'pagado')).toBe(true);
   });
 
-  it('pendiente -> comprobante_subido is valid', () => {
+  it('pendiente -> comprobante_subido is valid (generic)', () => {
     expect(validatePaymentTransition('pendiente', 'comprobante_subido')).toBe(true);
   });
 
-  it('comprobante_subido -> pagado is valid', () => {
+  it('comprobante_subido -> pagado is valid (generic)', () => {
     expect(validatePaymentTransition('comprobante_subido', 'pagado')).toBe(true);
   });
 
-  it('comprobante_subido -> rechazado is valid', () => {
+  it('comprobante_subido -> rechazado is valid (generic)', () => {
     expect(validatePaymentTransition('comprobante_subido', 'rechazado')).toBe(true);
   });
 
-  it('rechazado -> pendiente is valid', () => {
+  it('rechazado -> pendiente is valid (generic)', () => {
     expect(validatePaymentTransition('rechazado', 'pendiente')).toBe(true);
   });
 
@@ -110,14 +121,97 @@ describe('Caja payment-state machine (unit)', () => {
     expect(validatePaymentTransition('rechazado', 'pagado')).toBe(false);
   });
 
-  it('same state is always valid', () => {
+  it('same state is valid for transition map (no-op in model layer)', () => {
     expect(validatePaymentTransition('pagado', 'pagado')).toBe(true);
     expect(validatePaymentTransition('pendiente', 'pendiente')).toBe(true);
+  });
+
+  it('same state is rejected by updateEstadoPago (explicit PATCH should change state)', async () => {
+    // Create an efectivo pedido already in pagado state
+    const pagoPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-SAME-STATE`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: 5, cantidad: 1 }],
+    });
+    // Mark as pagado
+    await request(app)
+      .patch(`/api/admin/pedidos/${pagoPedido.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+
+    // Try PATCH with same state — should be 400
+    const res = await request(app)
+      .patch(`/api/admin/pedidos/${pagoPedido.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
   });
 
   it('PAGO_TRANSITIONS contains all expected keys', () => {
     expect(Object.keys(PAGO_TRANSITIONS)).toEqual(
       expect.arrayContaining(['pendiente', 'comprobante_subido', 'rechazado', 'pagado'])
+    );
+  });
+});
+
+// Method-aware payment state machine (unit)
+
+describe('Caja payment-state-machine method-aware (unit)', () => {
+  it('efectivo: pendiente -> pagado is valid', () => {
+    expect(validatePaymentTransition('pendiente', 'pagado', 'efectivo')).toBe(true);
+  });
+
+  it('efectivo: pendiente -> comprobante_subido is invalid', () => {
+    expect(validatePaymentTransition('pendiente', 'comprobante_subido', 'efectivo')).toBe(false);
+  });
+
+  it('efectivo: pendiente -> rechazado is invalid', () => {
+    expect(validatePaymentTransition('pendiente', 'rechazado', 'efectivo')).toBe(false);
+  });
+
+  it('efectivo: pagado -> pendiente is invalid (terminal)', () => {
+    expect(validatePaymentTransition('pagado', 'pendiente', 'efectivo')).toBe(false);
+  });
+
+  it('efectivo: same-state pendiente is valid (no-op)', () => {
+    expect(validatePaymentTransition('pendiente', 'pendiente', 'efectivo')).toBe(true);
+  });
+
+  it('transferencia: pendiente -> comprobante_subido is valid', () => {
+    expect(validatePaymentTransition('pendiente', 'comprobante_subido', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: pendiente -> pagado is valid', () => {
+    expect(validatePaymentTransition('pendiente', 'pagado', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: comprobante_subido -> pagado is valid', () => {
+    expect(validatePaymentTransition('comprobante_subido', 'pagado', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: comprobante_subido -> rechazado is valid', () => {
+    expect(validatePaymentTransition('comprobante_subido', 'rechazado', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: rechazado -> pendiente is valid', () => {
+    expect(validatePaymentTransition('rechazado', 'pendiente', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: rechazado -> comprobante_subido is valid', () => {
+    expect(validatePaymentTransition('rechazado', 'comprobante_subido', 'transferencia')).toBe(true);
+  });
+
+  it('transferencia: pagado -> anything is invalid (terminal)', () => {
+    expect(validatePaymentTransition('pagado', 'pendiente', 'transferencia')).toBe(false);
+  });
+
+  it('transitionsByMethod has efectivo and transferencia keys', () => {
+    expect(Object.keys(transitionsByMethod)).toEqual(
+      expect.arrayContaining(['efectivo', 'transferencia'])
     );
   });
 });
@@ -163,6 +257,21 @@ describe('Caja schema validation', () => {
     const result = editPedidoSchema.safeParse({ items: [] });
     expect(result.success).toBe(false);
   });
+
+  it('editPedidoSchema accepts metadata-only body without items', () => {
+    const result = editPedidoSchema.safeParse({ nombre_cliente: 'Test' });
+    expect(result.success).toBe(true);
+  });
+
+  it('editPedidoSchema accepts metodo_pago only', () => {
+    const result = editPedidoSchema.safeParse({ metodo_pago: 'transferencia' });
+    expect(result.success).toBe(true);
+  });
+
+  it('editPedidoSchema rejects empty body (no fields at all)', () => {
+    const result = editPedidoSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
 });
 
 // Auth-boundary tests (unauthenticated)
@@ -200,12 +309,12 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
   beforeAll(async () => {
     await limpiarPedidosDeTest();
     pedidoEfectivo = await crearPedidoCaja({
-      nombre_cliente: 'TEST-B6-2-EFFECTIVO',
+      nombre_cliente: `${RUN_ID}-EFECTIVO`,
       metodo_pago: 'efectivo',
       items: [{ producto_id: 5, cantidad: 1 }], // Pancho
     });
     pedidoTransferencia = await crearPedidoCaja({
-      nombre_cliente: 'TEST-B6-2-TRANSFERENCIA',
+      nombre_cliente: `${RUN_ID}-TRANSFERENCIA`,
       metodo_pago: 'transferencia',
       items: [{ producto_id: 5, cantidad: 1 }],
     });
@@ -348,7 +457,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
 
     await limpiarPedidosDeTest();
     editPedido = await crearPedidoCaja({
-      nombre_cliente: 'TEST-B6-2-EDIT',
+      nombre_cliente: `${RUN_ID}-EDIT`,
       metodo_pago: 'efectivo',
       items: [{ producto_id: prodIdLimited, cantidad: 1 }],
     });
@@ -401,7 +510,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({
-        nombre_cliente: 'TEST-B6-2-EDIT-RENAMED',
+        nombre_cliente: `${RUN_ID}-EDIT-RENAMED`,
         mesa: 'Mesa 99',
         observaciones: 'Sin cebolla',
         metodo_pago: 'transferencia',
@@ -410,7 +519,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
 
     expect(res.statusCode).toBe(200);
     const pedido = res.body.data;
-    expect(pedido.nombre_cliente).toBe('TEST-B6-2-EDIT-RENAMED');
+    expect(pedido.nombre_cliente).toBe(`${RUN_ID}-EDIT-RENAMED`);
     expect(pedido.mesa).toBe('Mesa 99');
     // observaciones may not be returned by findById controller wrapper; assert only what's visible
     expect(pedido.metodo_pago).toBe('transferencia');
@@ -452,7 +561,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
     const resPost = await request(app)
       .post('/api/pedidos')
       .send({
-        nombre_cliente: 'TEST-B6-2-ONLINE',
+        nombre_cliente: `${RUN_ID}-ONLINE`,
         metodo_pago: 'efectivo',
         items: [{ producto_id: 5, cantidad: 1 }],
       });
@@ -471,7 +580,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
 
   it('PUT edits a cancelled pedido fails as expected', async () => {
     const editPedido2 = await crearPedidoCaja({
-      nombre_cliente: 'TEST-B6-2-CANCEL-THEN-EDIT2',
+      nombre_cliente: `${RUN_ID}-CANCEL-THEN-EDIT2`,
       metodo_pago: 'efectivo',
       items: [{ producto_id: prodIdLimited, cantidad: 1 }],
     });
@@ -553,7 +662,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
 
   it('PUT reconciles empty-to items correctly', async () => {
     const pedidoVacio = await crearPedidoCaja({
-      nombre_cliente: 'TEST-B6-2-EMPTY-TO',
+      nombre_cliente: `${RUN_ID}-EMPTY-TO`,
       metodo_pago: 'efectivo',
       items: [{ producto_id: prodIdLimited, cantidad: 1 }],
     });
@@ -583,6 +692,156 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
   });
 });
 
+// B6.2.1: Partial edit (integration)
+
+describe('Caja partial edit (integration)', () => {
+  let partialPedido;
+  let prodIdLimited = 9; // Torta frita
+
+  async function readStock(ids) {
+    const [rows] = await pool.query(
+      'SELECT id, stock_actual, stock_limitado FROM producto WHERE id IN (?)',
+      [ids]
+    );
+    const map = new Map();
+    for (const r of rows) map.set(r.id, r);
+    return map;
+  }
+
+  beforeAll(async () => {
+    await limpiarPedidosDeTest();
+    partialPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-PARTIAL`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
+  });
+
+  it('PUT only nombre_cliente updates name, stock unchanged', async () => {
+    const stockBefore = await readStock([prodIdLimited]);
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${partialPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ nombre_cliente: `${RUN_ID}-PARTIAL-RENAMED` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.nombre_cliente).toBe(`${RUN_ID}-PARTIAL-RENAMED`);
+
+    const stockAfter = await readStock([prodIdLimited]);
+    expect(stockAfter.get(prodIdLimited).stock_actual).toBe(
+      stockBefore.get(prodIdLimited).stock_actual
+    );
+  });
+
+  it('PUT only metodo_pago updates method', async () => {
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${partialPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ metodo_pago: 'transferencia' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.metodo_pago).toBe('transferencia');
+  });
+
+  it('PUT empty body returns 400', async () => {
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${partialPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({});
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+});
+
+// B6.2.1: Edit metodo_pago coherence (integration)
+
+describe('Caja edit metodo_pago coherence (integration)', () => {
+  let coherencePedido;
+  let prodIdLimited = 9; // Torta frita
+
+  beforeAll(async () => {
+    await limpiarPedidosDeTest();
+    coherencePedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-COHERENCE`,
+      metodo_pago: 'transferencia',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+    // Mark as comprobante_subido
+    await request(app)
+      .patch(`/api/admin/pedidos/${coherencePedido.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'comprobante_subido' });
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
+  });
+
+  it('PUT transferencia -> efectivo coerces comprobante_subido to pendiente', async () => {
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${coherencePedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ metodo_pago: 'efectivo' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.metodo_pago).toBe('efectivo');
+    expect(res.body.data.estado_pago).toBe('pendiente');
+  });
+});
+
+// B6.2.1: Cancelled payment block (integration)
+
+describe('Caja cancelled payment block (integration)', () => {
+  let cancelPedido;
+  let prodIdLimited = 9; // Torta frita
+
+  beforeAll(async () => {
+    await limpiarPedidosDeTest();
+    cancelPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-CANCEL-PAY-BLOCK`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+    // Cancel it
+    const cancelRes = await request(app)
+      .patch(`/api/admin/pedidos/${cancelPedido.id}/cancelar`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN);
+    expect(cancelRes.statusCode).toBe(200);
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
+  });
+
+  it('PATCH payment on cancelled pedido returns 400', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/pedidos/${cancelPedido.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+});
+
+// Pool cleanup — must be last afterAll
+afterAll(async () => {
+  await pool.end();
+});
+
 /*
 Manual test checklist (from spec.md):
 1. Seed local DB with one caja pedido efectivo pending, one transferencia pending,
@@ -592,11 +851,16 @@ Manual test checklist (from spec.md):
       on the cash pending pedido -> 200, payment updates, stock unchanged.
 3. Same PATCH on transferencia pending pedido without comprobante -> 200 (caja verified).
 4. Same PATCH on already paid pedido with {"estado_pago":"pendiente"} -> 400.
-5. curl -b cookie.txt GET '/api/admin/pedidos?solo_pagos_pendientes=true&origen=caja' \
+5. PATCH efectivo pedido with {"estado_pago":"comprobante_subido"} -> 400 (method-aware block).
+6. PATCH cancelled pedido with {"estado_pago":"pagado"} -> 400 (cancelled block).
+7. curl -b cookie.txt GET '/api/admin/pedidos?solo_pagos_pendientes=true&origen=caja' \
       -> only pendiente/rechazado returned; cancelado excluded even if pago=pendiente.
-6. curl -b cookie.txt -X PUT /api/admin/pedidos/:id \
+8. curl -b cookie.txt -X PUT /api/admin/pedidos/:id \
       -H 'Content-Type: application/json' \
       -d '{"items":[{"producto_id":5,"cantidad":3},{"producto_id":6,"cantidad":2}]}' \
       -> 200, total updated, stock reconciled.
-7. Repeat PUT with qty exceeding stock -> 409; re-read stock and detalle unchanged.
+9. Repeat PUT with qty exceeding stock -> 409; re-read stock and detalle unchanged.
+10. PUT only nombre_cliente without items -> 200, stock unchanged.
+11. PUT transferencia pedido with comprobante_subido to metodo_pago=efectivo -> estado_pago=pendiente.
+12. PUT /api/admin/configuracion-tienda from untrusted origin -> 403.
 */

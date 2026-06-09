@@ -144,6 +144,7 @@ export async function cambiarPago(req, res, next) {
     const result = await updateEstadoPago(pool, req.params.id, req.body.estado_pago);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
     if (result === -1) throw new ValidationError('Transicion de estado de pago no valida');
+    if (result === -2) throw new ValidationError('No se puede modificar el pago de un pedido cancelado');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Estado de pago actualizado correctamente');
   } catch (err) {
@@ -165,8 +166,15 @@ export async function editar(req, res, next) {
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Pedido actualizado correctamente');
   } catch (err) {
+    if (err.esOperacional) return next(err);
     if (err.message?.includes('Stock insuficiente')) {
       return next(new InsufficientStockError(err.message));
+    }
+    if (err.message?.includes('Producto') && err.message?.includes('no encontrado')) {
+      return next(new ValidationError(err.message));
+    }
+    if (err.message?.includes('no tiene componentes')) {
+      return next(new ValidationError(err.message));
     }
     next(err);
   }
