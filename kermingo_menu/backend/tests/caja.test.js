@@ -133,12 +133,14 @@ describe('Caja payment-state machine (unit)', () => {
       metodo_pago: 'efectivo',
       items: [{ producto_id: 5, cantidad: 1 }],
     });
-    // Mark as pagado
-    await request(app)
+    // Mark as pagado — assert the transition succeeded first
+    const markRes = await request(app)
       .patch(`/api/admin/pedidos/${pagoPedido.id}/pago`)
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({ estado_pago: 'pagado' });
+    expect(markRes.statusCode).toBe(200);
+    expect(markRes.body.data.estado_pago).toBe('pagado');
 
     // Try PATCH with same state — should be 400
     const res = await request(app)
