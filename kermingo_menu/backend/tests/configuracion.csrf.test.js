@@ -78,7 +78,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
       .set('Origin', 'http://evil.com')
       .send({ estado: 'abierta' });
 
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(403);
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toMatch(/origen/i);
   });
@@ -99,7 +99,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
       .set('Referer', 'http://evil.com/admin')
       .send({ estado: 'abierta' });
 
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(403);
     expect(res.body.ok).toBe(false);
   });
 
@@ -108,7 +108,7 @@ describe('Configuración — CSRF con origin middleware real', () => {
       .put('/api/admin/configuracion-tienda')
       .send({ estado: 'abierta' });
 
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(403);
     expect(res.body.ok).toBe(false);
   });
 

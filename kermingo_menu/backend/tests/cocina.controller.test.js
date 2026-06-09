@@ -35,11 +35,15 @@ jest.unstable_mockModule('../src/api/models/pedido.model.js', () => ({
   // Otros exports del módulo (no usados por estos tests, pero requeridos
   // para que la importación estática del controller funcione):
   TRANSICIONES_VALIDAS: {},
+  PAGO_TRANSITIONS: {},
+  transitionsByMethod: {},
   createWithTransaction: jest.fn(),
   findByToken: jest.fn(),
   findAllAdmin: jest.fn(),
   updateEstadoPago: jest.fn(),
+  validatePaymentTransition: jest.fn(),
   cancelWithTransaction: jest.fn(),
+  editWithTransaction: jest.fn(),
 }));
 
 jest.unstable_mockModule('../src/api/database/db.js', () => ({

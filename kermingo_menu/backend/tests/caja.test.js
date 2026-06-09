@@ -846,5 +846,5 @@ Manual test checklist (from spec.md):
 // FIX retroactivo: cerrar pool al final del archivo para evitar open handles
 // (Copilot Medium en PR #4 + mismo fix que PR #3).
 afterAll(async () => {
-  await pool.end();
+  try { await pool.end(); } catch (_) { /* pool ya cerrado por otra suite */ }
 });
