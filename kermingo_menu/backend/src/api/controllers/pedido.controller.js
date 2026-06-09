@@ -170,10 +170,7 @@ export async function editar(req, res, next) {
     if (err.message?.includes('Stock insuficiente')) {
       return next(new InsufficientStockError(err.message));
     }
-    if (err.message?.includes('Producto') && err.message?.includes('no encontrado')) {
-      return next(new ValidationError(err.message));
-    }
-    if (err.message?.includes('no tiene componentes')) {
+    if (err.message?.includes('no encontrado o inactivo')) {
       return next(new ValidationError(err.message));
     }
     next(err);
