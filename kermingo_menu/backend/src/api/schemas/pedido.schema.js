@@ -67,8 +67,13 @@ export const editPedidoSchema = z.object({
         cantidad: z.coerce.number().int().min(1),
       }).strict()
     )
-    .min(1, 'Al menos un producto requerido'),
-}).strict();
+    .min(1, 'Al menos un producto requerido')
+    .optional(),
+}).strict()
+  .refine(
+    (data) => data.items !== undefined || data.nombre_cliente !== undefined || data.mesa !== undefined || data.telefono_cliente !== undefined || data.observaciones !== undefined || data.metodo_pago !== undefined,
+    { message: 'Debe enviarse al menos un campo para editar' }
+  );
 
 export const idParamSchema = z.object({
   id: z.coerce.number().int().min(1),

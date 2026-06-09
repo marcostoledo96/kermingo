@@ -1,4 +1,4 @@
-import { AuthError } from '../utils/errors.js';
+import { ForbiddenError } from '../utils/errors.js';
 import environments from '../config/environments.js';
 
 const UNSAFE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
@@ -19,5 +19,5 @@ export function requireTrustedOrigin(req, _res, next) {
     return next();
   }
 
-  return next(new AuthError('Origen no permitido'));
+  return next(new ForbiddenError('Origen no permitido'));
 }

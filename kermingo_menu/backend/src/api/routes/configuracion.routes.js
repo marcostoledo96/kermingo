@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { validateBody } from '../middlewares/validate.middleware.js';
 import { requireAdmin } from '../middlewares/admin.middleware.js';
+import { requireTrustedOrigin } from '../middlewares/origin.middleware.js';
 import { updateConfiguracionSchema } from '../schemas/configuracion.schema.js';
 import {
   obtenerPublico,
@@ -14,6 +15,6 @@ const adminRouter = Router();
 publicRouter.get('/', obtenerPublico);
 
 adminRouter.get('/', requireAdmin, obtenerAdmin);
-adminRouter.put('/', requireAdmin, validateBody(updateConfiguracionSchema), actualizarAdmin);
+adminRouter.put('/', requireAdmin, requireTrustedOrigin, validateBody(updateConfiguracionSchema), actualizarAdmin);
 
 export { publicRouter, adminRouter };
