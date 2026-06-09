@@ -52,7 +52,12 @@ export const PAGO_TRANSITIONS = {
  * @returns {boolean}
  */
 export function validatePaymentTransition(from, to) {
-  if (from === to) return true;
+  // FIX retroactivo: mismo estado no es una transición válida.
+  // Antes retornaba `true`, lo que hacía que mysql2 ejecutara un UPDATE
+  // no-op (affectedRows=0) y el controller lo interpretara como 404.
+  // Ahora retorna `false` → `updateEstadoPago` retorna -1 → 400
+  // con mensaje unificado 'Transición de estado de pago no válida'.
+  if (from === to) return false;
   return (PAGO_TRANSITIONS[from] || []).includes(to);
 }
 

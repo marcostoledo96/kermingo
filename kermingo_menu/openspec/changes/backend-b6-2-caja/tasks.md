@@ -65,6 +65,7 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Cleanup & Contract Docs
 
-- [x] 5.1 Update inline JSDoc for `PAGO_TRANSITIONS`, `validatePaymentTransition`, and `editWithTransaction`.
-- [x] 5.2 Document `solo_pagos_pendientes` contract in controller-level route comments.
-- [x] 5.3 Verify no stray `console.log` or temporary SQL remains in modified files.
+- [ ] 5.1 Update inline JSDoc for `PAGO_TRANSITIONS`, `validatePaymentTransition`, and `editWithTransaction`.
+- [ ] 5.2 Document `solo_pagos_pendientes` contract in controller-level route comments.
+- [ ] 5.3 Verify no stray `console.log` or temporary SQL remains in modified files.
+- [x] 5.4 Apply retroactivo del review fix (Copilot comments 1, 2, 3, 4, 5, 6, 7 + ChatGPT P2 + bug de idempotencia): acentos en `cambiarPago`, idempotencia `validatePaymentTransition`, cleanup con `cancelWithTransaction`, `afterAll(pool.end)`, tests deterministas con fixtures `TEST-FILTER-*`, invariante stock validada en PATCH /pago. Ver `openspec/changes/backend-b6-2-caja-review-fixes/`.

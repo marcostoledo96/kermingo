@@ -143,7 +143,7 @@ export async function cambiarPago(req, res, next) {
     const pool = getPool();
     const result = await updateEstadoPago(pool, req.params.id, req.body.estado_pago);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
-    if (result === -1) throw new ValidationError('Transicion de estado de pago no valida');
+    if (result === -1) throw new ValidationError('Transición de estado de pago no válida');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Estado de pago actualizado correctamente');
   } catch (err) {

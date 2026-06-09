@@ -6,6 +6,7 @@ import environments from '../src/api/config/environments.js';
 import {
   validatePaymentTransition,
   PAGO_TRANSITIONS,
+  cancelWithTransaction,
 } from '../src/api/models/pedido.model.js';
 import {
   updateEstadoPagoSchema,
@@ -32,41 +33,35 @@ async function crearPedidoCaja(payload) {
   return res.body.data;
 }
 
+/**
+ * FIX retroactivo (ChatGPT Codex P2): cleanup con cancelWithTransaction
+ * en vez de DELETE directo. Esto restaura el stock de productos y
+ * componentes de combos antes de borrar las filas, evitando que runs
+ * repetidos de `npm test` agoten el stock del producto 5 (Pancho).
+ */
 async function limpiarPedidosDeTest() {
   const [rows] = await pool.query(
-    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-B6-2%'"
+    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-%'"
   );
-  const ids = rows.map((r) => r.id);
-  if (ids.length === 0) return;
-  const ph = ids.map(() => '?').join(',');
-
-  // Restore stock before deleting detalles
-  const [detalles] = await pool.query(
-    `SELECT pd.producto_id, pd.cantidad, p.tipo
-     FROM pedido_detalle pd
-     JOIN producto p ON p.id = pd.producto_id
-     WHERE pd.pedido_id IN (${ph})`,
-    ids
-  );
-  for (const d of detalles) {
-    if (d.tipo === 'promo') {
-      const [comps] = await pool.query(
-        'SELECT producto_id, cantidad FROM combo_producto WHERE combo_id = ?',
-        [d.producto_id]
-      );
-      for (const comp of comps) {
-        const total = comp.cantidad * d.cantidad;
-        await pool.query(
-          'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-          [total, comp.producto_id]
-        );
-      }
-    } else {
-      await pool.query(
-        'UPDATE producto SET stock_actual = stock_actual + ? WHERE id = ? AND stock_limitado = 1',
-        [d.cantidad, d.producto_id]
-      );
+  for (const { id } of rows) {
+    try {
+      // cancelWithTransaction restaura stock si el pedido está en estado
+      // cancelable (recibido/en_preparacion). Si ya está cancelado, no-op.
+      await cancelWithTransaction(pool, id);
+    } catch (err) {
+      // Si la cancelación falla (ej. pedido ya en estado terminal),
+      // seguimos con DELETE directo para limpiar.
     }
+  }
+  // DELETE final para limpiar filas (canceladas o no).
+  const [remaining] = await pool.query(
+    "SELECT id FROM pedido WHERE nombre_cliente LIKE 'TEST-%'"
+  );
+  const ids = remaining.map((r) => r.id);
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
+    await pool.query(`DELETE FROM pedido_detalle WHERE pedido_id IN (${ph})`, ids);
+    await pool.query(`DELETE FROM pedido WHERE id IN (${ph})`, ids);
   }
 
   await pool.query(`DELETE FROM pedido_detalle WHERE pedido_id IN (${ph})`, ids);
@@ -110,9 +105,15 @@ describe('Caja payment-state machine (unit)', () => {
     expect(validatePaymentTransition('rechazado', 'pagado')).toBe(false);
   });
 
-  it('same state is always valid', () => {
-    expect(validatePaymentTransition('pagado', 'pagado')).toBe(true);
-    expect(validatePaymentTransition('pendiente', 'pendiente')).toBe(true);
+  it('same state is invalid (FIX retroactivo: idempotencia devuelve 400)', () => {
+    // FIX retroactivo: `from === to` ahora retorna `false`.
+    // Antes retornaba `true`, lo que hacía que mysql2 ejecutara un UPDATE
+    // no-op (affectedRows=0) y el controller lanzara 404 'Pedido no
+    // encontrado'. Ahora `validatePaymentTransition` retorna `false`
+    // → `updateEstadoPago` retorna `-1` → controller lanza 400 con
+    // 'Transición de estado de pago no válida'.
+    expect(validatePaymentTransition('pagado', 'pagado')).toBe(false);
+    expect(validatePaymentTransition('pendiente', 'pendiente')).toBe(false);
   });
 
   it('PAGO_TRANSITIONS contains all expected keys', () => {
@@ -216,6 +217,11 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
   });
 
   it('PATCH pendiente -> pagado for efectivo returns 200, stock/estado_pedido unchanged', async () => {
+    // FIX retroactivo: capturar stock del producto 5 justo antes del PATCH
+    // para validar que el PATCH de pago NO lo modifica.
+    const [[stockAntes]] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = 5'
+    );
     const res = await request(app)
       .patch(`/api/admin/pedidos/${pedidoEfectivo.id}/pago`)
       .set('Cookie', adminCookie())
@@ -224,6 +230,13 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data.estado_pago).toBe('pagado');
     expect(res.body.data.estado_pedido).toBe('recibido');
+
+    // FIX retroactivo: validar invariante "stock no cambia con PATCH de pago".
+    // (Comentario 3 de Copilot Medium — esta cobertura faltaba en el PR original.)
+    const [[stockDespues]] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = 5'
+    );
+    expect(stockDespues.stock_actual).toBe(stockAntes.stock_actual);
   });
 
   it('PATCH pendiente -> pagado for transferencia returns 200 without comprobante', async () => {
@@ -255,40 +268,114 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
     expect(res.statusCode).toBe(400);
     expect(res.body.ok).toBe(false);
   });
+
+  it('PATCH pagado -> pagado returns 400 (idempotente no es válido, FIX retroactivo)', async () => {
+    // FIX retroactivo: admin puede mandar mismo estado actual. Con el fix,
+    // `validatePaymentTransition('pagado', 'pagado')` retorna `false`,
+    // `updateEstadoPago` retorna `-1`, controller lanza 400 con
+    // 'Transición de estado de pago no válida'. Antes retornaba 404.
+    const res = await request(app)
+      .patch(`/api/admin/pedidos/${pedidoEfectivo.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toMatch(/Transición de estado de pago no válida/);
+  });
 });
 
 // PR1: Authenticated unpaid-filter integration tests
+// FIX retroactivo: tests originales no eran deterministas (pasaban con DB
+// vacía). Ahora creamos fixtures propios con `nombre_cliente` único y
+// filtramos por nombre para verificar el comportamiento del filtro.
 
 describe('Authenticated GET solo_pagos_pendientes (PR1 integration)', () => {
-  it('excludes pagado pedidos from the unpaid list', async () => {
+  let pedidoPendiente;
+  let pedidoPagado;
+  let pedidoCancelado;
+  const TEST_PREFIX = 'TEST-FILTER';
+
+  beforeAll(async () => {
+    await limpiarPedidosDeTest();
+    // Fixture: pedido pendiente (sin PATCH de pago, queda en 'pendiente')
+    pedidoPendiente = await crearPedidoCaja({
+      nombre_cliente: `${TEST_PREFIX}-PENDIENTE-${Date.now()}`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: 5, cantidad: 1 }],
+    });
+    // Fixture: pedido pagado
+    const resPagado = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${TEST_PREFIX}-PAGADO-${Date.now()}`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+    pedidoPagado = resPagado.body.data;
+    await request(app)
+      .patch(`/api/admin/pedidos/${pedidoPagado.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+    // Fixture: pedido cancelado (mismo flujo que pagado pero después cancelamos)
+    const resCanc = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${TEST_PREFIX}-CANCELADO-${Date.now()}`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+    pedidoCancelado = resCanc.body.data;
+    await cancelWithTransaction(pool, pedidoCancelado.id);
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
+  });
+
+  it('excludes TEST-FILTER-PAGADO from the unpaid list', async () => {
     const res = await request(app)
-      .get('/api/admin/pedidos?solo_pagos_pendientes=true&limit=100')
+      .get(`/api/admin/pedidos?solo_pagos_pendientes=true&limit=100&buscar=${TEST_PREFIX}`)
       .set('Cookie', adminCookie());
     expect(res.statusCode).toBe(200);
     const pedidos = res.body.data.pedidos;
+    // Ninguno de los TEST-FILTER-* debe ser pagado.
     const tienePagado = pedidos.some((p) => p.estado_pago === 'pagado');
     expect(tienePagado).toBe(false);
+    // Verificación específica: TEST-FILTER-PAGADO no debe aparecer.
+    const aparecePagado = pedidos.some((p) => p.id === pedidoPagado.id);
+    expect(aparecePagado).toBe(false);
   });
 
-  it('excludes cancelado pedidos even when their pago is still pendiente', async () => {
+  it('excludes TEST-FILTER-CANCELADO from the unpaid list', async () => {
     const res = await request(app)
-      .get('/api/admin/pedidos?solo_pagos_pendientes=true&limit=100')
+      .get(`/api/admin/pedidos?solo_pagos_pendientes=true&limit=100&buscar=${TEST_PREFIX}`)
       .set('Cookie', adminCookie());
     expect(res.statusCode).toBe(200);
     const pedidos = res.body.data.pedidos;
-    const tieneCancelado = pedidos.some((p) => p.estado_pedido === 'cancelado');
-    expect(tieneCancelado).toBe(false);
+    // Verificación específica: TEST-FILTER-CANCELADO no debe aparecer.
+    const apareceCancelado = pedidos.some((p) => p.id === pedidoCancelado.id);
+    expect(apareceCancelado).toBe(false);
   });
 
-  it('only returns pedidos with estado_pago in pendiente or rechazado', async () => {
+  it('only returns TEST-FILTER pedidos with estado_pago in pendiente or rechazado', async () => {
     const res = await request(app)
-      .get('/api/admin/pedidos?solo_pagos_pendientes=true&limit=100')
+      .get(`/api/admin/pedidos?solo_pagos_pendientes=true&limit=100&buscar=${TEST_PREFIX}`)
       .set('Cookie', adminCookie());
     expect(res.statusCode).toBe(200);
     const pedidos = res.body.data.pedidos;
+    // Solo debe traer TEST-FILTER-PENDIENTE (pagado y cancelado excluidos).
     for (const p of pedidos) {
       expect(['pendiente', 'rechazado']).toContain(p.estado_pago);
     }
+    // Verificación específica: TEST-FILTER-PENDIENTE debe aparecer.
+    const aparecePendiente = pedidos.some((p) => p.id === pedidoPendiente.id);
+    expect(aparecePendiente).toBe(true);
   });
 });
 
@@ -600,3 +687,9 @@ Manual test checklist (from spec.md):
       -> 200, total updated, stock reconciled.
 7. Repeat PUT with qty exceeding stock -> 409; re-read stock and detalle unchanged.
 */
+
+// FIX retroactivo: cerrar pool al final del archivo para evitar open handles
+// (Comentario 7 de Copilot Medium).
+afterAll(async () => {
+  await pool.end();
+});
