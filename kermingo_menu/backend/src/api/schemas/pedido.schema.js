@@ -35,6 +35,10 @@ export const pedidoQuerySchema = z.object({
   metodo_pago: z.enum(['transferencia', 'efectivo']).optional(),
   origen: z.enum(['online', 'caja']).optional(),
   buscar: z.string().max(50).optional(),
+  solo_pagos_pendientes: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
 });
 
 export const updateEstadoPedidoSchema = z.object({
@@ -47,7 +51,7 @@ export const updateEstadoPedidoSchema = z.object({
 }).strict();
 
 export const updateEstadoPagoSchema = z.object({
-  estado_pago: z.enum(['pendiente', 'pagado', 'rechazado']),
+  estado_pago: z.enum(['pendiente', 'comprobante_subido', 'pagado', 'rechazado']),
 }).strict();
 
 export const idParamSchema = z.object({
