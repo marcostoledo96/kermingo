@@ -111,3 +111,27 @@ Environment restore: singleton row restored locally after verification
 **PASS WITH WARNINGS**
 
 PR2/WU2 configuracion now clears the automated verification gate because `npm test` exits cleanly after the open-handle fix, and the local configuracion read/update contract was reconfirmed at runtime. Remaining issues are quality warnings, not blockers for commit/PR.
+
+---
+
+## Retroactive Remediation: backend-b6-1-cocina-review-fixes
+
+**Scope**: 4 Copilot review comments + 1 latent bug on PR #1 cocina (B6.1 PR1).
+
+### Fixes Applied
+1. **`findKitchenPedidos` GROUP BY**: reescrito para listar todas las columnas seleccionadas. Compatible con `ONLY_FULL_GROUP_BY` (MySQL 8 default).
+2. **`TRANSICIONES_COCINA` duplicado**: eliminado de `cocina.controller.js`. Ahora se importa `transicionEstadoValida` desde `pedido.model.js`. `TRANSICIONES_VALIDAS` y `transicionEstadoValida` ahora son `export` desde el modelo.
+3. **Mensaje de error unificado**: ambos `throw ValidationError` en `cambiarEstadoCocina` retornan `'Transición de estado no válida para cocina'`.
+4. **Bug latente de transición nula**: `transicionEstadoValida(actual, actual)` ahora retorna `false` (antes retornaba `true`, permitiendo no-ops con 200).
+5. **Tests reales**: 16 tests nuevos (9 controller + 6 unit + 3 sin cambios) en 3 archivos (`cocina.test.js`, `cocina.controller.test.js`, `cocina.unit.test.js`). 23 tests pasan en total.
+
+### Stale Item Removed
+- ~~"Remove the redundant dotenv path setup in `backend/tests/cocina.test.js`"~~ — el archivo nunca cargó dotenv; ese item del verify-report original era ruido de otra review.
+
+### Verification
+- `npm test` desde `backend/`: **5 suites, 23 tests, 0 failures** ✅
+- 9 controller tests usan `jest.unstable_mockModule` (ESM-compatible) para probar el controller real con mocks del modelo.
+- 6 unit tests verifican `transicionEstadoValida` con la implementación real.
+
+### Out of Band (manual verification needed)
+- `findKitchenPedidos` con `ONLY_FULL_GROUP_BY` requiere MySQL 8 real. No hay DB de test; requiere curl manual contra instancia corriendo.

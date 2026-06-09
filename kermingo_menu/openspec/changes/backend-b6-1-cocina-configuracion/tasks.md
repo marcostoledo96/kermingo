@@ -43,5 +43,7 @@
 
 ## Phase 5: Cleanup
 
-- [x] 5.1 Verify no duplicated transition rules in cocina.controller (reuses pedido model state machine).
+- [x] 5.1 Verify no duplicated transition rules in cocina.controller (reuses pedido model state machine). **Remediated retroactively** in `feature/backend-b6-1-cocina-review-fixes` — `TRANSICIONES_COCINA` and `transicionCocinaValida` deleted from cocina.controller.js; helpers now imported from pedido.model.js.
 - [x] 5.2 Confirm `configuracion_tienda.id=1` exists in seed/docs.
+- [x] 5.3 Apply retroactivo del review fix cocina (Copilot comments 1, 2, 3, 6 + latent bug): GROUP BY compatible con `ONLY_FULL_GROUP_BY`, mensajes de error unificados, bug de transición nula corregido, tests reales con `jest.unstable_mockModule`. Ver `openspec/changes/archive/2026-06-09-backend-b6-1-cocina-review-fixes/`.
+- [x] 5.4 Apply retroactivo del review fix configuracion (P1 CSRF + HIGH affectedRows + MEDIUM schema nullable + MEDIUM/LOW tests): agregado `requireTrustedOrigin` en PUT admin, fix de `affected === 0 → 404` (descartar affectedRows, `findAdmin` post-update), schema Zod acepta `null` para limpiar campos, tests con `jest.unstable_mockModule` y CSRF con middleware real. Ver `openspec/changes/backend-b6-1-configuracion-review-fixes/`.

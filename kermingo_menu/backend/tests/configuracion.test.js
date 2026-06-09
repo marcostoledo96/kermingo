@@ -6,8 +6,10 @@ describe('Configuracion endpoints sin autenticacion', () => {
   it('GET /api/configuracion-tienda -> 200 publico sin cookie', async () => {
     const res = await request(app).get('/api/configuracion-tienda');
     expect(res.statusCode).toEqual(200);
-    // No exigimos body.ok porque el middleware de error global puede devolver 404 si no hay DB.
-    // Solo verificamos que la ruta existe y retorna respuesta.
+    // Solo validamos que la ruta está montada y responde.
+    // Si la fila `configuracion_tienda.id=1` no existe (sin seed), el handler
+    // devuelve 404. Un fallo de conexión a DB devolvería 500 desde el error
+    // middleware, no 404.
     expect(typeof res.body).toBe('object');
   });
 
@@ -26,13 +28,11 @@ describe('Configuracion endpoints sin autenticacion', () => {
   });
 });
 
-describe('Configuracion endpoints validacion body', () => {
-  it('PUT /api/admin/configuracion-tienda con estado invalido -> 400', async () => {
-    // Reutilizamos el validador Zod; sin cookie da 401 antes, así que solo podemos probar
-    // que la ruta en sí responde 401 para PUT sin cookie (ya cubierto arriba).
-    // Para validacion de body necesitariamos autenticacion real.
-    // Marcamos como pendiente en comentario para documentar gap.
-    // Verificamos que el schema esta montado testeando un 401.
+describe('Configuracion endpoints validacion body (sin auth)', () => {
+  it('PUT /api/admin/configuracion-tienda -> 401 sin cookie (validación 400 requiere auth)', async () => {
+    // Sin cookie el middleware `requireAdmin` corta antes que Zod.
+    // La validación 400 de Zod se prueba en `configuracion.controller.test.js`
+    // (con admin mockeado) y en `configuracion.unit.test.js` (schema puro).
     const res = await request(app)
       .put('/api/admin/configuracion-tienda')
       .send({ estado: 'no_existe' });

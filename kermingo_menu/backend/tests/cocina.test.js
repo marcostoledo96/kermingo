@@ -1,6 +1,8 @@
 import request from 'supertest';
 import app from '../src/app.js';
 
+// ─── Nivel 1: Endpoints sin autenticación (sin mocks, HTTP real) ──────
+
 describe('Cocina endpoints sin autenticacion', () => {
   it('GET /api/admin/cocina/pedidos -> 401 sin cookie', async () => {
     const res = await request(app).get('/api/admin/cocina/pedidos');

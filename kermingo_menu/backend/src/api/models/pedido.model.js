@@ -27,14 +27,14 @@ function formatearNumero(insertId) {
   return `KMG-${String(insertId).padStart(4, '0')}`;
 }
 
-const TRANSICIONES_VALIDAS = {
+export const TRANSICIONES_VALIDAS = {
   recibido: ['en_preparacion'],
   en_preparacion: ['listo'],
   listo: ['entregado'],
 };
 
-function transicionEstadoValida(actual, siguiente) {
-  if (actual === siguiente) return true;
+export function transicionEstadoValida(actual, siguiente) {
+  if (actual === siguiente) return false;
   return (TRANSICIONES_VALIDAS[actual] || []).includes(siguiente);
 }
 
@@ -193,7 +193,8 @@ export async function findKitchenPedidos(pool) {
      FROM pedido p
      LEFT JOIN pedido_detalle pd ON pd.pedido_id = p.id
      WHERE p.estado_pedido IN ('recibido', 'en_preparacion', 'listo')
-     GROUP BY p.id
+     GROUP BY p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
+              p.estado_pago, p.observaciones, p.created_at, p.total
      ORDER BY FIELD(p.estado_pedido, 'recibido', 'en_preparacion', 'listo'), p.created_at ASC`
   );
   return rows;
