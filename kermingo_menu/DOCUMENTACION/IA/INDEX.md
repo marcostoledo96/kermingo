@@ -4,6 +4,16 @@
 
 ---
 
+## 📌 Esta estructura NO es rígida
+
+La organización actual (14 archivos) **es solo un punto de partida**, inspirada en la documentación de PaginaGrupo. A medida que el proyecto crezca, algunos docs pueden **fusionarse** si su contenido se solapa, **dividirse** si un doc se vuelve demasiado largo, o **reorganizarse** según lo que tenga más sentido para Kermingo. Lo importante es que cada pregunta que un agente IA pueda hacerse tenga un doc que la responda, no la cantidad exacta de archivos.
+
+**Regla**: si un doc nuevo se crea, se fusiona, se parte o se elimina, actualizar este `INDEX.md` para que el mapa documental siga siendo la fuente de verdad.
+
+**Regla de `sdd-archive`**: al cerrar un change, revisar qué docs de `DOCUMENTACION/IA/` quedaron desactualizados y sincronizarlos. Si el change introdujo un concepto, endpoint, tabla o decisión nuevos, asegurarse de que tenga su lugar en la doc.
+
+---
+
 ## Arquitectura y stack
 
 | Pregunta | Archivo |

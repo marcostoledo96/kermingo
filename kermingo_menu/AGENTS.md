@@ -144,6 +144,12 @@ Reglas:
 > La documentación del sistema vive en `DOCUMENTACION/IA/`.
 > Leer el doc correspondiente **ANTES** de escribir código en esa área.
 > El `sdd-archive` debe mantener estos docs al día al cerrar un change.
+>
+> **La estructura no es rígida**: los 14 archivos actuales son un punto de partida
+> inspirado en PaginaGrupo, no una plantilla obligatoria. Si el proyecto necesita
+> fusionar, partir o reorganizar docs, se hace y se actualiza el `INDEX.md`.
+> Lo importante es que cada pregunta que un agente IA pueda hacerse tenga un doc
+> que la responda.
 
 ### Siempre leer primero
 
