@@ -68,17 +68,20 @@ npm test -- --coverage
 
 ```
 backend/tests/
-├── unit/
-│   ├── pedido.model.test.js      # Unit tests de modelo con DB mock
-│   ├── auth.schema.test.js       # Unit tests de schemas Zod
-│   └── ...
-├── integration/
-│   ├── pedido.api.test.js        # Integration tests HTTP con DB real
-│   ├── auth.api.test.js          # Integration tests de login/logout
-│   └── ...
+├── caja.test.js                    # Tests de caja (state machine de pago, filtro pendientes, edición transaccional, cancelación, cleanup)
+├── cocina.controller.test.js       # Integration tests de cocina controller
+├── cocina.test.js                  # Integration tests HTTP de cocina con DB real
+├── cocina.unit.test.js             # Unit tests de cocina model
+├── configuracion.controller.test.js # Unit tests de configuracion controller
+├── configuracion.csrf.test.js      # Tests de CSRF para configuración
+├── configuracion.test.js           # Integration tests de configuración con DB real
+├── configuracion.unit.test.js      # Unit tests de configuracion schema
+├── health.test.js                  # Test de health check
 └── helpers/
-    └── setup.js                  # Fixtures, RUN_ID, limpieza
+    └── setup.js                    # Fixtures, RUN_ID, limpieza
 ```
+
+**Nota:** Los tests están en `backend/tests/` directamente (no en subcarpetas `unit/` o `integration/`). El patrón naming convention distingue unit de integration: `*.unit.test.js` para unitarios con mocks, `*.test.js` para integración con DB real, `*.controller.test.js` para tests de controller.
 
 ---
 
@@ -141,13 +144,18 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 
 ## 7. Cobertura actual
 
-| Suite | Tests | Estado |
+| Suite | Archivo | Descripción |
 |---|---|---|
-| Pedido model | ~60 | Core: creación, cancelación, stock, transacciones |
-| Auth schema | ~10 | Validación Zod de login |
-| Pedido schema | ~18 | Validación de creación, query, estado |
-| Integration API | ~55 | Endpoints HTTP con DB real |
-| **Total** | **~143** | Rama caja + untracked adicionales |
+| Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup |
+| Cocina (integration) | `cocina.test.js` | Endpoints HTTP de cocina con DB real |
+| Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller |
+| Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model |
+| Configuración (integration) | `configuracion.test.js` | Integration tests con DB real |
+| Configuración (controller) | `configuracion.controller.test.js` | Controller unit tests |
+| Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
+| Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
+| Health | `health.test.js` | Health check endpoint |
+| **Total** | 9 suites, **124 tests** | `npm test` para conteo exacto |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 

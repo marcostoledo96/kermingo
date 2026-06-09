@@ -46,12 +46,18 @@ cancelado  (solo desde 'recibido' o 'en_preparacion')
 
 ## 2. State machine de pago
 
+La máquina de estados de pago es **method-aware** (distintas transiciones según `metodo_pago`). Se define en `pedido.model.js` → `transitionsByMethod`.
+
 ```
-pendiente ──→ comprobante_subido ──→ pagado
-    │                                      ↑
-    └──────→ pagado (efectivo directo) ────┘
-                                             
-                   rechazado  (estado terminal, sin comprobante real todavía — B6.3)
+efectivo:
+  pendiente → pagado          (directo, pago en mano)
+  pagado → (terminal)
+
+transferencia:
+  pendiente → pagado | comprobante_subido
+  comprobante_subido → pagado | rechazado
+  rechazado → pendiente | comprobante_subido
+  pagado → (terminal)
 ```
 
 **Estados del `enum estado_pago`:**
@@ -63,9 +69,19 @@ pendiente ──→ comprobante_subido ──→ pagado
 | `pagado` | Pago confirmado (efectivo o transferencia verificada) |
 | `rechazado` | Comprobante rechazado (sin flujo completo todavía — B6.3) |
 
+**Exports del modelo:**
+
+| Export | Tipo | Descripción |
+|---|---|---|
+| `transitionsByMethod` | Object | Map method-aware: keys `efectivo`, `transferencia`. Cada key mapea estado → array de estados permitidos. |
+| `PAGO_TRANSITIONS` | Object | Backward-compatible. Merge genérico de todos los métodos. Usado por tests para key enumeration. |
+| `validatePaymentTransition(from, to, metodoPago?)` | Function | Valida transición de pago. Si `metodoPago` se provee, usa `transitionsByMethod[metodoPago]`. Si no, usa `PAGO_TRANSITIONS` (merge genérico). Retorna `true` para same-state (`from === to`) — el rechazo de no-cambio está en `updateEstadoPago` (línea 368-371). |
+
 **Reglas:**
 - Pedidos online solo permiten `metodo_pago: 'efectivo'` (transferencia bloqueada en controller).
 - Caja rápida puede crear pedido con `estado_pago: 'pagado'` directamente.
+- `updateEstadoPago` bloquea cambios de pago en pedidos `cancelado` (retorna `-2`).
+- `updateEstadoPago` rechaza same-state (`from === to`) con retorno `-1` (no idempotente como PATCH).
 
 ---
 
@@ -94,6 +110,29 @@ Todas las operaciones de stock se hacen dentro de transacciones MySQL con `getCo
 ### Editar pedido (PATCH pago)
 
 - **No toca stock.** Cambiar `estado_pago` no modifica inventario.
+
+### Editar pedido de caja (`editWithTransaction`)
+
+`PUT /api/admin/pedidos/:id` — edición transaccional con reconciliación de stock.
+
+**Restricciones:**
+- Solo pedidos con `origen = 'caja'`. Retorna `-2` si el pedido no es de caja.
+- Pedidos `cancelado` o `entregado` no se pueden editar. Retorna `-1`.
+- Si `data.items` no está presente, solo se editan metadatos (nombre, mesa, teléfono, observaciones, metodo_pago) sin tocar stock.
+
+**Reconciliación de stock (cuando `data.items` está presente):**
+1. Bloquea pedido con `FOR UPDATE`.
+2. Lee detalle actual y calcula reposiciones (stock a devolver por items viejos, expandiendo combos).
+3. Expande nuevo set de items y calcula nuevos requerimientos.
+4. Bloquea productos con `FOR UPDATE` en orden determinístico (IDs ordenados, previene deadlocks).
+5. Valida stock disponible = `stock_actual + reposiciones - nuevas requeridas` ≥ 0 para cada producto.
+6. Aplica delta neto: `UPDATE producto SET stock_actual = stock_actual + (restore - deduct) WHERE id = ? AND stock_limitado = 1`.
+7. Recalcula total, borra detalle anterior, inserta nuevo detalle.
+8. Updates de campos del pedido (nombre, mesa, teléfono, observaciones, metodo_pago).
+
+**Coerción de `estado_pago` al cambiar `metodo_pago`:**
+- Si el nuevo `metodo_pago` no permite el `estado_pago` actual (ej. cambiar a `efectivo` con estado `comprobante_subido`), coacciona a `pendiente`.
+- Si el estado actual es `pagado` (terminal), se mantiene independientemente del cambio de método.
 
 ---
 

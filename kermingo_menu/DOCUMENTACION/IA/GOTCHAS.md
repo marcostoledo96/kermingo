@@ -13,7 +13,7 @@
 4. [requireAdmin hace query a DB](#4-requireadmin-hace-query-a-db)
 5. [configuracion_tienda cerrada por defecto](#5-configuracion_tienda-cerrada-por-defecto)
 6. [jest.unstable_mockModule tiene scope de archivo](#6-jestunstable_mockmodule-tiene-scope-de-archivo)
-7. [AuthError 401 vs ForbiddenError 403 en CSRF](#7-autherror-401-vs-forbiddenerror-403-en-csrf)
+7. [ForbiddenError 403 en origin middleware (CSRF)](#7-forbiddenerror-403-en-origin-middleware-csrf)
 8. [Estados de pago sin comprobante real (B6.3)](#8-estados-de-pago-sin-comprobante-real-b63)
 9. [Pedidos online solo permiten efectivo](#9-pedidos-online-solo-permiten-efectivo)
 10. [Transacciones de stock determinísticas](#10-transacciones-de-stock-determinísticas)
@@ -108,11 +108,11 @@ O mockear `getPool` para omitir la verificación.
 
 ---
 
-## 7. AuthError 401 vs ForbiddenError 403 en CSRF
+## 7. ForbiddenError 403 en origin middleware (CSRF)
 
-**Fix retroactivo (B6.2.1):** Originalmente, `requireTrustedOrigin` lanzaba `ForbiddenError` (403) cuando el origin no coincidía. Se cambió a `AuthError` (401) para que el frontend trate el rechazo como "no autenticado" y redirija al login en lugar de mostrar "prohibido".
+`requireTrustedOrigin` usa `ForbiddenError` (403) para rechazar requests con origin no permitido. Esto significa que el frontend recibe un 403 (prohibido) en lugar de un 401 (no autenticado). Si se desea que el frontend trate el rechazo como "no autenticado" y redirija al login, se puede cambiar a `AuthError` (401), pero el código actual usa `ForbiddenError`.
 
-**Código actual:** `origin.middleware.js` usa `AuthError` para rechazos de origin.
+**Código actual:** `origin.middleware.js` importa y usa `ForbiddenError` para rechazos de origin.
 
 ---
 

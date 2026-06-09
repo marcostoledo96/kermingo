@@ -96,14 +96,16 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `PATCH` | `/admin/pedidos/:id/estado` | `pedido.cambiarEstado` | Avanzar estado del pedido. Valida transición |
 | `PATCH` | `/admin/pedidos/:id/pago` | `pedido.cambiarPago` | Cambiar estado de pago |
 | `PATCH` | `/admin/pedidos/:id/cancelar` | `pedido.cancelar` | Cancelar pedido y reponer stock |
+| `PUT` | `/admin/pedidos/:id` | `pedido.editar` | Edita pedido de caja con reconciliación transaccional de stock. Solo pedidos origen=caja, no cancelados ni entregados |
 
 **Schemas:**
 
 - `createPedidoSchema`: `{ nombre_cliente, mesa?, telefono_cliente?, observaciones?, metodo_pago, items }`
 - `createCajaSchema`: extiende `createPedidoSchema` con `estado_pago` y `estado_pedido`
-- `pedidoQuerySchema`: `{ page, limit, estado_pedido?, estado_pago?, metodo_pago?, origen?, buscar? }`
+- `pedidoQuerySchema`: `{ page, limit, estado_pedido?, estado_pago?, metodo_pago?, origen?, buscar?, solo_pagos_pendientes? }` — `solo_pagos_pendientes` es boolean string que filtra pedidos con `estado_pago IN ('pendiente','rechazado')` excluyendo `cancelado`
 - `updateEstadoPedidoSchema`: `{ estado_pedido }` enum `recibido|en_preparacion|listo|entregado`
-- `updateEstadoPagoSchema`: `{ estado_pago }` enum `pendiente|pagado|rechazado`
+- `updateEstadoPagoSchema`: `{ estado_pago }` enum `pendiente|comprobante_subido|pagado|rechazado`
+- `editPedidoSchema`: `{ nombre_cliente?, mesa?, telefono_cliente?, observaciones?, metodo_pago?, items? }` — al menos un campo obligatorio; `items` opcional (si no se envía, solo se editan metadatos sin tocar stock)
 - `idParamSchema`: `{ id: number }`
 
 ---
@@ -156,7 +158,7 @@ Todos los schemas están en `backend/src/api/schemas/`. Usan `z.object(...).stri
 | Archivo | Schemas exportados |
 |---|---|
 | `auth.schema.js` | `loginSchema` |
-| `pedido.schema.js` | `createPedidoSchema`, `createCajaSchema`, `pedidoQuerySchema`, `updateEstadoPedidoSchema`, `updateEstadoPagoSchema`, `idParamSchema` |
+| `pedido.schema.js` | `createPedidoSchema`, `createCajaSchema`, `pedidoQuerySchema`, `updateEstadoPedidoSchema`, `updateEstadoPagoSchema`, `editPedidoSchema`, `idParamSchema` |
 | `producto.schema.js` | `productoQuerySchema`, `adminProductoQuerySchema`, `createProductoSchema`, `updateProductoSchema`, `stockAdjustmentSchema`, `idParamSchema` |
 | `cocina.schema.js` | `idParamSchema`, `updateEstadoPedidoCocinaSchema` |
 | `configuracion.schema.js` | `updateConfiguracionSchema` |
@@ -170,9 +172,10 @@ Middleware de validación: `validateBody`, `validateQuery`, `validateParams` (en
 | Código | Clase | Cuándo |
 |---|---|---|
 | `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida |
-| `401` | `AuthError` | Token ausente/inválido, cuenta inactiva, origen no permitido (CSRF) |
+| `401` | `AuthError` | Token ausente/inválido, cuenta inactiva |
+| `403` | `ForbiddenError` | Origen no permitido (CSRF — `requireTrustedOrigin`) |
 | `404` | `NotFoundError` | Recurso no encontrado (pedido, producto) |
 | `409` | `InsufficientStockError` | Stock insuficiente al crear pedido |
 | `500` | Error genérico | Cualquier error no operacional |
 
-**Nota sobre `AuthError` (401):** Se usa tanto para fallos de autenticación JWT como para rechazos de origen (CSRF). Ver `GOTCHAS.md` para detalles del fix retroactivo.
+**Nota sobre errores de autenticación/autorización:** `AuthError` (401) se usa para fallos de JWT (token ausente/inválido/cuenta inactiva). `ForbiddenError` (403) se usa para rechazos de origen CSRF (`requireTrustedOrigin`). Ver `GOTCHAS.md` sección 7 para detalles.

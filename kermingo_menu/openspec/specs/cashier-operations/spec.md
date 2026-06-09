@@ -4,49 +4,85 @@
 
 Módulo de caja admin: gestión de estados de pago con state machine forward-safe y filtro de pagos pendientes. PATCH `/api/admin/pedidos/:id/pago` con transiciones validadas. GET `/api/admin/pedidos` con filtro `solo_pagos_pendientes=true` que excluye `pagado` y `cancelado`. PATCH no modifica stock.
 
-Este spec documenta los **fixes retroactivos** sobre la implementación original del PR #3 (B6.2 caja).
+Este spec documenta la implementación del PR #3 (B6.2 caja) con los cambios posteriores al merge.
 
 ## Files
 
 | Path | Impact | Description |
 |------|--------|-------------|
-| `backend/src/api/models/pedido.model.js` | Modified | Agrega `PAGO_TRANSITIONS`, `validatePaymentTransition`, `updateEstadoPago` con state machine. Filtra `solo_pagos_pendientes` en `findAllAdmin`. **FIX retroactivo**: `validatePaymentTransition` retorna `false` para `from === to` (antes retornaba `true`). |
-| `backend/src/api/controllers/pedido.controller.js` | Modified | Handler `cambiarPago` con manejo de `-1` (transición inválida). **FIX retroactivo**: mensaje unificado con acentos correctos. |
-| `backend/src/api/schemas/pedido.schema.js` | Modified | `updateEstadoPagoSchema` con 4 valores enum (`pendiente`, `comprobante_subido`, `pagado`, `rechazado`). `pedidoQuerySchema` con `solo_pagos_pendientes` validado como boolean string. |
+| `backend/src/api/models/pedido.model.js` | Modified | Agrega `PAGO_TRANSITIONS`, `transitionsByMethod`, `validatePaymentTransition`, `updateEstadoPago` con state machine method-aware. Filtra `solo_pagos_pendientes` en `findAllAdmin`. `editWithTransaction` para edición transaccional de caja. `validatePaymentTransition` retorna `true` para `from === to`; el rechazo de no-cambio está en `updateEstadoPago`. |
+| `backend/src/api/controllers/pedido.controller.js` | Modified | Handler `cambiarPago` con manejo de `-1` y `-2` (transición inválida y cancelado). Handler `editar` para PUT. Nota: el mensaje de error en `cambiarPago` sigue sin acentos: `'Transicion de estado de pago no valida'`. |
+| `backend/src/api/schemas/pedido.schema.js` | Modified | `updateEstadoPagoSchema` con 4 valores enum (`pendiente`, `comprobante_subido`, `pagado`, `rechazado`). `pedidoQuerySchema` con `solo_pagos_pendientes` validado como boolean string. `editPedidoSchema` para edición de caja. |
 | `backend/tests/caja.test.js` | New | Tests con fixtures propios, cleanup con `cancelWithTransaction`, `afterAll(pool.end())`. |
 
 ## Payment State Machine
 
+La máquina de estados de pago es **method-aware**: transiciones distintas según `metodo_pago`.
+
 ```
-pendiente → comprobante_subido | pagado
-comprobante_subido → pagado | rechazado
-rechazado → pendiente
-pagado → (terminal)
+efectivo:
+  pendiente → pagado          (directo, pago en mano)
+  pagado → (terminal)
+
+transferencia:
+  pendiente → pagado | comprobante_subido
+  comprobante_subido → pagado | rechazado
+  rechazado → pendiente | comprobante_subido
+  pagado → (terminal)
 ```
 
-`PAGO_TRANSITIONS` exportado desde `pedido.model.js`:
+### `transitionsByMethod` (method-aware, la state machine real)
+
+```js
+export const transitionsByMethod = {
+  efectivo: {
+    pendiente: ['pagado'],
+    pagado: [], // terminal
+  },
+  transferencia: {
+    pendiente: ['pagado', 'comprobante_subido'],
+    comprobante_subido: ['pagado', 'rechazado'],
+    rechazado: ['pendiente', 'comprobante_subido'],
+    pagado: [], // terminal
+  },
+};
+```
+
+### `PAGO_TRANSITIONS` (backward-compatible, merge genérico)
+
+Usado por tests para key enumeration. Merge de todos los métodos:
 
 ```js
 export const PAGO_TRANSITIONS = {
-  pendiente: ['comprobante_subido', 'pagado'],
+  pendiente: ['pagado', 'comprobante_subido'],
   comprobante_subido: ['pagado', 'rechazado'],
-  rechazado: ['pendiente'],
+  rechazado: ['pendiente', 'comprobante_subido'],
   pagado: [],
 };
 ```
 
-`validatePaymentTransition(from, to)`:
-- Si `from === to` → retorna `false`. **FIX retroactivo**: antes retornaba `true`, causando que `updateEstadoPago` ejecutara un UPDATE no-op con `affectedRows = 0`, interpretado como 404 por el controller.
-- En otro caso, retorna `true` si `to` está en `PAGO_TRANSITIONS[from]`.
+### `validatePaymentTransition(from, to, metodoPago?)`
+
+- Si `from === to` → retorna `true`. La función de validación considera mismo-estado como válido (idempotente). **El rechazo de no-cambio ocurre en `updateEstadoPago`** (línea 368-371 de `pedido.model.js`), que retorna `-1`.
+- Si `metodoPago` se provee y existe en `transitionsByMethod`, valida contra la state machine de ese método.
+- Si no se provee `metodoPago`, valida contra `PAGO_TRANSITIONS` (merge genérico, backward-compatible).
+
+### `updateEstadoPago` (en `pedido.model.js`)
+
+- Retorna `0` → pedido no encontrado (404).
+- Retorna `-1` → transición inválida o mismo estado (400). Rechaza `from === to` explícitamente (líneas 368-371).
+- Retorna `-2` → pedido cancelado (400, distinto mensaje).
+- Retorna `affectedRows` en éxito.
 
 ## Handler: `cambiarPago`
 
-1. `updateEstadoPago(pool, id, estado_pago)` con validación interna de transición.
+1. `updateEstadoPago(pool, id, estado_pago)` con validación interna de transición (method-aware).
 2. Si `result === 0` → 404 `NotFoundError('Pedido no encontrado')`.
-3. Si `result === -1` → 400 `ValidationError('Transición de estado de pago no válida')`. **FIX retroactivo**: acentos correctos en mensaje (antes: `'Transicion de estado de pago no valida'`).
-4. Re-fetch con `findById`, responder 200 con `respuestaExitosa`.
+3. Si `result === -1` → 400 `ValidationError('Transicion de estado de pago no valida')`. Nota: el mensaje no tiene acentos.
+4. Si `result === -2` → 400 `ValidationError('No se puede modificar el pago de un pedido cancelado')`.
+5. Re-fetch con `findById`, responder 200 con `respuestaExitosa`.
 
-**Idempotencia (FIX retroactivo)**: cuando admin envía mismo estado actual (ej. `pagado` sobre pedido ya `pagado`), `validatePaymentTransition` retorna `false`, `updateEstadoPago` retorna `-1`, controller responde 400. Semánticamente correcto: "mismo estado no es una transición válida".
+**Idempotencia:** cuando admin envía mismo estado actual (ej. `pagado` sobre pedido ya `pagado`), `validatePaymentTransition` retorna `true` pero `updateEstadoPago` rechaza con `-1` (explicítamente bloqueado en líneas 368-371), controller responde 400. Semánticamente correcto: "mismo estado no es una transición permitida en el handler".
 
 ## Filter: `solo_pagos_pendientes=true`
 
@@ -69,7 +105,7 @@ Override del filtro `estado_pago` individual si está presente (el filtro de pag
 | 6 | `pendiente → rechazado` | `false` (salto no permitido) |
 | 7 | `pagado → pendiente` | `false` (terminal) |
 | 8 | `pagado → rechazado` | `false` (terminal) |
-| 9 ⭐ | `pendiente → pendiente` | `false` (FIX retroactivo; antes `true`) |
+| 9 ⭐ | `pendiente → pendiente` | Controller returns 400 (rejected by `updateEstadoPago`, not `validatePaymentTransition`) |
 
 ### Auth boundary (sin DB)
 | # | Scenario | Expected |
@@ -109,7 +145,7 @@ Override del filtro `estado_pago` individual si está presente (el filtro de pag
 | Payment state machine forward-safe | 5 | 1, 2, 3, 4, 5 |
 | Payment state machine terminal | 2 | 7, 8 |
 | Payment state machine sin saltos | 1 | 6 |
-| Payment state machine idempotente=false ⭐ FIX | 1 | 9 |
+| Payment state machine idempotente=400 via updateEstadoPago ⭐ | 1 | 9 |
 | Auth gating | 2 | 10, 13 |
 | Validación Zod en PATCH | 1 | 11 |
 | PATCH id inexistente 404 | 1 | 12 |
