@@ -68,27 +68,26 @@
 ### Backend (`.env` en `backend/`)
 
 | Variable | Ambiente | Producción | Descripción |
-|---|---|---|---|
+|---|---|---|---|---|
 | `PORT` | `3001` | Puerto del servidor | Puerto donde escucha Express |
-| `NODE_ENV` | `development` | `production` | Controla `sameSite`, `secure`, stack traces |
+| `NODE_ENV` | `development` | `production` | Controla `sameSite`, `secure`, stack traces, request logging |
 | `FRONTEND_URL` | `http://localhost:3000` | `https://kermingo.vercel.app` | URL del frontend (CORS y CSRF) |
 | `DB_HOST` | localhost | Host de Railway | Host de MySQL |
-| `DB_PORT` | `3306` | Puerto de MySQL | Puerto de MySQL |
+| `DB_PORT` | `3306` | Puerto de Railway | Puerto de MySQL |
 | `DB_USER` | root | Usuario de Railway | Usuario de MySQL |
 | `DB_PASSWORD` | — | Password de Railway | Contraseña de MySQL |
 | `DB_NAME` | `kermingo` | Nombre de la BD | Nombre de la base de datos |
 | `JWT_SECRET` | `kermingo-dev-secret-...` | **Obligatorio** | Secret para firmar JWT |
 | `COOKIE_NAME` | `kermingo_admin_token` | Nombre de la cookie | Cookie JWT |
 | `JWT_EXPIRES_IN` | `24h` | Tiempo de expiración | Expiración del token |
+| `GOOGLE_DRIVE_CREDENTIALS_JSON` | Opcional (warning) | **Deprecada** — ya no se usa, era Service Account |
+| `GOOGLE_DRIVE_FOLDER_ID` | Opcional (warning) | **Obligatorio** | ID de la carpeta Drive destino |
+| `GOOGLE_OAUTH_CLIENT_ID` | Opcional (warning) | **Obligatorio** | Client ID de OAuth para Drive |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Opcional (warning) | **Obligatorio** | Client Secret de OAuth para Drive |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | Opcional (warning) | **Obligatorio** | Refresh token de OAuth para Drive |
+| `DISABLE_REQUEST_LOG` | Opcional | Opcional | Si se setea, desactiva el log de requests en cualquier entorno |
 
-### Variables opcionales (futuro)
-
-| Variable | Descripción |
-|---|---|
-| `GOOGLE_DRIVE_CLIENT_ID` | Client ID de Google Drive API |
-| `GOOGLE_DRIVE_CLIENT_SECRET` | Client secret |
-| `GOOGLE_DRIVE_REDIRECT_URI` | URI de callback |
-| `GOOGLE_DRIVE_FOLDER_ID` | ID de carpeta en Drive |
+**Nota sobre request logging (B6.3.1):** En producción (`NODE_ENV=production`), el log de requests se desactiva automáticamente para evitar exponer query strings o tokens. En desarrollo se logea normalmente. Se puede deshabilitar en cualquier entorno con `DISABLE_REQUEST_LOG=true`.
 
 **Template:** Ver `backend/.env.example`.
 

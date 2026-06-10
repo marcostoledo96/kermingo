@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { createArchivo } from './archivo.model.js';
+import { ValidationError } from '../utils/errors.js';
 
 //
 // ── Helpers ────────────────────────────────────────────────────────
@@ -25,6 +27,21 @@ function generarToken() {
 
 function formatearNumero(insertId) {
   return `KMG-${String(insertId).padStart(4, '0')}`;
+}
+
+/**
+ * Cheap, non-locking preflight check that the store is open.
+ * Throws ValidationError if store is closed or config row is missing.
+ * @param {import('mysql2/promise').Pool} pool
+ * @returns {Promise<void>}
+ */
+export async function assertStoreOpen(pool) {
+  const [[config]] = await pool.query(
+    'SELECT estado FROM configuracion_tienda WHERE id = 1'
+  );
+  if (!config || config.estado !== 'abierta') {
+    throw new ValidationError('La tienda esta cerrada');
+  }
 }
 
 export const TRANSICIONES_VALIDAS = {
@@ -164,13 +181,27 @@ export async function createWithTransaction(pool, data) {
       return sum + parseFloat(item.precio) * item.cantidad;
     }, 0);
 
+    // 3.5. Insert archivo_drive row if comprobante was uploaded (before pedido INSERT so we have the ID)
+    let comprobanteArchivoId = null;
+    if (data.archivo) {
+      comprobanteArchivoId = await createArchivo(conn, {
+        drive_id: data.archivo.drive_id,
+        nombre_original: data.archivo.nombre_original,
+        mime_type: data.archivo.mime_type,
+        tamanio_bytes: data.archivo.tamanio_bytes,
+        tipo: 'comprobante',
+        url_publica: data.archivo.url_publica || null,
+      });
+    }
+
     // 4. INSERT pedido
     const token = generarToken();
+    const estadoPago = data.estado_pago || (data.archivo ? 'comprobante_subido' : 'pendiente');
     const [pedidoResult] = await conn.query(
       `INSERT INTO pedido
        (token_seguimiento, origen, nombre_cliente, mesa, telefono_cliente,
-        telefono_whatsapp, observaciones, metodo_pago, estado_pago, estado_pedido, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        telefono_whatsapp, observaciones, metodo_pago, estado_pago, estado_pedido, total, comprobante_archivo_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         token,
         data.origen || 'online',
@@ -180,9 +211,10 @@ export async function createWithTransaction(pool, data) {
         normalizarTelefono(data.telefono_cliente),
         data.observaciones || null,
         data.metodo_pago,
-        data.estado_pago || 'pendiente',
+        estadoPago,
         data.estado_pedido || 'recibido',
         total,
+        comprobanteArchivoId,
       ]
     );
 
@@ -247,6 +279,7 @@ export async function findByToken(pool, token) {
   const [rows] = await pool.query(
     `SELECT p.id, p.numero, p.token_seguimiento, p.origen, p.nombre_cliente,
             p.mesa, p.estado_pedido, p.estado_pago, p.metodo_pago, p.total,
+            p.comprobante_archivo_id,
             p.observaciones, p.created_at, p.updated_at
      FROM pedido p
      WHERE p.token_seguimiento = ?`,
@@ -269,6 +302,7 @@ export async function findById(pool, id) {
     `SELECT p.id, p.numero, p.token_seguimiento, p.origen, p.nombre_cliente,
             p.mesa, p.telefono_cliente, p.observaciones,
             p.metodo_pago, p.estado_pago, p.estado_pedido, p.total,
+            p.comprobante_archivo_id,
             p.created_at, p.updated_at
      FROM pedido p WHERE p.id = ?`,
     [id]

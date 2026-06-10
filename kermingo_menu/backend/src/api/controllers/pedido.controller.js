@@ -8,32 +8,69 @@ import {
   updateEstadoPago,
   cancelWithTransaction,
   editWithTransaction,
+  assertStoreOpen,
 } from '../models/pedido.model.js';
+import { findArchivoById } from '../models/archivo.model.js';
+import { uploadFile as driveUploadFile } from '../services/drive.service.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
-import { NotFoundError, InsufficientStockError, ValidationError } from '../utils/errors.js';
+import { NotFoundError, InsufficientStockError, ValidationError, DriveUploadError } from '../utils/errors.js';
 
 /**
  * POST /api/pedidos (público)
  * Crea un pedido online. Valida stock, genera KMG-XXXX, token, descuenta stock.
+ * Acepta multipart/form-data con comprobante para transferencia.
  */
 export async function crear(req, res, next) {
   try {
-    if (req.body.metodo_pago === 'transferencia') {
+    const metodoPago = req.body.metodo_pago;
+    const tieneComprobante = !!req.file;
+
+    // Validar método de pago vs file
+    if (metodoPago === 'transferencia' && !tieneComprobante) {
       throw new ValidationError('Transferencia online requiere comprobante. Usá efectivo o contactá al vendedor.');
     }
+    if (metodoPago === 'efectivo' && tieneComprobante) {
+      throw new ValidationError('Los pedidos en efectivo no requieren comprobante.');
+    }
+
+    // Preflight: verify store is open BEFORE attempting Drive upload
+    // This prevents orphan Drive files when store is closed
     const pool = getPool();
+    await assertStoreOpen(pool);
+
+    let archivo = null;
+    if (tieneComprobante) {
+      // Upload to Drive BEFORE starting DB transaction
+      const driveResult = await driveUploadFile(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+      archivo = {
+        drive_id: driveResult.driveFileId,
+        nombre_original: req.file.originalname,
+        mime_type: req.file.mimetype,
+        tamanio_bytes: req.file.size,
+        url_publica: driveResult.webViewLink,
+      };
+    }
+
     const result = await createWithTransaction(pool, {
       ...req.body,
       origen: 'online',
+      archivo,
     });
     const pedido = await findByToken(pool, result.token);
     return respuestaExitosa(res, pedido, 'Pedido creado correctamente', 201);
   } catch (err) {
+    if (err.name === 'DriveUploadError') {
+      return next(new DriveUploadError());
+    }
     if (err.message?.includes('Stock insuficiente')) {
       return next(new InsufficientStockError(err.message));
     }
-    if (err.message?.includes('tienda no está abierta')) {
-      return next(new ValidationError('La tienda no está abierta para pedidos en este momento'));
+    if (err.message?.includes('La tienda esta cerrada') || err.message?.includes('tiesta no está abierta')) {
+      return next(new ValidationError('La tienda esta cerrada'));
     }
     next(err);
   }
@@ -189,6 +226,36 @@ export async function cancelar(req, res, next) {
     if (result === -1) throw new ValidationError('Solo se puede cancelar pedidos en estado recibido o en preparación');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Pedido cancelado correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/admin/pedidos/:id/comprobante (admin)
+ * Returns comprobante metadata for a pedido. Does NOT proxy file bytes.
+ */
+export async function obtenerComprobante(req, res, next) {
+  try {
+    const pool = getPool();
+    const pedido = await findById(pool, req.params.id);
+    if (!pedido) throw new NotFoundError('Pedido no encontrado');
+
+    if (!pedido.comprobante_archivo_id) {
+      throw new NotFoundError('Este pedido no tiene comprobante asociado');
+    }
+
+    const archivo = await findArchivoById(pool, pedido.comprobante_archivo_id);
+    if (!archivo) throw new NotFoundError('Comprobante no encontrado en almacenamiento');
+
+    return respuestaExitosa(res, {
+      drive_id: archivo.drive_id,
+      nombre_original: archivo.nombre_original,
+      mime_type: archivo.mime_type,
+      tamanio_bytes: archivo.tamanio_bytes,
+      url_publica: archivo.url_publica,
+      created_at: archivo.created_at,
+    }, 'Comprobante obtenido correctamente');
   } catch (err) {
     next(err);
   }

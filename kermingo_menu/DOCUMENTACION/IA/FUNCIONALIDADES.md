@@ -29,7 +29,7 @@
 | Ver carta de productos | ✅ | ✅ | `GET /api/productos` |
 | Ver producto individual | ✅ | ✅ | `GET /api/productos/:id` |
 | Ver estado de la tienda | ✅ | ✅ | `GET /api/configuracion-tienda` |
-| Crear pedido online (efectivo) | ✅ | — | `POST /api/pedidos` |
+| Crear pedido online (efectivo o transferencia) | ✅ | — | `POST /api/pedidos` (JSON o multipart) |
 | Seguir pedido por token | ✅ | — | `GET /api/pedidos/seguimiento/:token` |
 | Login | — | ✅ | `POST /api/auth/login` |
 | Logout | — | ✅ | `POST /api/auth/logout` |
@@ -38,6 +38,7 @@
 | Listar pedidos con filtros | — | ✅ | `GET /api/admin/pedidos` |
 | Ver detalle de pedido | — | ✅ | `GET /api/admin/pedidos/:id` |
 | Avanzar estado de pedido | — | ✅ | `PATCH /api/admin/pedidos/:id/estado` |
+| Ver comprobante de pago | — | ✅ | `GET /api/admin/pedidos/:id/comprobante` |
 | Cambiar estado de pago | — | ✅ | `PATCH /api/admin/pedidos/:id/pago` |
 | Cancelar pedido (reponer stock) | — | ✅ | `PATCH /api/admin/pedidos/:id/cancelar` |
 | Ver pedidos de cocina | — | ✅ | `GET /api/admin/cocina/pedidos` |
@@ -84,7 +85,9 @@
 ### Gestión de pagos (admin)
 
 - Marca pedidos como `pagado` o `rechazado`.
-- Si un pedido online eligió transferencia, se marca como `pendiente` hasta que el admin verifique.
+- Si un pedido online eligió transferencia con comprobante, se crea con `estado_pago=comprobante_subido`. El admin puede aprobar (`comprobante_subido → pagado`) o rechazar (`comprobante_subido → rechazado`) el comprobante.
+- Si un pedido online eligió efectivo, se crea con `estado_pago=pendiente`.
+- Caja rápida puede crear pedidos con `estado_pago='pagado'` directamente.
 - Cambiar `estado_pago` no afecta el stock.
 
 ### Filtro de pendientes de pago (admin)

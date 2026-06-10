@@ -69,7 +69,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `GET` | `/api/productos` | `producto.listar` | Lista productos activos. Query: `?categoria=`, `?tipo=`, `?buscar=` |
 | `GET` | `/api/productos/:id` | `producto.obtener` | Detalle de un producto activo |
 | `GET` | `/api/configuracion-tienda` | `configuracion.obtenerPublico` | Estado de la tienda (solo `estado`, `mensaje_publico`) |
-| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online. Solo método `efectivo`. Body: `nombre_cliente`, `items`, `metodo_pago` |
+| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online. `efectivo` (JSON) o `transferencia` (multipart con `comprobante`). Body/fields: `nombre_cliente`, `items`, `metodo_pago`. Middleware chain: `uploadComprobante.single()` → `validateBody` → `assertMagicBytes` (magic bytes post-Multer) → `crear` (preflight `assertStoreOpen` antes de Drive upload) |
 | `GET` | `/api/pedidos/seguimiento/:token` | `pedido.seguimiento` | Estado público del pedido por token |
 
 ---
@@ -93,6 +93,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `POST` | `/admin/pedidos/caja` | `pedido.crearCaja` | Crear pedido desde caja rápida. Puede setear `estado_pago` y `estado_pedido` iniciales. |
 | `GET` | `/admin/pedidos` | `pedido.listarAdmin` | Lista pedidos con filtros y paginación. Query: `page`, `limit`, `estado_pedido`, `estado_pago`, `metodo_pago`, `origen`, `buscar` |
 | `GET` | `/admin/pedidos/:id` | `pedido.obtenerAdmin` | Detalle completo de un pedido |
+| `GET` | `/admin/pedidos/:id/comprobante` | `pedido.obtenerComprobante` | Metadatos del comprobante de pago (Drive). No proxea bytes |
 | `PATCH` | `/admin/pedidos/:id/estado` | `pedido.cambiarEstado` | Avanzar estado del pedido. Valida transición |
 | `PATCH` | `/admin/pedidos/:id/pago` | `pedido.cambiarPago` | Cambiar estado de pago |
 | `PATCH` | `/admin/pedidos/:id/cancelar` | `pedido.cancelar` | Cancelar pedido y reponer stock |
@@ -171,11 +172,13 @@ Middleware de validación: `validateBody`, `validateQuery`, `validateParams` (en
 
 | Código | Clase | Cuándo |
 |---|---|---|
-| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida |
+| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida, MIME no soportado, efectivo con comprobante |
 | `401` | `AuthError` | Token ausente/inválido, cuenta inactiva |
 | `403` | `ForbiddenError` | Origen no permitido (CSRF — `requireTrustedOrigin`) |
-| `404` | `NotFoundError` | Recurso no encontrado (pedido, producto) |
+| `404` | `NotFoundError` | Recurso no encontrado (pedido, producto, comprobante sin archivo) |
 | `409` | `InsufficientStockError` | Stock insuficiente al crear pedido |
+| `413` | Multer `LIMIT_FILE_SIZE` | Archivo comprobante supera 5 MB |
+| `503` | `DriveUploadError` | Google Drive no disponible (credenciales, red, cuota, timeout). Siempre mapea a `"Servicio de upload no disponible"` |
 | `500` | Error genérico | Cualquier error no operacional |
 
 **Nota sobre errores de autenticación/autorización:** `AuthError` (401) se usa para fallos de JWT (token ausente/inválido/cuenta inactiva). `ForbiddenError` (403) se usa para rechazos de origen CSRF (`requireTrustedOrigin`). Ver `GOTCHAS.md` sección 7 para detalles.

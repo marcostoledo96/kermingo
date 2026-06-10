@@ -133,6 +133,41 @@ Para actualizar: `UPDATE configuracion_tienda SET ... WHERE id = 1`
 
 **Tabla:** `archivo_drive`
 
-La tabla existe en el schema pero la integración con Google Drive API aún no está completamente implementada. Los campos `drive_id`, `nombre_original`, `mime_type`, `tamanio_bytes`, `tipo` y `url_publica` están listos para cuando se implemente la subida de archivos.
+**Estado:** Implementado (B6.3). La integración con Google Drive API está activa para comprobantes de pago.
 
-**Configuración pendiente:** Variables `GOOGLE_DRIVE_*` en `.env`.
+**Campos:**
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | INT PK | Auto-increment |
+| `drive_id` | VARCHAR(150) UNIQUE | Google Drive file ID |
+| `nombre_original` | VARCHAR(255) | Nombre original del archivo |
+| `mime_type` | VARCHAR(100) | Tipo MIME (image/jpeg, image/png, image/webp, application/pdf) |
+| `tamanio_bytes` | INT | Tamaño del archivo en bytes |
+| `tipo` | ENUM | `'producto_imagen'` o `'comprobante'` |
+| `url_publica` | TEXT NULL | URL pública de Drive (si existe) |
+| `created_at` | TIMESTAMP | Fecha de creación |
+
+**Servicio:** `backend/src/api/services/drive.service.js` — usa `google.auth.OAuth2` con refresh token (no Service Account).
+
+**Upload middleware:** `backend/src/api/middlewares/upload.middleware.js` — `multer` con `memoryStorage`, límite 5 MB, fileFilter para MIME types permitidos. Incluye `assertMagicBytes` middleware que valida magic bytes del buffer real post-Multer.
+
+**Validación de contenido (B6.3.1):** `backend/src/api/utils/file-signature.utils.js` — `assertAllowedFileSignature(buffer, mimeType)` verifica magic bytes contra el buffer real. Soporta PDF (`%PDF`), PNG (`89 50 4E 47`), JPEG (`FF D8 FF`), WEBP (`RIFF....WEBP`). Rechaza con 400 si el contenido no coincide con el MIME declarado.
+
+**Nombre interno seguro (B6.3.1):** Los archivos subidos a Drive usan nombre interno `${timestamp}-${uuid}-${sanitizedOriginalName}` donde `sanitizedOriginalName` elimina caracteres no alfanuméricos (excepto `.` y `-`), limita a 100 chars, y remueve separadores de path. El campo `nombre_original` en `archivo_drive` preserva el nombre original del usuario.
+
+**Manejo de errores (B6.3.1):** `DriveUploadError` (extiende `AppError`, status 503) reemplaza el string matching previo. Cualquier fallo de Drive API (credenciales, red, cuota, timeout) lanza `DriveUploadError` → mapeo a 503 en error middleware.
+
+**Test hooks (B6.3.1):** `_getDriveStateForTest()` y `_resetDriveForTest()` exportados solo cuando `NODE_ENV !== 'production'` para safe state save/restore entre suites.
+
+**Configuración:**
+
+| Variable | Descripción | Producción |
+|---|---|---|
+| `GOOGLE_DRIVE_FOLDER_ID` | ID de la carpeta Drive destino | Requerida |
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID de OAuth para Drive | Requerida |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Client Secret de OAuth para Drive | Requerida |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | Refresh token de OAuth para Drive | Requerida |
+| ~~`GOOGLE_DRIVE_CREDENTIALS_JSON`~~ | **Deprecada** — era Service Account JSON, ya no se lee | No usar |
+
+En desarrollo, si faltan las credenciales OAuth, el servidor arranca con un warning y la subida de comprobantes devuelve 503.

@@ -43,7 +43,7 @@
         └── Muestra estado del pedido y items.
 ```
 
-**Regla:** Los pedidos online solo permiten `metodo_pago: 'efectivo'`. Si el visitante elige transferencia, el backend lanza error (B6.3: comprobantes sin implementar completamente).
+**Regla:** Los pedidos online aceptan `metodo_pago: 'efectivo'` (JSON) o `'transferencia'` (multipart con `comprobante`). Si el visitante elige transferencia sin archivo adjunto, el backend responde 400. Si elige efectivo con archivo, también 400. Ver `CORE.md` sección 2 para la state machine de pago.
 
 ---
 
@@ -168,10 +168,18 @@ La cocina usa la misma state machine que el flujo de admin normal, pero con una 
     └── Nota: Cambiar estado_pago NO afecta el stock.
 ```
 
-**Estado futuro (B6.3):** Cuando se implemente la subida de comprobantes, el flujo será:
+**Flujo de comprobantes (B6.3 implementado, B6.3.1 hardening):**
 
 ```
 pendiente → comprobante_subido → pagado (o rechazado)
 ```
 
-Actualmente, `comprobante_subido` y `rechazado` existen en el enum pero no tienen comprobante real adjunto.
+- `POST /api/pedidos` con `metodo_pago=transferencia` y archivo `comprobante` → `estado_pago=comprobante_subido`.
+- **Preflight (B6.3.1):** Antes de subir a Drive, se verifica que la tienda esté abierta (`assertStoreOpen`). Si está cerrada → 400, sin intento de Drive.
+- **Magic bytes (B6.3.1):** Después de Multer, se valida que el contenido real del archivo coincida con el MIME declarado (PDF/PNG/JPEG/WEBP). Si no coincide → 400.
+- **Nombre interno seguro (B6.3.1):** El archivo se sube a Drive con nombre `${timestamp}-${uuid}-${sanitizedOriginal}`. `nombre_original` en DB preserva el nombre original.
+- **Error tipado (B6.3.1):** Cualquier error de Drive → `DriveUploadError` → 503 `"Servicio de upload no disponible"`.
+- El archivo se sube a Google Drive vía `drive.service.js` usando OAuth de usuario con refresh token.
+- `GET /api/admin/pedidos/:id/comprobante` devuelve metadatos seguros del archivo (no proxea bytes).
+- `PATCH /api/admin/pedidos/:id/pago` permite `comprobante_subido → pagado|rechazado`.
+- Caja rápida puede crear transferencias sin comprobante (estado `pagado` directo).

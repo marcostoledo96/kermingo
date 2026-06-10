@@ -2,6 +2,14 @@ import { AppError } from '../utils/errors.js';
 import { respuestaError } from '../utils/respuesta.utils.js';
 
 export default function errorMiddleware(err, req, res, next) {
+  // Handle DriveUploadError by name for 503 mapping
+  if (err.name === 'DriveUploadError') {
+    return res.status(503).json({
+      ok: false,
+      error: 'Servicio de upload no disponible',
+    });
+  }
+
   if (err instanceof AppError) {
     return respuestaError(res, err, err.statusCode);
   }

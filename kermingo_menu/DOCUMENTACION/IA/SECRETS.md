@@ -11,7 +11,7 @@
 2. [Variables en Railway (producción)](#2-variables-en-railway-producción)
 3. [Variables en Vercel (producción)](#3-variables-en-vercel-producción)
 4. [Template .env.example](#4-template-envexample)
-5. [Google Drive API (futuro)](#5-google-drive-api-futuro)
+5. [Google Drive API (B6.3 implementado)](#5-google-drive-api-b63-implementado)
 
 ---
 
@@ -36,6 +36,12 @@
 | `JWT_SECRET` | Sí en prod | Secret para firmar JWT |
 | `COOKIE_NAME` | No (default kermingo_admin_token) | Nombre de la cookie JWT |
 | `JWT_EXPIRES_IN` | No (default 24h) | Expiración del token |
+| `GOOGLE_DRIVE_CREDENTIALS_JSON` | **Deprecada** | ~~JSON string de Service Account~~ — ya no se usa |
+| `GOOGLE_DRIVE_FOLDER_ID` | Sí en prod | ID de la carpeta Drive destino |
+| `GOOGLE_OAUTH_CLIENT_ID` | Sí en prod | Client ID de OAuth para Drive |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Sí en prod | Client Secret de OAuth para Drive |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | Sí en prod | Refresh token de OAuth para Drive |
+| `DISABLE_REQUEST_LOG` | No | Si se setea, desactiva el log de requests en cualquier entorno |
 
 ---
 
@@ -80,21 +86,50 @@ DB_NAME=kermingo
 JWT_SECRET=kermingo-dev-secret-cambia-en-produccion
 COOKIE_NAME=kermingo_admin_token
 JWT_EXPIRES_IN=24h
+
+# Google Drive (opcional en dev, requerido en prod)
+# Usa autenticación OAuth (refresh token), no Service Account.
+# GOOGLE_DRIVE_CREDENTIALS_JSON está deprecado y no se usa más.
+GOOGLE_DRIVE_FOLDER_ID=your-folder-id
+GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+GOOGLE_OAUTH_REFRESH_TOKEN=your-refresh-token
+
+# Deshabilitar request log (opcional)
+# DISABLE_REQUEST_LOG=true
 ```
 
 **Regla:** Al agregar una nueva variable, actualizar `.env.example` con un comentario explicativo. Nunca poner valores reales de producción.
 
 ---
 
-## 5. Google Drive API (futuro)
+## 5. Google Drive API (B6.3 → OAuth migration)
 
-La integración con Google Drive para subir imágenes y comprobantes aún no está implementada. Cuando se implemente, se agregarán:
+La integración con Google Drive para subir comprobantes de pago está implementada (B6.3). Usa autenticación OAuth con refresh token (no Service Account).
 
-| Variable | Descripción |
-|---|---|
-| `GOOGLE_DRIVE_CLIENT_ID` | Client ID de Google Cloud |
-| `GOOGLE_DRIVE_CLIENT_SECRET` | Client secret |
-| `GOOGLE_DRIVE_REDIRECT_URI` | URI de callback OAuth |
-| `GOOGLE_DRIVE_FOLDER_ID` | ID de carpeta de Drive para almacernar archivos |
+| Variable | Descripción | Producción |
+|---|---|---|
+| `GOOGLE_DRIVE_FOLDER_ID` | ID de la carpeta Drive donde se almacenan los archivos | Requerida |
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID de OAuth (Google Cloud Console) | Requerida |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Client Secret de OAuth (Google Cloud Console) | Requerida |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | Refresh token de OAuth (obtenido vía autorización) | Requerida |
+| ~~`GOOGLE_DRIVE_CREDENTIALS_JSON`~~ | **Deprecada** — ya no se usa, era Service Account JSON | No usar |
+
+**Cómo obtener las credenciales OAuth:**
+
+1. Ir a Google Cloud Console → APIs & Services → Credentials.
+2. Crear **OAuth client ID** (tipo "Web application"), no Service Account.
+3. Configurar redirect URI (ej: `http://localhost` para obtener el refresh token).
+4. Copiar Client ID y Client Secret.
+5. Obtener el refresh token:
+   - Autorizar la app con el scope `https://www.googleapis.com/auth/drive.file` usando el endpoint de OAuth.
+   - Usar el código de autorización para obtener el refresh token.
+6. Compartir la carpeta Drive con la cuenta de Google que autorizó el refresh token.
+7. Copiar el folder ID de la URL de la carpeta.
+8. En `.env` o Railway, setear las cuatro variables: `GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`.
+
+**Nota:** La Service Account (`GOOGLE_DRIVE_CREDENTIALS_JSON`) está deprecada y ya no se lee. Si la config sigue existiendo en Railway o `.env`, no tiene efecto.
 
 **Tabla existente:** `archivo_drive` ya tiene los campos necesarios (`drive_id`, `nombre_original`, `mime_type`, `tamanio_bytes`, `tipo`, `url_publica`).
+
+**En desarrollo:** Si las variables OAuth faltan, el servidor arranca con warning. La subida de comprobantes devuelve 503.

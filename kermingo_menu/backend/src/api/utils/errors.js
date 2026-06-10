@@ -36,3 +36,10 @@ export class ForbiddenError extends AppError {
     super(message, 403);
   }
 }
+
+export class DriveUploadError extends AppError {
+  constructor(message = 'Servicio de upload no disponible') {
+    super(message, 503);
+    this.name = 'DriveUploadError';
+  }
+}

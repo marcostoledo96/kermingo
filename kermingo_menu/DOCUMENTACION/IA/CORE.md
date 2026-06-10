@@ -71,9 +71,9 @@ transferencia:
 | Estado | Significado |
 |---|---|
 | `pendiente` | Recién creado, sin pago |
-| `comprobante_subido` | Se subió comprobante de transferencia (sin implementar completamente — B6.3) |
+| `comprobante_subido` | Se subió comprobante de transferencia a Google Drive (B6.3 implementado) |
 | `pagado` | Pago confirmado (efectivo o transferencia verificada) |
-| `rechazado` | Comprobante rechazado (sin flujo completo todavía — B6.3) |
+| `rechazado` | Comprobante rechazado por admin — puede re-subirse otro comprobante |
 
 **Exports del modelo:**
 
@@ -84,8 +84,11 @@ transferencia:
 | `validatePaymentTransition(from, to, metodoPago?)` | Function | Valida transición de pago. Si `metodoPago` se provee, usa `transitionsByMethod[metodoPago]`. Si no, usa `PAGO_TRANSITIONS` (merge genérico). Retorna `true` para same-state (`from === to`) — el rechazo de no-cambio está en `updateEstadoPago` (línea 368-371). |
 
 **Reglas:**
-- Pedidos online solo permiten `metodo_pago: 'efectivo'` (transferencia bloqueada en controller).
-- Caja rápida puede crear pedido con `estado_pago: 'pagado'` directamente.
+- Pedidos online con `metodo_pago: 'transferencia'` requieren archivo comprobante (multipart/form-data).
+- Pedidos online con `metodo_pago: 'efectivo'` no deben incluir comprobante.
+- El archivo se sube a Google Drive ANTES de la transacción DB. Si Drive falla → 503, no se crea pedido.
+- Si la transacción DB falla después del upload exitoso, el archivo queda huérfano en Drive (aceptable para MVP).
+- Caja rápida puede crear pedido con `estado_pago: 'pagado'` directamente, sin comprobante.
 - `updateEstadoPago` bloquea cambios de pago en pedidos `cancelado` (retorna `-2`).
 - `updateEstadoPago` rechaza same-state (`from === to`) con retorno `-1` (no idempotente como PATCH).
 
@@ -237,13 +240,27 @@ La tabla `configuracion_tienda` tiene un solo registro: `id = 1`.
 
 ## 10. Validación de tienda abierta
 
-Dentro de `createWithTransaction`, se hace:
+Existen dos puntos de validación de tienda abierta:
+
+### 10a. Preflight barato (B6.3.1)
+
+Antes de cualquier upload a Drive, el controller `crear` llama a `assertStoreOpen(pool)`:
+
+```sql
+SELECT estado FROM configuracion_tienda WHERE id = 1
+```
+
+Sin `FOR UPDATE`, sin transacción. Si `estado !== 'abierta'`, lanza `ValidationError('La tienda esta cerrada')` → 400. Esto evita archivos huérfanos en Drive cuando la tienda está cerrada.
+
+### 10b. Validación transaccional (dentro de createWithTransaction)
+
+Dentro de `createWithTransaction`, se hace con lock:
 
 ```sql
 SELECT estado FROM configuracion_tienda WHERE id = 1 FOR UPDATE
 ```
 
-Si `estado !== 'abierta'`, se lanza error → rollback.
+Si `estado !== 'abierta'`, se lanza error → rollback. Esta validación protege contra cambios de estado concurrentes durante la creación del pedido.
 
 **Gotcha:** El seed inserta `estado='cerrada'`. Los tests de integración deben abrir la tienda manualmente o mockear.
 

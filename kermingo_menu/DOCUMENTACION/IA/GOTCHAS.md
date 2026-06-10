@@ -117,33 +117,31 @@ O mockear `getPool` para omitir la verificación.
 
 ---
 
-## 8. Estados de pago sin comprobante real (B6.3)
+## 8. Estados de pago con comprobante real (B6.3)
 
-Los estados `comprobante_subido` y `rechazado` existen en el ENUM de `estado_pago`, pero no hay flujo real de subida de comprobantes todavía.
+Los estados `comprobante_subido` y `rechazado` existen en el ENUM de `estado_pago` y **tienen flujo real** desde B6.3.
 
-- No hay endpoint para subir comprobantes.
-- No hay integración con Google Drive API para almacenarlos.
-- `archivo_drive` existe como tabla pero no se usa.
+- `POST /api/pedidos` con `metodo_pago=transferencia` y archivo `comprobante` → `estado_pago=comprobante_subido`.
+- `GET /api/admin/pedidos/:id/comprobante` devuelve metadatos del archivo en Google Drive.
+- `PATCH /api/admin/pedidos/:id/pago` permite `comprobante_subido → pagado|rechazado`.
+- Integración con Google Drive via `drive.service.js` (OAuth con refresh token).
+- `archivo_drive` se usa para registrar metadata de archivos subidos.
 
-**Implicación:** Cualquier referencia a "comprobante" en el backend es un placeholder. El admin puede marcar manualmente `estado_pago = 'pagado'` o `'rechazado'`.
+**Nota:** Si las credenciales OAuth de Drive (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`, `GOOGLE_DRIVE_FOLDER_ID`) no están configuradas, la subida de comprobantes falla con 503. Ver `SECRETS.md`.
 
 ---
 
-## 9. Pedidos online solo permiten efectivo
+## 9. Pedidos online aceptan transferencia con comprobante
 
-**Síntoma:** Si un visitante intenta crear un pedido online con `metodo_pago: 'transferencia'`, el backend lanza un error 400.
+Los pedidos online con `metodo_pago=transferencia` son válidos **siempre que incluyan un archivo comprobante** (multipart/form-data).
 
 **Código:** `pedido.controller.js` → `crear()`:
 
-```javascript
-if (req.body.metodo_pago === 'transferencia') {
-  throw new ValidationError(
-    'Transferencia online requiere comprobante. Usá efectivo o contactá al vendedor.'
-  );
-}
-```
+- Si `metodo_pago === 'transferencia'` y no hay archivo → error 400.
+- Si `metodo_pago === 'efectivo'` y hay archivo → error 400.
+- Si `metodo_pago === 'transferencia'` con archivo válido → sube a Drive, crea `archivo_drive`, y genera pedido con `estado_pago=comprobante_subido`.
 
-**Razón:** La subida de comprobantes no está implementada (B6.3). Cuando se implemente, este bloqueo se eliminará y el flujo de transferencia online se habilitará.
+**Ver también:** `upload.middleware.js` (validación MIME/tamaño), `drive.service.js` (subida a Drive).
 
 ---
 
@@ -173,3 +171,84 @@ Si en una etapa futura de ABM productos se permite modificar la composición de 
 - Opción C: Expandir componentes en una tabla de movimientos de stock al vender.
 
 Para el MVP actual sin ABM avanzado de combos, es deuda documentada aceptable.
+
+---
+
+## 12. z.preprocess necesario para items en multipart (B6.3)
+
+**Síntoma:** Cuando el frontend envía `POST /api/pedidos` como `multipart/form-data`, el campo `items` llega como string JSON. El schema Zod debe usar `z.preprocess` para parsearlo.
+
+**Código:** `pedido.schema.js`:
+
+```javascript
+items: z.preprocess((val) => {
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch { return val; }
+  }
+  return val;
+}, z.array(itemSchema).min(1))
+```
+
+**Regla:** Nunca remover el `z.preprocess` de `items`. Tanto `application/json` (array nativo) como `multipart/form-data` (string JSON) deben funcionar.
+
+---
+
+## 13. Multer error vs Zod error ordering (B6.3)
+
+**Síntoma:** Un request multipart con MIME inválido puede generar error de Multer (fileFilter) ANTES de que Zod valide el body.
+
+**Causa:** `uploadComprobante.single('comprobante')` se ejecuta antes de `validateBody(createPedidoSchema)` en la cadena de middlewares.
+
+**Regla:** El error de tipo MIME devuelve 400 (via `handleMulterError`). El error de Zod también devuelve 400 (via `errorMiddleware`). No hay conflicto: Multer rechaza primero tipos inválidos, Zod rechaza campos faltantes/inválidos después.
+
+---
+
+## 14. Magic bytes ordering: después de Multer, antes del controller (B6.3.1)
+
+**Síntoma:** `assertMagicBytes` necesita `req.file.buffer`, que solo existe después de que Multer procesa el multipart con `memoryStorage`.
+
+**Causa:** El middleware `assertMagicBytes` se coloca después de `uploadComprobante.single()` y después de `validateBody`, pero antes del controller `crear`. Si se colocara antes de Multer, `req.file` sería `undefined`.
+
+**Regla:** No mover `assertMagicBytes` antes de `uploadComprobante.single()`. El orden correcto es: Multer → validateBody → assertMagicBytes → crear.
+
+---
+
+## 15. RUN_REAL_DRIVE_TESTS=false por defecto (B6.3.1)
+
+**Síntoma:** Los tests de Drive no contactan Drive real a menos que se setee explícitamente `RUN_REAL_DRIVE_TESTS=true`.
+
+**Causa:** Por diseño — evitar llamadas accidentales a Drive API en CI o desarrollo local.
+
+**Regla:** Si necesitás probar Drive real, ejecutar: `RUN_REAL_DRIVE_TESTS=true npm test`. Sin esa flag, todos los tests Drive usan mocks.
+
+---
+
+## 16. Archivos huérfanos en Drive si falla la transacción DB (B6.3.1)
+
+**Síntoma:** El Drive upload sucede ANTES de la transacción DB. Si la transacción falla (stock, constraint), el archivo ya está en Drive sin `pedido` asociado.
+
+**Causa:** Por diseño — el upload a Drive ocurre primero, y solo después se inicia la transacción DB que inserta `archivo_drive` + `pedido`.
+
+**Mitigación MVP:** Se acepta que archivos huérfanos queden en Drive. No hay lógica de compensación. Los archivos son pequeños (≤5 MB) y no consumen cuota significativa. El preflight `assertStoreOpen` reduce el riesgo de huérfanos por tienda cerrada.
+
+**Regla:** No intentar hacer rollback de Drive dentro del catch de la DB transaction.
+
+---
+
+## 17. Preflight assertStoreOpen evita huérfanos por tienda cerrada (B6.3.1)
+
+**Síntoma:** Si la tienda está cerrada, el preflight `assertStoreOpen` rechaza el request antes de cualquier upload a Drive.
+
+**Causa:** `assertStoreOpen(pool)` se llama en el controller `crear` antes de `driveUploadFile`. Es un SELECT sin lock, barato.
+
+**Regla:** No remover este preflight. Es la primera línea de defensa contra archivos huérfanos.
+
+---
+
+## 18. ZIP de auditoría: verificación post-generación (B6.3.1)
+
+**Síntoma:** `scripts/crear_zip_auditoria.sh` ahora verifica que ningún patrón prohibido (`.env`, `node_modules`, etc.) esté presente en el ZIP después de generarlo.
+
+**Causa:** Post-generation `unzip -l` + `grep` de patrones prohibidos. Si encuentra algo, el script sale non-zero.
+
+**Regla:** Siempre usar `scripts/crear_zip_auditoria.sh` para generar ZIPs de auditoría. No generar ZIPs manualmente.

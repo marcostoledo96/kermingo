@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+const itemSchema = z.object({
+  producto_id: z.coerce.number().int().min(1),
+  cantidad: z.coerce.number().int().min(1),
+}).strict();
+
 export const createPedidoSchema = z.object({
   nombre_cliente: z.string().min(1).max(150),
   mesa: z.string().max(20).optional(),
@@ -7,13 +12,13 @@ export const createPedidoSchema = z.object({
   observaciones: z.string().max(500).optional(),
   metodo_pago: z.enum(['transferencia', 'efectivo']),
   items: z
-    .array(
-      z.object({
-        producto_id: z.coerce.number().int().min(1),
-        cantidad: z.coerce.number().int().min(1),
-      }).strict()
-    )
-    .min(1, 'Al menos un producto requerido'),
+    .preprocess((val) => {
+      // Multer form-data sends fields as strings; parse JSON if needed
+      if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch { return val; }
+      }
+      return val;
+    }, z.array(itemSchema).min(1, 'Al menos un producto requerido')),
 }).strict();
 
 export const createCajaSchema = createPedidoSchema.extend({
