@@ -12,6 +12,7 @@
 3. [Variables en Vercel (producción)](#3-variables-en-vercel-producción)
 4. [Template .env.example](#4-template-envexample)
 5. [Google Drive API (B6.3 implementado)](#5-google-drive-api-b63-implementado)
+6. [OAuth refresh token — Runbook de recuperación](#6-oauth-refresh-token--runbook-de-recuperación)
 
 ---
 
@@ -133,3 +134,49 @@ La integración con Google Drive para subir comprobantes de pago está implement
 **Tabla existente:** `archivo_drive` ya tiene los campos necesarios (`drive_id`, `nombre_original`, `mime_type`, `tamanio_bytes`, `tipo`, `url_publica`).
 
 **En desarrollo:** Si las variables OAuth faltan, el servidor arranca con warning. La subida de comprobantes devuelve 503.
+
+---
+
+## 6. OAuth refresh token — Runbook de recuperación
+
+Si Google Drive devuelve `invalid_grant` o el refresh token fue revocado, la subida de comprobantes deja de funcionar (503). Este runbook describe cómo recuperar el servicio.
+
+### Síntomas
+
+- `POST /api/pedidos` con `metodo_pago=transferencia` devuelve 503 `"Servicio de upload no disponible"`.
+- Log del servidor: `[DRIVE] Google Drive service initialized successfully (OAuth)` aparece al arranque, pero el upload falla con `invalid_grant`.
+- En Railway, los logs muestran errores de OAuth al intentar refresh.
+
+### Causas comunes
+
+- El refresh token fue revocado manualmente desde Google Account.
+- La cuenta de Google cambió la contraseña y los tokens se invalidaron.
+- El OAuth client fue eliminado o regenerado en Google Cloud Console.
+- Se excedió el límite de refresh tokens (máximo 50 por usuario/client).
+
+### Pasos de recuperación
+
+1. **Generar un nuevo refresh token:**
+   - Ir a Google Cloud Console → APIs & Services → Credentials.
+   - Usar el OAuth client ID existente (o crear uno nuevo si fue eliminado).
+   - Autorizar con el scope `https://www.googleapis.com/auth/drive.file` usando el playground de OAuth2 o un script auxiliar.
+   - Intercambiar el código de autorización por un nuevo refresh token.
+
+2. **Actualizar `GOOGLE_OAUTH_REFRESH_TOKEN` en Railway:**
+   - Ir al dashboard de Railway → servicio backend → Variables.
+   - Reemplazar el valor de `GOOGLE_OAUTH_REFRESH_TOKEN` con el nuevo token.
+   - Si también cambió el client ID o secret, actualizar `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET`.
+
+3. **Redeploy el backend:**
+   - Railway redeploya automáticamente al cambiar variables de entorno.
+   - Si no, hacer un manual redeploy desde el dashboard.
+
+4. **Probar con un comprobante real:**
+   - Crear un pedido con `metodo_pago=transferencia` y un archivo adjunto.
+   - Verificar que el estado del pedido queda `comprobante_subido`.
+   - Verificar en Drive que el archivo se subió a la carpeta configurada.
+
+5. **Si el problema persiste:**
+   - Verificar que la carpeta de Drive está compartida con la cuenta OAuth.
+   - Verificar que `GOOGLE_DRIVE_FOLDER_ID` es correcto.
+   - Verificar que `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET` coinciden con el proyecto en Google Cloud Console.

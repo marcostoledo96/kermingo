@@ -4,10 +4,9 @@
  *   etapa-5/R1-S1..S2, R2-S1..S2, R3-S1..S3
  *
  * Requires: running MySQL DB with test data (schema + seed).
- * Drive service behavior depends on whether GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
- * GOOGLE_OAUTH_REFRESH_TOKEN, and GOOGLE_DRIVE_FOLDER_ID are set.
- * When Drive is not configured, upload attempts return 503.
- * When Drive IS configured, uploads go to real Google Drive (not ideal for CI).
+ * Drive service behavior depends on RUN_REAL_DRIVE_TESTS and OAuth credentials.
+ * By default, tests do NOT call real Google Drive.
+ * Real Drive upload is enabled only with RUN_REAL_DRIVE_TESTS=true and OAuth credentials configured.
  *
  * We test the request validation and response shapes primarily.
  */

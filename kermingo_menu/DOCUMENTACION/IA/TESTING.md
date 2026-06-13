@@ -50,8 +50,8 @@ npx jest tests/path/to/file.test.js
 # Ver coverage
 npm test -- --coverage
 
-# Tests Drive real (opt-in)
-RUN_REAL_DRIVE_TESTS=true npm test
+# Tests Drive real (opt-in, requiere credenciales OAuth)
+RUN_REAL_DRIVE_TESTS=true npm test -- --testPathPattern=comprobantes.test
 ```
 
 **Nota:** ESM requiere el flag `--experimental-vm-modules`:
@@ -92,9 +92,7 @@ backend/tests/
 ├── configuracion.csrf.test.js      # Tests de CSRF para configuración
 ├── configuracion.test.js           # Integration tests de configuración con DB real
 ├── configuracion.unit.test.js      # Unit tests de configuracion schema
-├── health.test.js                  # Test de health check
-└── helpers/
-    └── setup.js                    # Fixtures, RUN_ID, limpieza
+└── health.test.js                  # Test de health check
 ```
 
 **Nota:** Los tests están en `backend/tests/` directamente (no en subcarpetas `unit/` o `integration/`). El patrón naming convention distingue unit de integration: `*.unit.test.js` para unitarios con mocks, `*.test.js` para integración con DB real, `*.controller.test.js` para tests de controller.
@@ -174,9 +172,17 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
 | Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 12 suites, **186 tests** | `npm test` para conteo exacto |
+| **Total** | 12 suites, **187 tests** | Contar con `npm test` para verificación exacta |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
+
+**Tests Drive real (opt-in):** Por defecto, los tests NO contactan Google Drive. Para ejecutar tests reales de Drive:
+
+```bash
+RUN_REAL_DRIVE_TESTS=true npm test -- --testPathPattern=comprobantes.test
+```
+
+Se espera ~18 tests reales de Drive cuando las credenciales OAuth están configuradas.
 
 ---
 
@@ -201,7 +207,7 @@ La suite está en constante crecimiento. Para el conteo exacto, correr `npm test
 
 - **Unit tests:** Mock `googleapis` via `jest.doMock` / `jest.resetModules`. Test `uploadFile` success + error throws. Test `isDriveReady` state. Test `assertAllowedFileSignature` con buffers reales (PDF/PNG/JPEG/WEBP válidos e inválidos).
 - **Drive mock tests:** `comprobantes.drive-mock.test.js` usa `_getDriveStateForTest()` / `_resetDriveForTest()` para save/restore del estado interno del servicio Drive entre suites. Testea el formato de nombre interno seguro (`${timestamp}-${uuid}-${sanitizedOriginal}`).
-- **Integration tests:** Drive upload depende de `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN` y `GOOGLE_DRIVE_FOLDER_ID` en env. Por defecto (`RUN_REAL_DRIVE_TESTS=false`), no contacta Drive real. Cuando `RUN_REAL_DRIVE_TESTS=true` y credenciales OAuth configuradas, el archivo sube a Drive real.
+- **Integration tests:** Drive upload depende de `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN` y `GOOGLE_DRIVE_FOLDER_ID` en env. Por defecto (`RUN_REAL_DRIVE_TESTS` ausente o `false`), los tests NO contactan Drive real. Solo cuando `RUN_REAL_DRIVE_TESTS=true` Y las credenciales OAuth están configuradas, el archivo sube a Drive real. Ver comando en sección 2.
 - **Magic bytes integration:** `comprobantes.test.js` testea que un archivo con MIME `application/pdf` pero buffer sin firma `%PDF` recibe 400.
 - **Preflight store closed:** `comprobantes.test.js` testea que tienda cerrada + transferencia con comprobante → 400 sin intentar Drive.
 - **Patrón supertest multipart:** Usar `.field()` y `.attach()` para simular `multipart/form-data`. Ejemplo:

@@ -131,3 +131,16 @@ Railway puede usar este endpoint para verificar que el servidor está vivo.
 - **Reset completo:** `DROP DATABASE` + `CREATE DATABASE` + `schema.sql` + `indexes.sql` + `seed.sql`.
 
 **Conexión desde tests:** Los tests de integración usan la misma DB configurada en `.env`. Se recomienda una DB separada para testing si es posible.
+
+---
+
+## 8. OAuth refresh token — Recuperación
+
+Si Google Drive devuelve `invalid_grant` o el refresh token fue revocado, ver el **Runbook de recuperación** completo en `SECRETS.md` sección 6.
+
+Resumen rápido:
+
+1. Generar nuevo refresh token (Google Cloud Console → OAuth playground).
+2. Actualizar `GOOGLE_OAUTH_REFRESH_TOKEN` en Railway.
+3. Redeploy backend.
+4. Probar comprobante con transferencia.

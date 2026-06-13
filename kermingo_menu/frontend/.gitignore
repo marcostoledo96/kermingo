@@ -6,10 +6,25 @@ __v0_jsx-dev-runtime.ts
 .v0-trash/
 .vercel/
 
-# Environment variables
-.env*.local
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
 
-# Common ignores
-node_modules
+# Dependencies
+node_modules/
+
+# Build artifacts
 .next/
+dist/
+coverage/
+
+# OS files
 .DS_Store
+
+# Archives and secrets
+*.zip
+*.pem
+*.key
+credentials/
+drive-credentials.json

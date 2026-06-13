@@ -38,7 +38,7 @@
 | Listar pedidos con filtros | — | ✅ | `GET /api/admin/pedidos` |
 | Ver detalle de pedido | — | ✅ | `GET /api/admin/pedidos/:id` |
 | Avanzar estado de pedido | — | ✅ | `PATCH /api/admin/pedidos/:id/estado` |
-| Ver comprobante de pago | — | ✅ | `GET /api/admin/pedidos/:id/comprobante` |
+| Ver comprobante de pago | — | ✅ | `GET /api/admin/pedidos/:id/comprobante` — Devuelve metadata y `url_publica` (webViewLink). B7 inicial: botón "Abrir en Drive". Futuro: proxy autenticado si se necesita. |
 | Cambiar estado de pago | — | ✅ | `PATCH /api/admin/pedidos/:id/pago` |
 | Cancelar pedido (reponer stock) | — | ✅ | `PATCH /api/admin/pedidos/:id/cancelar` |
 | Ver pedidos de cocina | — | ✅ | `GET /api/admin/cocina/pedidos` |

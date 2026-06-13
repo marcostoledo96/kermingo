@@ -1,2 +1,22 @@
 # Local AI runtime state
 .atl/
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+.next/
+dist/
+coverage/
+
+# Archives and secrets
+*.zip
+*.pem
+*.key
+credentials/
+drive-credentials.json
