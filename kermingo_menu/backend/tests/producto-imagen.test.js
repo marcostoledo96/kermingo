@@ -5,11 +5,13 @@ import app from '../src/app.js';
 import jwt from 'jsonwebtoken';
 import pool from '../src/api/database/db.js';
 import environments from '../src/api/config/environments.js';
-import { _getDriveStateForTest, _resetDriveForTest } from '../src/api/services/drive.service.js';
+import { uploadFile, _getDriveStateForTest, _resetDriveForTest } from '../src/api/services/drive.service.js';
 
 const COOKIE_NAME = environments.cookie.name;
 const JWT_SECRET = environments.jwt.secret;
 const ORIGIN = environments.frontendUrl;
+
+const TEST_RUN_ID = `test-product-image-${Date.now()}`;
 
 function adminCookie(userId = 1) {
   const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '1h' });
@@ -34,7 +36,10 @@ describe('Product Image Endpoints', () => {
     _resetDriveForTest(savedState);
     // Clean up product ID 1 database modifications
     await pool.query('UPDATE producto SET imagen_archivo_id = NULL WHERE id = 1');
-    await pool.query("DELETE FROM archivo_drive WHERE tipo = 'producto_imagen'");
+    await pool.query(
+      "DELETE FROM archivo_drive WHERE tipo = 'producto_imagen' AND drive_id LIKE ?",
+      [`${TEST_RUN_ID}%`]
+    );
   });
 
   afterAll(async () => {
@@ -60,7 +65,7 @@ describe('Product Image Endpoints', () => {
       const [insertResult] = await pool.query(
         `INSERT INTO archivo_drive (drive_id, nombre_original, mime_type, tamanio_bytes, tipo)
          VALUES (?, ?, ?, ?, ?)`,
-        ['mock-drive-id-123', 'test-image.webp', 'image/webp', 1024, 'producto_imagen']
+        [`${TEST_RUN_ID}-mock-drive-id-123`, 'test-image.webp', 'image/webp', 1024, 'producto_imagen']
       );
       const archivoId = insertResult.insertId;
       await pool.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = 1', [archivoId]);
@@ -90,7 +95,7 @@ describe('Product Image Endpoints', () => {
       const [insertResult] = await pool.query(
         `INSERT INTO archivo_drive (drive_id, nombre_original, mime_type, tamanio_bytes, tipo)
          VALUES (?, ?, ?, ?, ?)`,
-        ['mock-drive-id-456', 'test.webp', 'image/webp', 2048, 'producto_imagen']
+        [`${TEST_RUN_ID}-mock-drive-id-456`, 'test.webp', 'image/webp', 2048, 'producto_imagen']
       );
       const archivoId = insertResult.insertId;
       await pool.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = 1', [archivoId]);
@@ -121,7 +126,7 @@ describe('Product Image Endpoints', () => {
       const [insertResult] = await pool.query(
         `INSERT INTO archivo_drive (drive_id, nombre_original, mime_type, tamanio_bytes, tipo)
          VALUES (?, ?, ?, ?, ?)`,
-        ['mock-fail-id', 'test.webp', 'image/webp', 2048, 'producto_imagen']
+        [`${TEST_RUN_ID}-mock-fail-id`, 'test.webp', 'image/webp', 2048, 'producto_imagen']
       );
       const archivoId = insertResult.insertId;
       await pool.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = 1', [archivoId]);
@@ -163,8 +168,8 @@ describe('Product Image Endpoints', () => {
         files: {
           create: jest.fn().mockResolvedValue({
             data: {
-              id: 'mock-uploaded-drive-id',
-              webViewLink: 'https://drive.google.com/file/d/mock-uploaded-drive-id',
+              id: `${TEST_RUN_ID}-mock-uploaded-drive-id`,
+              webViewLink: `https://drive.google.com/file/d/${TEST_RUN_ID}-mock-uploaded-drive-id`,
             },
           }),
         },
@@ -184,7 +189,7 @@ describe('Product Image Endpoints', () => {
       expect(res.body.data.imagen_mime_type).toBe('image/webp'); // converted to webp!
 
       // Verify DB row
-      const [rows] = await pool.query('SELECT * FROM archivo_drive WHERE drive_id = ?', ['mock-uploaded-drive-id']);
+      const [rows] = await pool.query('SELECT * FROM archivo_drive WHERE drive_id = ?', [`${TEST_RUN_ID}-mock-uploaded-drive-id`]);
       expect(rows.length).toBe(1);
       expect(rows[0].tipo).toBe('producto_imagen');
       expect(rows[0].mime_type).toBe('image/webp');
@@ -242,7 +247,7 @@ describe('Product Image Endpoints', () => {
       const [insertResult] = await pool.query(
         `INSERT INTO archivo_drive (drive_id, nombre_original, mime_type, tamanio_bytes, tipo)
          VALUES (?, ?, ?, ?, ?)`,
-        ['mock-drive-id-789', 'test.webp', 'image/webp', 2048, 'producto_imagen']
+        [`${TEST_RUN_ID}-mock-drive-id-789`, 'test.webp', 'image/webp', 2048, 'producto_imagen']
       );
       const archivoId = insertResult.insertId;
       await pool.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = 1', [archivoId]);
@@ -260,6 +265,56 @@ describe('Product Image Endpoints', () => {
       // Verify the image row still exists in DB
       const [rows] = await pool.query('SELECT id FROM archivo_drive WHERE id = ?', [archivoId]);
       expect(rows.length).toBe(1);
+    });
+  });
+
+  describe('Google Drive Folder Routing Logic', () => {
+    it('uploadFile without folderId uses default Drive folderId from environments', async () => {
+      const mockDriveClient = {
+        files: {
+          create: jest.fn().mockResolvedValue({
+            data: { id: `${TEST_RUN_ID}-test-file-id`, webViewLink: null },
+          }),
+        },
+      };
+
+      _resetDriveForTest({ driveClient: mockDriveClient, isConfigured: true });
+
+      await uploadFile(Buffer.from('test'), 'comprobante.png', 'image/png');
+
+      expect(mockDriveClient.files.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            parents: [environments.googleDrive.folderId],
+          }),
+        })
+      );
+    });
+
+    it('uploadFile with explicit folderId option uses provided folderId', async () => {
+      const customFolderId = `${TEST_RUN_ID}-custom-folder-test`;
+
+      const mockDriveClient = {
+        files: {
+          create: jest.fn().mockResolvedValue({
+            data: { id: `${TEST_RUN_ID}-test-file-id`, webViewLink: null },
+          }),
+        },
+      };
+
+      _resetDriveForTest({ driveClient: mockDriveClient, isConfigured: true });
+
+      await uploadFile(Buffer.from('test'), 'producto.webp', 'image/webp', {
+        folderId: customFolderId,
+      });
+
+      expect(mockDriveClient.files.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            parents: [customFolderId],
+          }),
+        })
+      );
     });
   });
 });

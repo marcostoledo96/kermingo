@@ -30,8 +30,8 @@ const adminRouter = Router();
 
 // ── Rutas públicas ──
 publicRouter.get('/', validateQuery(productoQuerySchema), listar);
-publicRouter.get('/:id', validateParams(idParamSchema), obtener);
 publicRouter.get('/:id/imagen', validateParams(idParamSchema), obtenerImagen);
+publicRouter.get('/:id', validateParams(idParamSchema), obtener);
 
 // ── Rutas admin ──
 adminRouter.get('/', requireAdmin, validateQuery(adminProductoQuerySchema), listarAdmin);
@@ -47,7 +47,6 @@ adminRouter.post('/:id/imagen',
   validateParams(idParamSchema),
   uploadProductoImagen.single('imagen'),
   assertProductImageMagicBytes,
-  handleMulterError,
   subirImagen
 );
 

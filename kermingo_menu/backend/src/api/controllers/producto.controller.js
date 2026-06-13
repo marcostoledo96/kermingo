@@ -79,7 +79,7 @@ export async function crear(req, res, next) {
   try {
     const pool = getPool();
     const insertId = await create(pool, req.body);
-    const producto = await findByIdPublic(pool, insertId);
+    const producto = await findByIdAdmin(pool, insertId);
     return respuestaExitosa(res, producto, 'Producto creado correctamente', 201);
   } catch (err) {
     next(err);
@@ -95,7 +95,7 @@ export async function actualizar(req, res, next) {
     const pool = getPool();
     const affectedRows = await update(pool, req.params.id, req.body);
     if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
-    const producto = await findByIdPublic(pool, req.params.id);
+    const producto = await findByIdAdmin(pool, req.params.id);
     return respuestaExitosa(res, producto, 'Producto actualizado correctamente');
   } catch (err) {
     next(err);

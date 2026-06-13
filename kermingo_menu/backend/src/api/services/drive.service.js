@@ -77,7 +77,7 @@ export async function uploadFile(buffer, originalName, mimeType, options = {}) {
     throw new DriveUploadError('Google Drive service is not configured. Cannot upload files.');
   }
 
-  const folderId = options.folderId || environments.googleDrive.productosFolderId || environments.googleDrive.folderId;
+  const folderId = options.folderId || environments.googleDrive.folderId;
   const timestamp = Date.now();
   const uuid = crypto.randomUUID();
   const safeName = sanitizeFileName(originalName);
