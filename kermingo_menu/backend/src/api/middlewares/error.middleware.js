@@ -10,6 +10,14 @@ export default function errorMiddleware(err, req, res, next) {
     });
   }
 
+  // Handle DriveReadError by name for 503 mapping
+  if (err.name === 'DriveReadError') {
+    return res.status(503).json({
+      ok: false,
+      error: 'Servicio de lectura no disponible',
+    });
+  }
+
   if (err instanceof AppError) {
     return respuestaError(res, err, err.statusCode);
   }

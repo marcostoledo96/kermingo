@@ -9,16 +9,23 @@ const SQL_BASE_PUBLIC = `
     p.stock_actual,
     p.stock_minimo_alerta,
     p.activo,
+    p.imagen_archivo_id,
+    ai.nombre_original AS imagen_nombre_original,
+    ai.mime_type AS imagen_mime_type,
+    ai.tamanio_bytes AS imagen_tamanio_bytes,
+    CASE WHEN ai.id IS NOT NULL THEN CONCAT('/api/productos/', p.id, '/imagen?v=', ai.id) ELSE NULL END AS imagen_url,
     GROUP_CONCAT(c.nombre ORDER BY c.nombre SEPARATOR ', ') AS categorias
   FROM producto p
   LEFT JOIN producto_categoria pc ON pc.producto_id = p.id
   LEFT JOIN categoria c ON c.id = pc.categoria_id
+  LEFT JOIN archivo_drive ai ON ai.id = p.imagen_archivo_id
   WHERE p.activo = 1
 `;
 
 const SQL_GROUP_ORDER_PUBLIC = `
   GROUP BY p.id, p.nombre, p.descripcion, p.precio, p.tipo,
-           p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo
+           p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo,
+           p.imagen_archivo_id, ai.id, ai.nombre_original, ai.mime_type, ai.tamanio_bytes
   ORDER BY p.tipo, p.nombre
 `;
 
@@ -33,16 +40,23 @@ const SQL_BASE_ADMIN = `
     p.stock_actual,
     p.stock_minimo_alerta,
     p.activo,
+    p.imagen_archivo_id,
+    ai.nombre_original AS imagen_nombre_original,
+    ai.mime_type AS imagen_mime_type,
+    ai.tamanio_bytes AS imagen_tamanio_bytes,
+    CASE WHEN ai.id IS NOT NULL THEN CONCAT('/api/productos/', p.id, '/imagen?v=', ai.id) ELSE NULL END AS imagen_url,
     GROUP_CONCAT(c.nombre ORDER BY c.nombre SEPARATOR ', ') AS categorias
   FROM producto p
   LEFT JOIN producto_categoria pc ON pc.producto_id = p.id
   LEFT JOIN categoria c ON c.id = pc.categoria_id
+  LEFT JOIN archivo_drive ai ON ai.id = p.imagen_archivo_id
   WHERE 1 = 1
 `;
 
 const SQL_GROUP_ORDER_ADMIN = `
   GROUP BY p.id, p.nombre, p.descripcion, p.precio, p.tipo,
-           p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo
+           p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo,
+           p.imagen_archivo_id, ai.id, ai.nombre_original, ai.mime_type, ai.tamanio_bytes
   ORDER BY p.id DESC
 `;
 
@@ -121,6 +135,15 @@ export async function findAllAdmin(pool, filters = {}) {
   return { productos, total };
 }
 
+export async function findByIdAdmin(pool, id) {
+  const values = [id];
+  const where = 'AND p.id = ?';
+  const sql = `${SQL_BASE_ADMIN}\n${where}\n${SQL_GROUP_ORDER_ADMIN}`;
+
+  const [rows] = await pool.query(sql, values);
+  return rows[0] || null;
+}
+
 export async function create(pool, data) {
   const [result] = await pool.query('INSERT INTO producto SET ?', [data]);
   return result.insertId;
@@ -143,5 +166,10 @@ export async function restore(pool, id) {
 
 export async function updateStock(pool, id, stock) {
   const [result] = await pool.query('UPDATE producto SET stock_actual = ? WHERE id = ?', [stock, id]);
+  return result.affectedRows;
+}
+
+export async function updateImagenArchivoId(conn, productoId, archivoId) {
+  const [result] = await conn.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = ?', [archivoId, productoId]);
   return result.affectedRows;
 }

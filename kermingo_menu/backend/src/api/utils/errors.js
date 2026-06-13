@@ -43,3 +43,10 @@ export class DriveUploadError extends AppError {
     this.name = 'DriveUploadError';
   }
 }
+
+export class DriveReadError extends AppError {
+  constructor(message = 'Servicio de lectura no disponible') {
+    super(message, 503);
+    this.name = 'DriveReadError';
+  }
+}

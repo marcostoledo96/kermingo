@@ -8,9 +8,15 @@ import {
   deactivate,
   restore,
   updateStock,
+  findByIdAdmin,
+  updateImagenArchivoId,
 } from '../models/producto.model.js';
+import { findProductImageByProductId, createArchivo } from '../models/archivo.model.js';
+import { processProductImage } from '../services/image.service.js';
+import { uploadFile, downloadFile } from '../services/drive.service.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { NotFoundError } from '../utils/errors.js';
+import environments from '../config/environments.js';
 
 /**
  * GET /api/productos
@@ -136,6 +142,101 @@ export async function ajustarStock(req, res, next) {
     const affectedRows = await updateStock(pool, req.params.id, req.body.stock_actual);
     if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
     return respuestaExitosa(res, { id: parseInt(req.params.id), stock_actual: req.body.stock_actual }, 'Stock actualizado correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/productos/:id/imagen
+ * Obtiene la imagen de un producto y la transmite desde Google Drive.
+ */
+export async function obtenerImagen(req, res, next) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const imagen = await findProductImageByProductId(pool, id);
+    if (!imagen) {
+      throw new NotFoundError('Imagen del producto no encontrada');
+    }
+
+    const stream = await downloadFile(imagen.drive_id);
+    res.writeHead(200, {
+      'Content-Type': 'image/webp',
+      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+      'Content-Disposition': `inline; filename="producto-${id}.webp"`,
+    });
+    stream.pipe(res);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/admin/productos/:id/imagen
+ * Sube y procesa la imagen de un producto.
+ */
+export async function subirImagen(req, res, next) {
+  const pool = getPool();
+  let conn = null;
+  try {
+    const { id } = req.params;
+    const producto = await findByIdAdmin(pool, id);
+    if (!producto) throw new NotFoundError('Producto no encontrado');
+
+    const processed = await processProductImage(req.file.buffer);
+
+    const folderId = environments.googleDrive.productosFolderId || environments.googleDrive.folderId;
+    const driveResult = await uploadFile(
+      processed.buffer,
+      `producto-${id}.webp`,
+      processed.mimeType,
+      { folderId }
+    );
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const archivoId = await createArchivo(conn, {
+      drive_id: driveResult.driveFileId,
+      nombre_original: req.file.originalname || `producto-${id}.webp`,
+      mime_type: processed.mimeType,
+      tamanio_bytes: processed.size,
+      tipo: 'producto_imagen',
+    });
+
+    await updateImagenArchivoId(conn, id, archivoId);
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
+    const updatedProducto = await findByIdAdmin(pool, id);
+    return respuestaExitosa(res, updatedProducto, 'Imagen de producto subida correctamente');
+  } catch (err) {
+    if (conn) {
+      await conn.rollback();
+      conn.release();
+    }
+    next(err);
+  }
+}
+
+/**
+ * DELETE /api/admin/productos/:id/imagen
+ * Quita la imagen asociada a un producto sin eliminarla de Google Drive.
+ */
+export async function quitarImagen(req, res, next) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const producto = await findByIdAdmin(pool, id);
+    if (!producto) throw new NotFoundError('Producto no encontrado');
+
+    await updateImagenArchivoId(pool, id, null);
+
+    const updatedProducto = await findByIdAdmin(pool, id);
+    return respuestaExitosa(res, updatedProducto, 'Imagen de producto quitada correctamente');
   } catch (err) {
     next(err);
   }

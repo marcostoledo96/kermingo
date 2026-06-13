@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { Readable } from 'stream';
 import { google } from 'googleapis';
 import environments from '../config/environments.js';
-import { DriveUploadError } from '../utils/errors.js';
+import { DriveUploadError, DriveReadError } from '../utils/errors.js';
 
 let driveClient = null;
 let isConfigured = false;
@@ -68,15 +68,16 @@ initDrive();
  * @param {Buffer} buffer - File content
  * @param {string} originalName - Original file name (stored in DB as nombre_original)
  * @param {string} mimeType - MIME type of the file
+ * @param {object} [options={}] - Optional settings (like custom folderId)
  * @returns {Promise<{driveFileId: string, webViewLink: string|null, internalName: string}>}
  * @throws {DriveUploadError} On any upload failure
  */
-export async function uploadFile(buffer, originalName, mimeType) {
+export async function uploadFile(buffer, originalName, mimeType, options = {}) {
   if (!isConfigured || !driveClient) {
     throw new DriveUploadError('Google Drive service is not configured. Cannot upload files.');
   }
 
-  const { folderId } = environments.googleDrive;
+  const folderId = options.folderId || environments.googleDrive.productosFolderId || environments.googleDrive.folderId;
   const timestamp = Date.now();
   const uuid = crypto.randomUUID();
   const safeName = sanitizeFileName(originalName);
@@ -109,6 +110,28 @@ export async function uploadFile(buffer, originalName, mimeType) {
   } catch (err) {
     // All Drive API errors map to DriveUploadError
     throw new DriveUploadError(`Failed to upload file to Google Drive: ${err.message}`);
+  }
+}
+
+/**
+ * Download a file stream from Google Drive.
+ * @param {string} driveFileId - File ID in Google Drive
+ * @returns {Promise<Readable>} Readable stream of the file content
+ * @throws {DriveReadError} On any read/download failure
+ */
+export async function downloadFile(driveFileId) {
+  if (!isConfigured || !driveClient) {
+    throw new DriveReadError('Google Drive service is not configured. Cannot download files.');
+  }
+
+  try {
+    const response = await driveClient.files.get(
+      { fileId: driveFileId, alt: 'media' },
+      { responseType: 'stream' }
+    );
+    return response.data;
+  } catch (err) {
+    throw new DriveReadError(`Failed to download file from Google Drive: ${err.message}`);
   }
 }
 
@@ -148,4 +171,4 @@ export function _setDriveClientForTest(client, configured) {
   isConfigured = !!configured;
 }
 
-export default { uploadFile, isDriveReady, _setDriveClientForTest, _getDriveStateForTest, _resetDriveForTest };
+export default { uploadFile, downloadFile, isDriveReady, _setDriveClientForTest, _getDriveStateForTest, _resetDriveForTest };

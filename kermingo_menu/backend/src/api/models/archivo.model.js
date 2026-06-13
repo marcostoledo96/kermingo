@@ -45,3 +45,23 @@ export async function findArchivoById(pool, id) {
   );
   return rows[0] || null;
 }
+
+/**
+ * Find the active product image file record by product ID.
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {number} productoId
+ * @param {object} [options={}]
+ * @param {boolean} [options.includeInactive=false] - If true, returns the image even if product is inactive
+ * @returns {Promise<object|null>}
+ */
+export async function findProductImageByProductId(pool, productoId, { includeInactive = false } = {}) {
+  const query = `
+    SELECT a.id, a.drive_id, a.nombre_original, a.mime_type, a.tamanio_bytes, a.tipo, a.url_publica, a.created_at
+    FROM archivo_drive a
+    JOIN producto p ON p.imagen_archivo_id = a.id
+    WHERE p.id = ? AND a.tipo = 'producto_imagen'
+      ${includeInactive ? '' : 'AND p.activo = 1'}
+  `;
+  const [rows] = await pool.query(query, [productoId]);
+  return rows[0] || null;
+}

@@ -1,5 +1,35 @@
 # Changelog IA
 
+## Fase B5.3 — Implementación de Subida y Procesamiento de Imágenes de Producto (2026-06-13)
+
+### Cambios aplicados
+
+- **Procesamiento de Imágenes (`image.service.js` y dependencias)**:
+  - Instalado `sharp` para redimensionar (máx 900x900px, adaptativo), rotar (según orientación EXIF) y convertir automáticamente a WebP con calidad 75.
+- **Google Drive (`drive.service.js` y `errors.js`)**:
+  - Actualizado `uploadFile` para soportar la carpeta dedicada de productos (`GOOGLE_DRIVE_PRODUCTOS_FOLDER_ID`) o raíz del Drive.
+  - Implementado `downloadFile` para recuperar el stream de lectura de archivos, lanzando la nueva excepción `DriveReadError` (HTTP 503) ante fallos.
+- **Middlewares de Validación (`upload.middleware.js`)**:
+  - Configurado `uploadProductoImagen` usando Multer (memoryStorage, límite 5MB, JPG/PNG/WEBP).
+  - Creado `assertProductImageMagicBytes` para la validación rigurosa de tipo real de archivo usando bytes mágicos (magic bytes).
+- **Modelos de Base de Datos (`archivo.model.js` y `producto.model.js`)**:
+  - Implementado `findProductImageByProductId` para resolver el archivo de imagen de un producto.
+  - Actualizado `SQL_BASE_PUBLIC` y `SQL_BASE_ADMIN` en `producto.model.js` con un `LEFT JOIN` a `archivo_drive` para exponer la URL pública dinámica del stream de imagen (`/api/productos/:id/imagen?v={id}`).
+  - Agregadas las operaciones `findByIdAdmin` y `updateImagenArchivoId`.
+- **Controladores y Rutas (`producto.controller.js` y `producto.routes.js`)**:
+  - Implementado `obtenerImagen` que transmite la imagen como stream proxy de Drive con cabeceras de caché agresivas (`Cache-Control: public, max-age=86400, stale-while-revalidate=604800`).
+  - Implementado `subirImagen` de forma transaccional (creación de registro de archivo + actualización del producto) y `quitarImagen`.
+  - Registrada la ruta pública de obtención y las rutas protegidas de administración para la subida/eliminación con validación de origen.
+- **Pruebas de Integración (`producto-imagen.test.js`)**:
+  - Creado un test suite integral con mocks de Google Drive que cubre todos los endpoints y validaciones (incluido tests de origen, permisos de admin, bytes mágicos falsos y manejo de errores 503).
+
+### Verificación
+
+| Test | Resultado |
+|------|-----------|
+| `npm test tests/producto-imagen.test.js` | ✅ Todos los 12 tests de imágenes pasan con éxito. |
+| `npm test` | ✅ 13 suites y 199/199 tests pasan sin regresiones. |
+
 ## Fase B5.2 — Alineación de Schema, Seed, Stock e Harness de Testing (2026-06-06)
 
 ### Cambios aplicados

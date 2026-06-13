@@ -86,11 +86,16 @@ backend/
 │       │   └── environments.js   Config centralizada con Object.freeze
 │       ├── utils/
 │       │   ├── respuesta.utils.js  Helpers respuestaExitosa/respuestaError
-│       │   └── errors.js           AppError + ValidationError + NotFoundError + AuthError
+│       │   ├── errors.js           AppError + ValidationError + NotFoundError + AuthError
+│       │   └── file-signature.utils.js Comprobación de firmas de archivo (magic bytes)
+│       ├── services/
+│       │   ├── drive.service.js  Servicio de subida/descarga de Google Drive
+│       │   └── image.service.js  Servicio de procesamiento de imagen WebP con sharp
 │       ├── middlewares/
 │       │   ├── error.middleware.js  Global error handler
 │       │   ├── admin.middleware.js  Middleware de verificación de administrador
 │       │   ├── origin.middleware.js Middleware de origen de confianza (Origin/Referer)
+│       │   ├── upload.middleware.js Middleware de subida de archivos (Multer) y validación de firma
 │       │   └── validate.middleware.js Middleware de validación con Zod
 │       ├── database/
 │       │   ├── db.js            Pool de conexiones mysql2/promise
@@ -104,14 +109,16 @@ backend/
 │       │   └── pedido.routes.js Rutas de gestión de pedidos
 │       ├── controllers/
 │       │   ├── auth.controller.js Controlador de login, logout y me
-│       │   ├── producto.controller.js Controlador de CRUD de productos
+│       │   ├── producto.controller.js Controlador de CRUD de productos e imágenes
 │       │   └── pedido.controller.js Controlador de gestión de pedidos
 │       └── models/
 │           ├── usuario.model.js Modelo de base de datos para usuarios admin
 │           ├── producto.model.js Modelo de base de datos para productos
-│           └── pedido.model.js Modelo transaccional para pedidos y control de stock
+│           ├── pedido.model.js Modelo transaccional para pedidos y control de stock
+│           └── archivo.model.js Modelo de base de datos para archivos en Google Drive
 └── tests/
-    └── health.test.js    Test de integración básico del health check
+    ├── health.test.js    Test de integración básico del health check
+    └── producto-imagen.test.js Test de integración para endpoints de imágenes de producto
 ```
 
 ## Documentación

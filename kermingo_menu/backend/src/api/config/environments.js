@@ -8,6 +8,7 @@ const esProduccion = nodeEnv === 'production';
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 const googleDriveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
+const googleDriveProductosFolderId = process.env.GOOGLE_DRIVE_PRODUCTOS_FOLDER_ID || '';
 const googleOAuthClientId = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
 const googleOAuthClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
 const googleOAuthRefreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '';
@@ -37,6 +38,7 @@ const entorno = {
   },
   googleDrive: {
     folderId: googleDriveFolderId,
+    productosFolderId: googleDriveProductosFolderId || googleDriveFolderId,
     oauthClientId: googleOAuthClientId,
     oauthClientSecret: googleOAuthClientSecret,
     oauthRefreshToken: googleOAuthRefreshToken,
