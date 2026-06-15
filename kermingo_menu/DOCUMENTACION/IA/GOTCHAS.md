@@ -245,7 +245,21 @@ items: z.preprocess((val) => {
 
 ---
 
-## 18. ZIP de auditoría: verificación post-generación (B6.3.1)
+## 18. useSyncExternalStore + JSON.parse: referential stability (frontend-ticket-qr)
+
+**Síntoma:** React error #185 (Maximum update depth exceeded) al renderizar `/confirmado` con un objeto en localStorage.
+
+**Causa:** `useSyncExternalStore`'s `getSnapshot` llamaba `JSON.parse()` en cada invocación, creando un nuevo objeto cada vez. React detectaba referencias distintas como cambios de estado, causando re-renders infinitos.
+
+**Solución:** Agregar un cache basado en `useRef` en `getSnapshot`: cuando el string raw de localStorage no cambia, devolver la misma referencia de objeto parseado. Invalidar el cache cuando localStorage cambia o hay error.
+
+**Archivo afectado:** `frontend/lib/use-local-storage.ts`
+
+**Regla:** Siempre que `useSyncExternalStore` se use con `JSON.parse`, cachear el resultado parseado y devolver la misma referencia mientras el string raw no cambie.
+
+---
+
+## 19. ZIP de auditoría: verificación post-generación (B6.3.1)
 
 **Síntoma:** `scripts/crear_zip_auditoria.sh` ahora verifica que ningún patrón prohibido (`.env`, `node_modules`, etc.) esté presente en el ZIP después de generarlo.
 

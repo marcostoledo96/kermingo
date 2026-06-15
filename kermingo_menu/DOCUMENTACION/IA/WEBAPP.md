@@ -29,6 +29,7 @@
 | shadcn/ui | 4.x | Componentes base estilizados |
 | lucide-react | 1.x | Iconos |
 | jsPDF | — | Generación de ticket PDF |
+| qrcode.react | — | Generación de QR scaneable en ticket confirmado |
 
 **Comandos:**
 
@@ -54,8 +55,8 @@ pnpm build     # Build de producción
 | `/menu` | `app/menu/page.tsx` | Carta de productos |
 | `/carrito` | `app/carrito/page.tsx` | Carrito y checkout |
 | `/confirmar` | `app/confirmar/page.tsx` | Confirmación de datos |
-| `/confirmado` | `app/confirmado/page.tsx` | Pedido confirmado |
-| `/seguimiento` | `app/seguimiento/page.tsx` | Seguimiento por token |
+| `/confirmado` | `app/confirmado/page.tsx` | Pedido confirmado — incluye QR scaneable con URL de seguimiento |
+| `/seguimiento` | `app/seguimiento/page.tsx` | Seguimiento por token — acepta `?token=` desde QR escaneado |
 
 ### Admin
 
@@ -165,24 +166,80 @@ Componentes esperados (alineados con la referencia v0):
 | `PaymentStatusBadge` | Badge de estado de pago |
 | `AdminLayout` | Layout del panel admin con sidebar |
 | `AdminHeader` | Header del panel admin |
+| `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |
+| `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=` |
 
 **Estilos:** TailwindCSS con tokens de color alineados a la paleta Argentina (celeste, azul, amarillo).
 
 ---
 
-## 7. Generación de ticket PDF
+## 7. Ticket confirmado y QR
 
-Se usa `jsPDF` para generar un ticket de pedido descargable:
+La página `/confirmado` muestra el ticket del pedido confirmado con:
 
-- Se genera en la página `/confirmado`.
-- Incluye: número KMG, items, total, método de pago, fecha.
-- No se genera comprobante si el método es `efectivo`.
+- Número KMG, items, total, método de pago, fecha.
+- **QR scaneable** (vía `qrcode.react` / `QRCodeSVG`) que codifica la URL pública de seguimiento: `${origin}/seguimiento?token=${order.token}`.
+- El QR usa SVG renderer a 168×168 CSS px con color `#003B73` (azul corporativo) para impresión nítida.
+- El QR se renderiza solo en cliente (`typeof window !== 'undefined'` guard) para evitar hydration mismatch.
+- Botón de descarga PDF via `jsPDF` (incluye el QR en el PDF).
+- Botón de tracking link debajo del ticket.
+
+**Flujo QR → seguimiento:** El usuario escanea el QR → navega a `/seguimiento?token=<token>` → `TrackingScreen` lee `useSearchParams().get('token')`, prioriza el token de URL sobre localStorage, y auto-fetchea el pedido.
 
 ---
 
 ## 8. Integración con el backend
 
-**API base:** Configurada en `frontend/lib/` o por variable de entorno.
+**API base:** `NEXT_PUBLIC_API_URL` (env var). Default `http://localhost:3001`. Leída en `frontend/lib/config.ts`.
+
+**Cliente HTTP:** `frontend/lib/api.ts`
+
+| Helper | Método | Body | Uso típico |
+|---|---|---|---|
+| `apiGet<T>(path, query?)` | GET | — | Lectura de recursos públicos o admin |
+| `apiPost<T>(path, body)` | POST | JSON | Crear recurso sin archivos |
+| `apiPostForm<T>(path, formData)` | POST | multipart | Subida con archivo (comprobante) |
+
+Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo_admin_token` cuando aplique. La respuesta sigue el formato estándar (`{ ok, data, message }` o `{ ok: false, error }`); los helpers lanzan `ApiError` con `status` y `message` del backend.
+
+**Mappers:** `frontend/lib/mappers.ts` traduce `ApiProducto`/`ApiPedido` (tipos backend en `lib/types.ts`) a los tipos UI (`Product`, `OrderItem`, `LastOrder`, `PedidoEstado`, `PedidoPago`). Mantiene el `Product.id` como `string` (el backend devuelve `number`) para no romper el cart ni el admin que aún usa mocks.
+
+**Endpoints públicos consumidos (I1 + B7-público):**
+
+| Helper | Endpoint | Pantalla |
+|---|---|---|
+| `apiGet('/api/productos')` | `GET /api/productos` | `app/menu/page.tsx` |
+| `apiPost('/api/pedidos', payload)` o `apiPostForm(...)` | `POST /api/pedidos` | `app/confirmar/page.tsx` |
+| `apiGet('/api/pedidos/seguimiento/:token')` | `GET /api/pedidos/seguimiento/:token` | `app/seguimiento/page.tsx` |
+| `localStorage` (sin fetch) | `kermingo:lastOrder`, `kermingo:lastToken` | `app/confirmado/page.tsx` (lee lo que dejó checkout) |
+
+**Estado UI:** cada página pública maneja `loading | ready | error` con skeletons, retry y mensajes contextuales. Ver patrón recomendado en §3.
+
+**Imagen de producto:** el backend devuelve una URL relativa (`/api/productos/:id/imagen?v=:archivoId`); el helper `ABSOLUTE_IMAGE_URL()` en `lib/config.ts` la convierte a absoluta anteponiendo `API_BASE`.
+
+| Endpoint público | Uso en frontend |
+|---|---|
+| `GET /api/productos` | Cargar carta de menú |
+| `GET /api/configuracion-tienda` | Verificar si la tienda está abierta |
+| `POST /api/pedidos` | Crear pedido online |
+| `GET /api/pedidos/seguimiento/:token` | Seguimiento de pedido |
+
+| Endpoint admin | Uso en frontend |
+|---|---|
+| `POST /api/auth/login` | Login admin |
+| `GET /api/admin/pedidos` | Lista de pedidos con filtros |
+| `POST /api/admin/pedidos/caja` | Crear pedido de caja |
+| `PATCH /api/admin/pedidos/:id/estado` | Avanzar estado |
+| `PATCH /api/admin/pedidos/:id/pago` | Cambiar estado de pago |
+| `PATCH /api/admin/pedidos/:id/cancelar` | Cancelar pedido |
+| `GET /api/admin/cocina/pedidos` | Pedidos para cocina |
+| `PATCH /api/admin/cocina/pedidos/:id/estado` | Avanzar estado en cocina |
+| `GET /api/admin/productos` | Lista de productos admin |
+| `POST /api/admin/productos` | Crear producto |
+| `PUT /api/admin/productos/:id` | Actualizar producto |
+| `PATCH /api/admin/productos/:id/stock` | Ajustar stock |
+| `GET /api/admin/configuracion-tienda` | Config actual |
+| `PUT /api/admin/configuracion-tienda` | Actualizar config |
 
 | Endpoint público | Uso en frontend |
 |---|---|

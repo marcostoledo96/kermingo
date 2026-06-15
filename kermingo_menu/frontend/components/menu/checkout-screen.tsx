@@ -15,13 +15,17 @@ import {
   Wallet,
   ArrowLeft,
   ShieldCheck,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { useCart } from './cart-context'
 import { MenuHeader } from './menu-header'
 import { ProductIconGlyph } from './product-visual'
-
-type PaymentMethod = 'transferencia' | 'efectivo'
+import { apiPost, apiPostForm, ApiError } from '@/lib/api'
+import { mapPedido } from '@/lib/mappers'
+import type { ApiPedido } from '@/lib/types'
+import type { LastOrder, PaymentMethod } from '@/lib/products'
 
 const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
   { label: 'Nombre completo', value: 'Guadalupe Sofía Hryb Alvarez' },
@@ -32,6 +36,9 @@ const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
   { label: 'CUIT', value: '27-45689712-1', copyable: true },
 ]
 
+const LAST_ORDER_KEY = 'kermingo:lastOrder'
+const LAST_TOKEN_KEY = 'kermingo:lastToken'
+
 export function CheckoutScreen() {
   const router = useRouter()
   const { items, count, total, clear } = useCart()
@@ -40,17 +47,17 @@ export function CheckoutScreen() {
   const [receipt, setReceipt] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Datos del cliente (solo frontend, sin envío real).
   const [name, setName] = useState('')
   const [table, setTable] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
   const [notes, setNotes] = useState('')
 
-  // El pedido se puede confirmar cuando el nombre está completo y,
-  // si paga por transferencia, adjuntó el comprobante.
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
   const nameComplete = name.trim().length >= 2
   const receiptComplete = method === 'efectivo' || receipt !== null
-  const canConfirm = nameComplete && receiptComplete
+  const canConfirm = nameComplete && receiptComplete && !submitting
 
   const handleCopy = async (value: string) => {
     try {
@@ -62,41 +69,80 @@ export function CheckoutScreen() {
     }
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!canConfirm) return
-    // Guardamos un "ticket" en localStorage para que lo lea la pantalla de confirmación.
-    const order = {
-      code: `KMG-${Math.floor(1000 + Math.random() * 9000)}`,
-      createdAt: new Date().toISOString(),
-      name: name.trim(),
-      table: table.trim(),
-      whatsapp: whatsapp.trim(),
-      notes: notes.trim(),
-      method,
-      total,
-      count,
+    setSubmitting(true)
+    setSubmitError(null)
+
+    const payload = {
+      nombre_cliente: name.trim(),
+      mesa: table.trim() || undefined,
+      telefono_cliente: whatsapp.trim() || undefined,
+      observaciones: notes.trim() || undefined,
+      metodo_pago: method,
       items: items.map((i) => ({
-        id: i.product.id,
-        name: i.product.name,
-        icon: i.product.icon,
-        qty: i.qty,
-        price: i.product.price,
+        producto_id: Number(i.product.id),
+        cantidad: i.qty,
       })),
     }
+
     try {
-      window.localStorage.setItem('kermingo:lastOrder', JSON.stringify(order))
-    } catch {
-      // Almacenamiento no disponible.
+      let pedido: ReturnType<typeof mapPedido>
+      if (method === 'transferencia' && receipt) {
+        const form = new FormData()
+        form.append('nombre_cliente', payload.nombre_cliente)
+        if (payload.mesa) form.append('mesa', payload.mesa)
+        if (payload.telefono_cliente) form.append('telefono_cliente', payload.telefono_cliente)
+        if (payload.observaciones) form.append('observaciones', payload.observaciones)
+        form.append('metodo_pago', payload.metodo_pago)
+        form.append('items', JSON.stringify(payload.items))
+        form.append('comprobante', receipt)
+        const raw = await apiPostForm<ApiPedido>('/api/pedidos', form)
+        pedido = mapPedido(raw)
+      } else {
+        const raw = await apiPost<ApiPedido>('/api/pedidos', payload)
+        pedido = mapPedido(raw)
+      }
+
+      const lastOrder: LastOrder = {
+        id: pedido.id,
+        numero: pedido.numero,
+        token: pedido.token,
+        createdAt: pedido.createdAt,
+        name: pedido.name,
+        table: pedido.table,
+        whatsapp: whatsapp.trim(),
+        notes: notes.trim(),
+        method: pedido.method,
+        total: pedido.total,
+        count: pedido.count,
+        items: pedido.items,
+        status: pedido.status,
+        payment: pedido.payment,
+      }
+      try {
+        window.localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(lastOrder))
+        window.localStorage.setItem(LAST_TOKEN_KEY, pedido.token)
+      } catch {
+        // Almacenamiento no disponible.
+      }
+      clear()
+      router.push('/confirmado')
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo enviar el pedido. Probá de nuevo.'
+      setSubmitError(msg)
+      setSubmitting(false)
     }
-    clear()
-    router.push('/confirmado')
   }
 
   if (items.length === 0) {
     return (
       <div className="flex min-h-screen flex-col bg-[#EEF5FF]">
         <MenuHeader backHref="/carrito" backLabel="Volver al carrito" showCart={false} />
-        <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+        <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-sm">
             <ClipboardCheck className="h-9 w-9 text-[#75AADB]" strokeWidth={1.6} />
           </div>
@@ -121,8 +167,7 @@ export function CheckoutScreen() {
     <div className="flex min-h-screen flex-col bg-[#EEF5FF]">
       <MenuHeader backHref="/carrito" backLabel="Volver al carrito" showCart={false} />
 
-      <main className="mx-auto w-full max-w-md flex-1 px-4 pb-4">
-        {/* Título */}
+      <main className="mx-auto w-full max-w-xl flex-1 px-4 pb-4">
         <section className="flex items-center gap-2.5 pt-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#003B73]">
             <ClipboardCheck className="h-5 w-5 text-white" strokeWidth={2.2} />
@@ -188,6 +233,7 @@ export function CheckoutScreen() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Cómo te buscamos al entregar"
                 className="kermingo-input"
+                disabled={submitting}
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -199,6 +245,7 @@ export function CheckoutScreen() {
                   onChange={(e) => setTable(e.target.value)}
                   placeholder="Ej: 12"
                   className="kermingo-input"
+                  disabled={submitting}
                 />
               </Field>
               <Field label="WhatsApp" hint="opcional">
@@ -209,6 +256,7 @@ export function CheckoutScreen() {
                   onChange={(e) => setWhatsapp(e.target.value)}
                   placeholder="Cód. + número"
                   className="kermingo-input"
+                  disabled={submitting}
                 />
               </Field>
             </div>
@@ -219,6 +267,7 @@ export function CheckoutScreen() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Sin cebolla, retiro 21 hs, etc."
                 className="kermingo-input resize-none"
+                disabled={submitting}
               />
             </Field>
           </form>
@@ -232,21 +281,20 @@ export function CheckoutScreen() {
           <div className="mt-3 grid grid-cols-2 gap-3">
             <PaymentOption
               active={method === 'transferencia'}
-              onClick={() => setMethod('transferencia')}
+              onClick={() => !submitting && setMethod('transferencia')}
               icon={<ArrowLeftRight className="h-6 w-6" strokeWidth={2.2} />}
               title="Transferencia"
               subtitle="Subís el comprobante"
             />
             <PaymentOption
               active={method === 'efectivo'}
-              onClick={() => setMethod('efectivo')}
+              onClick={() => !submitting && setMethod('efectivo')}
               icon={<Banknote className="h-6 w-6" strokeWidth={2.2} />}
               title="Efectivo"
               subtitle="Al retirar el pedido"
             />
           </div>
 
-          {/* Detalle según método */}
           {method === 'transferencia' ? (
             <div className="mt-4 space-y-4">
               <div className="rounded-3xl border border-[#75AADB]/30 bg-white p-5 shadow-sm shadow-[#003B73]/5">
@@ -282,7 +330,6 @@ export function CheckoutScreen() {
                 </dl>
               </div>
 
-              {/* Upload comprobante */}
               <div>
                 <input
                   ref={fileInputRef}
@@ -290,6 +337,7 @@ export function CheckoutScreen() {
                   accept="image/*,application/pdf"
                   className="sr-only"
                   onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                  disabled={submitting}
                 />
                 {receipt ? (
                   <div className="flex items-center gap-3 rounded-3xl border border-[#75AADB]/30 bg-white p-4 shadow-sm shadow-[#003B73]/5">
@@ -303,6 +351,7 @@ export function CheckoutScreen() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (submitting) return
                         setReceipt(null)
                         if (fileInputRef.current) fileInputRef.current.value = ''
                       }}
@@ -316,7 +365,8 @@ export function CheckoutScreen() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex w-full flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-[#75AADB]/50 bg-white/60 px-4 py-7 text-center transition-colors hover:border-[#003B73]/40 hover:bg-white"
+                    disabled={submitting}
+                    className="flex w-full flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-[#75AADB]/50 bg-white/60 px-4 py-7 text-center transition-colors hover:border-[#003B73]/40 hover:bg-white disabled:opacity-60"
                   >
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#003B73]">
                       <UploadCloud className="h-6 w-6" strokeWidth={2.2} />
@@ -346,16 +396,26 @@ export function CheckoutScreen() {
           )}
         </section>
 
+        {/* Error de envío */}
+        {submitError && (
+          <div
+            role="alert"
+            className="mt-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <p>{submitError}</p>
+          </div>
+        )}
+
         <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-[#6B7280]">
           <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.2} />
           Pedido sin registro · confirmás en segundos
         </div>
       </main>
 
-      {/* Acciones fijas */}
       <div className="sticky bottom-0 z-40 border-t border-[#75AADB]/20 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto max-w-md space-y-2.5 px-4 pb-5 pt-4">
-          {!canConfirm && (
+        <div className="mx-auto max-w-xl space-y-2.5 px-4 pb-5 pt-4">
+          {!canConfirm && !submitting && (
             <p className="text-center text-xs font-medium text-[#9A6B00]">
               {!nameComplete
                 ? 'Completá tu nombre para confirmar'
@@ -368,12 +428,21 @@ export function CheckoutScreen() {
             disabled={!canConfirm}
             aria-disabled={!canConfirm}
             className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-extrabold transition-all ${
-              canConfirm
-                ? 'bg-[#F6B21A] text-[#003B73] shadow-lg shadow-[#F6B21A]/30 hover:bg-[#ffbe2e] active:scale-[0.99]'
-                : 'cursor-not-allowed bg-[#E2E8F0] text-[#94A3B8] shadow-none'
+              submitting
+                ? 'cursor-wait bg-[#F6B21A]/70 text-[#003B73]'
+                : canConfirm
+                  ? 'bg-[#F6B21A] text-[#003B73] shadow-lg shadow-[#F6B21A]/30 hover:bg-[#ffbe2e] active:scale-[0.99]'
+                  : 'cursor-not-allowed bg-[#E2E8F0] text-[#94A3B8] shadow-none'
             }`}
           >
-            Confirmar pedido · {formatPrice(total)}
+            {submitting ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Enviando pedido…
+              </>
+            ) : (
+              <>Confirmar pedido · {formatPrice(total)}</>
+            )}
           </button>
           <Link
             href="/carrito"

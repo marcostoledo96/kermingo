@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useLocalStorageState } from '@/lib/use-local-storage'
 import Link from 'next/link'
 import {
   Check,
@@ -17,50 +19,40 @@ import {
   Home,
   FileCheck2,
   TriangleAlert,
+  AlertCircle,
+  Search,
+  Loader2,
 } from 'lucide-react'
-import { formatPrice, type ProductIcon } from '@/lib/products'
+import { formatPrice, type PedidoEstado, type PedidoPago, type ProductIcon } from '@/lib/products'
 import { ProductIconGlyph } from './product-visual'
 import { MenuHeader } from './menu-header'
+import { apiGet, ApiError } from '@/lib/api'
+import { mapPedido } from '@/lib/mappers'
+import type { ApiPedido } from '@/lib/types'
+import { pickProductIcon } from '@/lib/mappers'
 
-type OrderStatus = 'recibido' | 'preparacion' | 'listo' | 'entregado' | 'cancelado'
-type PaymentStatus = 'pendiente' | 'comprobante' | 'pagado' | 'rechazado' | 'efectivo'
+const LAST_TOKEN_KEY = 'kermingo:lastToken'
 
-type OrderItem = {
-  id: string
-  name: string
-  icon: ProductIcon
-  qty: number
-  price: number
-}
-
-type TrackedOrder = {
-  code: string
+type DisplayOrder = {
+  numero: string
   createdAt: string
-  status: OrderStatus
-  payment: PaymentStatus
+  status: PedidoEstado
+  payment: PedidoPago
   method: 'transferencia' | 'efectivo'
   total: number
   count: number
-  items: OrderItem[]
+  items: Array<{
+    id: string
+    nombre: string
+    icon: ProductIcon
+    cantidad: number
+    precio_unitario: number
+    subtotal: number
+  }>
 }
 
-const DEMO_ORDER: TrackedOrder = {
-  code: 'KMG-0001',
-  createdAt: new Date().toISOString(),
-  status: 'preparacion',
-  payment: 'comprobante',
-  method: 'transferencia',
-  total: 9000,
-  count: 3,
-  items: [
-    { id: 'pizza-muzza', name: 'Pizza muzza', icon: 'pizza', qty: 2, price: 3500 },
-    { id: 'coca', name: 'Coca Cola', icon: 'soda', qty: 1, price: 2000 },
-  ],
-}
-
-// Configuración visual por estado del pedido.
 const STATUS_CONFIG: Record<
-  OrderStatus,
+  PedidoEstado,
   { label: string; message: string; badge: string; bg: string; fg: string; chip: string }
 > = {
   recibido: {
@@ -71,7 +63,7 @@ const STATUS_CONFIG: Record<
     fg: 'text-white',
     chip: 'bg-white/20 text-white',
   },
-  preparacion: {
+  en_preparacion: {
     label: 'Está en preparación',
     message: 'Nuestro equipo está preparando tu pedido en la cocina.',
     badge: 'En preparación',
@@ -105,18 +97,17 @@ const STATUS_CONFIG: Record<
   },
 }
 
-const TIMELINE: { key: OrderStatus; label: string; icon: typeof Check }[] = [
+const TIMELINE: { key: PedidoEstado; label: string; icon: typeof Check }[] = [
   { key: 'recibido', label: 'Recibido', icon: Check },
-  { key: 'preparacion', label: 'En preparación', icon: ChefHat },
+  { key: 'en_preparacion', label: 'En preparación', icon: ChefHat },
   { key: 'listo', label: 'Listo', icon: PackageCheck },
   { key: 'entregado', label: 'Entregado', icon: PartyPopper },
 ]
 
-const TIMELINE_ORDER: OrderStatus[] = ['recibido', 'preparacion', 'listo', 'entregado']
+const TIMELINE_ORDER: PedidoEstado[] = ['recibido', 'en_preparacion', 'listo', 'entregado']
 
-// Configuración visual por estado del pago.
 const PAYMENT_CONFIG: Record<
-  PaymentStatus,
+  PedidoPago,
   { label: string; hint: string; icon: typeof CreditCard; tone: string }
 > = {
   pendiente: {
@@ -125,7 +116,7 @@ const PAYMENT_CONFIG: Record<
     icon: Clock,
     tone: 'text-[#9A6B00] bg-[#FFF6E0] border-[#F6B21A]/40',
   },
-  comprobante: {
+  comprobante_subido: {
     label: 'Comprobante subido',
     hint: 'Estamos verificando tu transferencia.',
     icon: FileCheck2,
@@ -143,64 +134,161 @@ const PAYMENT_CONFIG: Record<
     icon: TriangleAlert,
     tone: 'text-[#B91C1C] bg-[#FEF2F2] border-[#DC2626]/40',
   },
-  efectivo: {
-    label: 'Pagás en caja al retirar',
-    hint: 'Abonás en efectivo cuando retirás tu pedido.',
-    icon: Banknote,
-    tone: 'text-[#003B73] bg-[#EEF5FF] border-[#75AADB]/50',
-  },
 }
 
 export function TrackingScreen() {
-  const [order, setOrder] = useState<TrackedOrder | null>(null)
+  // `useSyncExternalStore` handles the server/client snapshot difference so
+  // React 19 doesn't emit a hydration mismatch warning.
+  const [storedToken, setToken] = useLocalStorageState<string>(LAST_TOKEN_KEY, {
+    defaultValue: '',
+  })
+  const [order, setOrder] = useState<DisplayOrder | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const initialFetchDone = useRef(false)
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('kermingo:lastOrder')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        setOrder({
-          code: parsed.code ?? DEMO_ORDER.code,
-          createdAt: parsed.createdAt ?? DEMO_ORDER.createdAt,
-          status: parsed.status ?? 'recibido',
-          payment:
-            parsed.payment ??
-            (parsed.method === 'efectivo' ? 'efectivo' : 'comprobante'),
-          method: parsed.method ?? 'transferencia',
-          total: parsed.total ?? DEMO_ORDER.total,
-          count: parsed.count ?? DEMO_ORDER.count,
-          items: parsed.items ?? DEMO_ORDER.items,
-        })
-        return
-      }
-    } catch {
-      // Ignorar y usar demo.
+  // Read token from URL query parameter; prioritize over localStorage
+  const searchParams = useSearchParams()
+  const urlToken = searchParams.get('token')
+
+  // The effective token for the UI input is the stored one; URL token is
+  // used only for the initial fetch and then persisted to localStorage.
+  const token = storedToken
+
+  const fetchByToken = useCallback(async (t: string) => {
+    const trimmed = t.trim()
+    if (!trimmed) {
+      setError('Pegá o escribí el token de seguimiento')
+      return
     }
-    setOrder(DEMO_ORDER)
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await apiGet<ApiPedido>(`/api/pedidos/seguimiento/${encodeURIComponent(trimmed)}`)
+      const mapped = mapPedido(data)
+      setOrder({
+        numero: mapped.numero,
+        createdAt: mapped.createdAt,
+        status: mapped.status,
+        payment: mapped.payment,
+        method: mapped.method,
+        total: mapped.total,
+        count: mapped.count,
+        items: mapped.items.map((it) => ({
+          id: it.id,
+          nombre: it.nombre,
+          icon: pickProductIcon(it.nombre, 'comida'),
+          cantidad: it.cantidad,
+          precio_unitario: it.precio_unitario,
+          subtotal: it.subtotal,
+        })),
+      })
+      try {
+        window.localStorage.setItem(LAST_TOKEN_KEY, trimmed)
+      } catch {
+        // Almacenamiento no disponible.
+      }
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo consultar el seguimiento'
+      setError(msg)
+      setOrder(null)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  // Demo solo frontend: rota entre estados para previsualizar la UI.
-  const cycleStatus = () => {
-    setOrder((prev) => {
-      if (!prev) return prev
-      const flow: OrderStatus[] = [
-        'recibido',
-        'preparacion',
-        'listo',
-        'entregado',
-        'cancelado',
-      ]
-      const next = flow[(flow.indexOf(prev.status) + 1) % flow.length]
-      return { ...prev, status: next }
-    })
+  useEffect(() => {
+    if (initialFetchDone.current) return
+    initialFetchDone.current = true
+    // URL token takes precedence over localStorage token
+    const effectiveToken = urlToken || token
+    if (effectiveToken) {
+      // Persist URL token to localStorage for future visits
+      if (urlToken && urlToken !== token) {
+        setToken(urlToken)
+      }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchByToken(effectiveToken)
+    }
+  }, [token, urlToken, setToken, fetchByToken])
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    fetchByToken(token)
   }
 
   if (!order) {
-    return <div className="min-h-screen bg-[#EEF5FF]" />
+    return (
+      <div className="min-h-screen bg-[#EEF5FF]">
+        <MenuHeader backHref="/" backLabel="Volver al inicio" showCart={false} />
+        <main className="mx-auto max-w-xl space-y-4 px-4 pb-12 pt-5">
+          <form
+            onSubmit={onSubmit}
+            className="rounded-3xl bg-white p-5 shadow-sm shadow-[#003B73]/5"
+          >
+            <h1 className="text-xl font-extrabold text-[#003B73]">Seguí tu pedido</h1>
+            <p className="mt-1 text-sm text-[#6B7280]">
+              Pegá acá el token que te llegó cuando confirmaste el pedido.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">
+                Token de seguimiento
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="ej: 7f2a1c0e…"
+                className="kermingo-input mt-1.5 w-full"
+                disabled={loading}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#F6B21A] py-3 text-sm font-extrabold text-[#003B73] shadow-md shadow-[#F6B21A]/30 transition-all hover:bg-[#ffbe2e] disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Buscando…
+                </>
+              ) : (
+                <>
+                  <Search className="h-4 w-4" />
+                  Buscar
+                </>
+              )}
+            </button>
+            {error && (
+              <div
+                role="alert"
+                className="mt-3 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <p>{error}</p>
+              </div>
+            )}
+          </form>
+          <Link
+            href="/"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#75AADB]/40 bg-white py-3 text-sm font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]"
+          >
+            <Home className="h-4 w-4" strokeWidth={2.4} />
+            Volver al inicio
+          </Link>
+        </main>
+      </div>
+    )
   }
 
   const cfg = STATUS_CONFIG[order.status]
-  const pay = PAYMENT_CONFIG[order.payment]
+  const pay = PAYMENT_CONFIG[order.payment] || PAYMENT_CONFIG.pendiente
   const PayIcon = pay.icon
   const isCancelled = order.status === 'cancelado'
   const currentStep = TIMELINE_ORDER.indexOf(order.status)
@@ -212,15 +300,14 @@ export function TrackingScreen() {
     <div className="min-h-screen bg-[#EEF5FF]">
       <MenuHeader backHref="/" backLabel="Volver al inicio" showCart={false} />
 
-      <main className="mx-auto max-w-md space-y-4 px-4 pb-12 pt-5">
-        {/* Card principal de estado */}
+      <main className="mx-auto max-w-xl space-y-4 px-4 pb-12 pt-5">
         <section
           className={`overflow-hidden rounded-3xl ${cfg.bg} ${cfg.fg} px-5 py-6 shadow-lg shadow-black/10`}
         >
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide">
               <Hash className="h-3.5 w-3.5" strokeWidth={2.8} />
-              {order.code}
+              {order.numero}
             </span>
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${cfg.chip}`}
@@ -237,7 +324,7 @@ export function TrackingScreen() {
                 <PartyPopper className="h-6 w-6" strokeWidth={2.4} />
               ) : order.status === 'listo' ? (
                 <PackageCheck className="h-6 w-6" strokeWidth={2.4} />
-              ) : order.status === 'preparacion' ? (
+              ) : order.status === 'en_preparacion' ? (
                 <ChefHat className="h-6 w-6" strokeWidth={2.4} />
               ) : (
                 <CircleCheckBig className="h-6 w-6" strokeWidth={2.4} />
@@ -258,7 +345,6 @@ export function TrackingScreen() {
           </p>
         </section>
 
-        {/* Timeline */}
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-[#9CA3AF]">
             Seguimiento
@@ -280,7 +366,6 @@ export function TrackingScreen() {
                 const isLast = i === TIMELINE.length - 1
                 return (
                   <li key={step.key} className="relative flex gap-3.5 pb-6 last:pb-0">
-                    {/* Conector */}
                     {!isLast && (
                       <span
                         className={`absolute left-[15px] top-8 h-[calc(100%-1rem)] w-0.5 ${
@@ -289,7 +374,6 @@ export function TrackingScreen() {
                         aria-hidden="true"
                       />
                     )}
-                    {/* Nodo */}
                     <span
                       className={`relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
                         done
@@ -328,7 +412,6 @@ export function TrackingScreen() {
           )}
         </section>
 
-        {/* Estado de pago */}
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-[#9CA3AF]">
             Estado del pago
@@ -342,7 +425,6 @@ export function TrackingScreen() {
           </div>
         </section>
 
-        {/* Detalle del pedido */}
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-[#9CA3AF]">
             Detalle del pedido
@@ -351,7 +433,7 @@ export function TrackingScreen() {
             {order.items.map((item) => (
               <li key={item.id} className="flex items-center gap-3">
                 <span className="flex h-6 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#003B73] text-xs font-extrabold text-white">
-                  {item.qty}
+                  {item.cantidad}
                 </span>
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <ProductIconGlyph
@@ -360,11 +442,11 @@ export function TrackingScreen() {
                     strokeWidth={2}
                   />
                   <span className="truncate text-sm font-semibold text-[#003B73]">
-                    {item.name}
+                    {item.nombre}
                   </span>
                 </div>
                 <span className="text-sm font-bold text-[#003B73]">
-                  {formatPrice(item.qty * item.price)}
+                  {formatPrice(item.subtotal)}
                 </span>
               </li>
             ))}
@@ -390,14 +472,18 @@ export function TrackingScreen() {
           </div>
         </section>
 
-        {/* Acciones */}
         <div className="space-y-2.5 pt-1">
           <button
             type="button"
-            onClick={cycleStatus}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#F6B21A] py-4 text-base font-extrabold text-[#003B73] shadow-lg shadow-[#F6B21A]/30 transition-all hover:bg-[#ffbe2e] active:scale-[0.99]"
+            onClick={() => fetchByToken(token)}
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#F6B21A] py-4 text-base font-extrabold text-[#003B73] shadow-lg shadow-[#F6B21A]/30 transition-all hover:bg-[#ffbe2e] active:scale-[0.99] disabled:opacity-60"
           >
-            <RefreshCw className="h-5 w-5" strokeWidth={2.4} />
+            {loading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-5 w-5" strokeWidth={2.4} />
+            )}
             Actualizar estado
           </button>
           <Link
@@ -410,8 +496,7 @@ export function TrackingScreen() {
         </div>
 
         <p className="pt-1 text-center text-xs leading-relaxed text-[#6B7280] text-pretty">
-          El estado se actualiza automáticamente. Mantené esta pantalla abierta para ver los
-          cambios.
+          El estado se actualiza desde la base de datos. Volvé a tocar "Actualizar estado" para refrescar.
         </p>
       </main>
     </div>
