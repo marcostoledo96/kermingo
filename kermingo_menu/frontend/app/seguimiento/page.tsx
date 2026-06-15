@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { TrackingScreen } from '@/components/menu/tracking-screen'
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 }
 
 export default function SeguimientoPage() {
-  return <TrackingScreen />
+  return (
+    <Suspense>
+      <TrackingScreen />
+    </Suspense>
+  )
 }
