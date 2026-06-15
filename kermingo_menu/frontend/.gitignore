@@ -22,6 +22,9 @@ coverage/
 # OS files
 .DS_Store
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Archives and secrets
 *.zip
 *.pem
