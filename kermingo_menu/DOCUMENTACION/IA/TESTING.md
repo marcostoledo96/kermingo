@@ -199,9 +199,24 @@ Se espera ~18 tests reales de Drive cuando las credenciales OAuth están configu
 - **Fixtures:** Crear datos de test en `beforeAll`, limpiar en `afterAll`.
 - **Flujos:** Crear pedido → avanzar estado → cancelar → verificar stock repuesto.
 
-### Lo que NO se testea (todavía)
+### Frontend tests (React + Vitest)
 
-- Frontend (no hay tests de React todavía).
+El frontend usa **Vitest + React Testing Library** para tests de componentes y hooks:
+
+| Test | Archivo | Qué cubre |
+|------|---------|-----------|
+| TicketScreen QR | `frontend/test/ticket-screen.test.tsx` | QR codifica URL correcta, no expone datos privados, tamaño 168px |
+| TrackingScreen token | `frontend/test/tracking-screen-token.test.tsx` | Auto-fetch por `?token=`, missing token muestra form, URL token sobreescribe localStorage |
+| useLocalStorageState | `frontend/test/use-local-storage.test.ts` | Estabilidad referencial, cache invalidation, evita React #185 |
+
+**Comandos:**
+```bash
+cd frontend
+pnpm test        # Todos los tests
+pnpm test -- --coverage  # Con cobertura
+```
+
+### Lo que NO se testea (todavía)
 
 ### Testing de Drive service
 

@@ -69,6 +69,8 @@
 
 - `GET /api/pedidos/seguimiento/:token` devuelve el estado del pedido y sus items.
 - No revela datos sensibles del admin.
+- El ticket confirmado (`/confirmado`) incluye un QR scaneable que codifica la URL de seguimiento con el token.
+- El tracking screen (`/seguimiento`) acepta `?token=` desde el QR escaneado y auto-carga el pedido.
 
 ### Caja rápida (admin)
 
