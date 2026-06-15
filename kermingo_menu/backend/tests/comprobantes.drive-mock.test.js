@@ -386,3 +386,8 @@ describe('POST /api/pedidos — transferencia with Drive API error', () => {
     expect(pedRows.length).toBe(0);
   });
 });
+
+// Pool cleanup — must be last afterAll to close the mysql2 TCP connection
+afterAll(async () => {
+  try { await pool.end(); } catch (_) { /* pool already closed by another suite */ }
+});
