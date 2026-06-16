@@ -1,9 +1,11 @@
 // Tests unitarios de transicionEstadoValida — sin mocks, sin HTTP.
 // Archivo separado porque jest.mock tiene scope de archivo y no permite
 // importar la implementación real en cocina.test.js (que mockea pedido.model.js).
-import { transicionEstadoValida } from '../src/api/models/pedido.model.js';
+import { transicionEstadoValida, TRANSICIONES_VALIDAS } from '../src/api/models/pedido.model.js';
 
 describe('transicionEstadoValida (unit, real impl)', () => {
+  // ── Forward transitions (original flow) ──
+
   it('recibido → en_preparacion: true', () => {
     expect(transicionEstadoValida('recibido', 'en_preparacion')).toBe(true);
   });
@@ -16,15 +18,87 @@ describe('transicionEstadoValida (unit, real impl)', () => {
     expect(transicionEstadoValida('listo', 'entregado')).toBe(true);
   });
 
-  it('recibido → listo: false (salto)', () => {
-    expect(transicionEstadoValida('recibido', 'listo')).toBe(false);
+  // ── Direct ready (new agile transition) ──
+
+  it('recibido → listo: true (direct ready for already-made items)', () => {
+    expect(transicionEstadoValida('recibido', 'listo')).toBe(true);
   });
 
-  it('listo → recibido: false (retroceso)', () => {
-    expect(transicionEstadoValida('listo', 'recibido')).toBe(false);
+  // ── Backward transitions (agile: go back to fix mistakes) ──
+
+  it('en_preparacion → recibido: true (backward one step)', () => {
+    expect(transicionEstadoValida('en_preparacion', 'recibido')).toBe(true);
   });
 
-  it('recibido → recibido: false (mismo estado, FIX retroactivo)', () => {
+  it('listo → en_preparacion: true (backward one step)', () => {
+    expect(transicionEstadoValida('listo', 'en_preparacion')).toBe(true);
+  });
+
+  // ── Invalid transitions ──
+
+  it('entregado → listo: false (delivered is terminal)', () => {
+    expect(transicionEstadoValida('entregado', 'listo')).toBe(false);
+  });
+
+  it('entregado → en_preparacion: false (delivered is terminal)', () => {
+    expect(transicionEstadoValida('entregado', 'en_preparacion')).toBe(false);
+  });
+
+  it('entregado → recibido: false (delivered is terminal)', () => {
+    expect(transicionEstadoValida('entregado', 'recibido')).toBe(false);
+  });
+
+  it('recibido → entregado: false (skip to delivered)', () => {
+    expect(transicionEstadoValida('recibido', 'entregado')).toBe(false);
+  });
+
+  it('en_preparacion → entregado: false (skip to delivered)', () => {
+    expect(transicionEstadoValida('en_preparacion', 'entregado')).toBe(false);
+  });
+
+  // ── Same-state transitions (always invalid) ──
+
+  it('recibido → recibido: false (same state)', () => {
     expect(transicionEstadoValida('recibido', 'recibido')).toBe(false);
+  });
+
+  it('en_preparacion → en_preparacion: false (same state)', () => {
+    expect(transicionEstadoValida('en_preparacion', 'en_preparacion')).toBe(false);
+  });
+
+  it('listo → listo: false (same state)', () => {
+    expect(transicionEstadoValida('listo', 'listo')).toBe(false);
+  });
+
+  it('entregado → entregado: false (same state)', () => {
+    expect(transicionEstadoValida('entregado', 'entregado')).toBe(false);
+  });
+
+  // ── Unknown states ──
+
+  it('unknown from state: false', () => {
+    expect(transicionEstadoValida('cancelado', 'listo')).toBe(false);
+  });
+
+  it('unknown to state: false', () => {
+    expect(transicionEstadoValida('recibido', 'cancelado')).toBe(false);
+  });
+});
+
+describe('TRANSICIONES_VALIDAS (constant)', () => {
+  it('recibido allows en_preparacion and listo', () => {
+    expect(TRANSICIONES_VALIDAS.recibido).toEqual(['en_preparacion', 'listo']);
+  });
+
+  it('en_preparacion allows recibido and listo', () => {
+    expect(TRANSICIONES_VALIDAS.en_preparacion).toEqual(['recibido', 'listo']);
+  });
+
+  it('listo allows en_preparacion and entregado', () => {
+    expect(TRANSICIONES_VALIDAS.listo).toEqual(['en_preparacion', 'entregado']);
+  });
+
+  it('entregado has no transitions (terminal)', () => {
+    expect(TRANSICIONES_VALIDAS.entregado).toEqual([]);
   });
 });

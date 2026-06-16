@@ -6,6 +6,7 @@ import type {
   ApiProducto,
 } from './types'
 import type { MealCategory, ProductIcon, ProductType } from './products'
+import { ABSOLUTE_IMAGE_URL } from './config'
 
 /* Product mapping --------------------------------------------------------- */
 
@@ -33,7 +34,7 @@ export function apiToAdminProduct(p: ApiProducto): AdminProduct {
     type: p.tipo,
     meals: parseCategorias(p.categorias),
     icon: inferIcon(p.nombre, p.tipo),
-    image: p.imagen_url ?? undefined,
+    image: ABSOLUTE_IMAGE_URL(p.imagen_url),
     active: p.activo === 1,
     stockLimited: p.stock_limitado === 1,
     stockCurrent: p.stock_actual ?? 0,
@@ -233,7 +234,7 @@ export function apiToCajaProduct(p: ApiProducto): CajaProduct {
     price: typeof p.precio === 'string' ? parseFloat(p.precio) : p.precio,
     type: p.tipo,
     icon: inferIcon(p.nombre, p.tipo),
-    image: p.imagen_url ?? undefined,
+    image: ABSOLUTE_IMAGE_URL(p.imagen_url),
     stockLimited: p.stock_limitado === 1,
     stockActual: p.stock_actual,
     stockMinimoAlerta: p.stock_minimo_alerta,

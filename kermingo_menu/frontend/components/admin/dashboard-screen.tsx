@@ -1,106 +1,90 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Clock,
   ChefHat,
   CheckCircle2,
+  Truck,
   CreditCard,
+  DollarSign,
   AlertTriangle,
-  XCircle,
   Zap,
+  ClipboardList,
+  ReceiptText,
   UtensilsCrossed,
-  Package,
-  FileText,
   BarChart3,
   Settings,
   ChevronRight,
+  ArrowRight,
+  Store,
+  Smartphone,
   type LucideIcon,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { EVENTO } from '@/lib/evento'
 import { AdminShell } from './admin-shell'
-import { EstadoBadge, type BadgeTone, type EstadoVisual } from './admin-ui'
+import {
+  Badge,
+  SectionTitle,
+  AdminCard,
+  type BadgeTone,
+} from './admin-ui'
 import { useAdminSession } from './admin-session'
 
-type OrderStatus = 'pendiente' | 'preparando' | 'listo' | 'entregado'
-type PaymentStatus = 'pendiente' | 'verificando' | 'confirmado'
+type Origin = 'online' | 'caja'
 
-type Order = {
+type DashOrder = {
   id: string
   code: string
   customer: string
+  origin: Origin
   method: 'transferencia' | 'efectivo'
-  paymentStatus: PaymentStatus
-  orderStatus: OrderStatus
+  payment: string
+  paymentLabel: string
+  paymentTone: BadgeTone
+  status: string
+  statusLabel: string
+  statusTone: BadgeTone
   total: number
   time: string
+  isNew?: boolean
 }
 
-const DEMO_ORDERS: Order[] = [
-  { id: '1', code: 'KMG-0042', customer: 'Martín G.', method: 'transferencia', paymentStatus: 'confirmado', orderStatus: 'listo', total: 6500, time: '20:45' },
-  { id: '2', code: 'KMG-0041', customer: 'Lucía P.', method: 'efectivo', paymentStatus: 'pendiente', orderStatus: 'preparando', total: 3500, time: '20:42' },
-  { id: '3', code: 'KMG-0040', customer: 'Federico R.', method: 'transferencia', paymentStatus: 'verificando', orderStatus: 'pendiente', total: 8200, time: '20:38' },
-  { id: '4', code: 'KMG-0039', customer: 'Ana M.', method: 'efectivo', paymentStatus: 'confirmado', orderStatus: 'entregado', total: 4800, time: '20:31' },
-  { id: '5', code: 'KMG-0038', customer: 'Pablo S.', method: 'transferencia', paymentStatus: 'confirmado', orderStatus: 'entregado', total: 5200, time: '20:25' },
+const DEMO_ORDERS: DashOrder[] = [
+  { id: '1', code: 'KMG-0042', customer: 'Martín G.', origin: 'online', method: 'transferencia', payment: 'comprobante', paymentLabel: 'Comprobante', paymentTone: 'info', status: 'recibido', statusLabel: 'Recibido', statusTone: 'neutral', total: 6500, time: '20:45', isNew: true },
+  { id: '2', code: 'KMG-0041', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 3500, time: '20:42' },
+  { id: '3', code: 'KMG-0040', customer: 'Federico R.', origin: 'online', method: 'transferencia', payment: 'pendiente', paymentLabel: 'Pago pendiente', paymentTone: 'warning', status: 'recibido', statusLabel: 'Recibido', statusTone: 'neutral', total: 8200, time: '20:38' },
+  { id: '4', code: 'KMG-0039', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'entregado', statusLabel: 'Entregado', statusTone: 'success', total: 4800, time: '20:31' },
+  { id: '5', code: 'KMG-0038', customer: 'Pablo S.', origin: 'online', method: 'transferencia', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'listo', statusLabel: 'Listo', statusTone: 'gold', total: 5200, time: '20:25' },
+  { id: '6', code: 'KMG-0037', customer: 'Caja', origin: 'caja', method: 'transferencia', payment: 'rechazado', paymentLabel: 'Rechazado', paymentTone: 'danger', status: 'cancelado', statusLabel: 'Cancelado', statusTone: 'danger', total: 2600, time: '20:18' },
 ]
 
-/* ---------------------------------------------------------------------------
- * Operational status mapping — uses EstadoBadge from admin-ui (Prompt 1)
- * instead of raw Badge with generic tones.
- * ------------------------------------------------------------------------- */
-const ORDER_ESTADO: Record<OrderStatus, { label: string; estado: EstadoVisual }> = {
-  pendiente: { label: 'Pendiente', estado: 'pendiente' },
-  preparando: { label: 'Preparando', estado: 'preparando' },
-  listo: { label: 'Listo', estado: 'listo' },
-  entregado: { label: 'Entregado', estado: 'entregado' },
-}
+const QUICK_ACCESS: {
+  href: string
+  icon: LucideIcon
+  label: string
+  hint: string
+  primary?: boolean
+}[] = [
+  { href: '/admin/caja', icon: Zap, label: 'Nueva venta', hint: 'Caja rápida', primary: true },
+  { href: '/admin/pedidos', icon: ClipboardList, label: 'Ver pedidos', hint: 'Todos los pedidos' },
+  { href: '/admin/cocina', icon: ChefHat, label: 'Cocina / Entrega', hint: 'Preparar y entregar' },
+  { href: '/admin/comprobantes', icon: ReceiptText, label: 'Comprobantes', hint: 'Revisar transferencias' },
+  { href: '/admin/productos', icon: UtensilsCrossed, label: 'Productos', hint: 'Catálogo y stock' },
+  { href: '/admin/reportes', icon: BarChart3, label: 'Reportes', hint: 'Recaudación' },
+  { href: '/admin/config', icon: Settings, label: 'Configuración', hint: 'Estado de la tienda' },
+]
 
-const PAYMENT_ESTADO: Record<PaymentStatus, { label: string; estado: EstadoVisual }> = {
-  pendiente: { label: 'Pago pend.', estado: 'pagoPendiente' },
-  verificando: { label: 'Verificando', estado: 'preparando' },
-  confirmado: { label: 'Pagado', estado: 'listo' },
-}
-
-/* ---------------------------------------------------------------------------
- * Section heading — sentence case, no all-caps mono, calm hierarchy.
- * ------------------------------------------------------------------------- */
-function DashSection({
-  children,
-  action,
-}: {
-  children: React.ReactNode
-  action?: React.ReactNode
-}) {
-  return (
-    <div className="mb-2.5 flex items-baseline justify-between gap-3">
-      <h2 className="text-[13px] font-semibold tracking-tight text-[var(--km-tinta-suave)]">
-        {children}
-      </h2>
-      {action}
-    </div>
-  )
-}
-
-/* ---------------------------------------------------------------------------
- * DashboardScreen — operational event control board
- *
- * Hierarchy:
- *   1. "Ahora en el evento": pendientes, pagos pendientes, listos
- *   2. Acciones de jornada: Caja rápida, Cocina, Pedidos, Productos
- *   3. Alertas de stock
- *   4. Recaudación (secondary)
- *   5. Últimos pedidos
- * ------------------------------------------------------------------------- */
 export function DashboardScreen() {
   const [storeStatus] = useState<'open' | 'closed' | 'demo'>('demo')
   const { user } = useAdminSession()
 
   const storeBadge: Record<typeof storeStatus, { label: string; tone: BadgeTone }> = {
-    open: { label: 'Tienda abierta', tone: 'listo' },
+    open: { label: 'Tienda abierta', tone: 'success' },
     closed: { label: 'Tienda cerrada', tone: 'danger' },
-    demo: { label: 'Modo demo', tone: 'demo' },
+    demo: { label: 'Modo demo', tone: 'gold' },
   }
 
   const metrics = {
@@ -112,471 +96,343 @@ export function DashboardScreen() {
     recaudacion: 187500,
   }
 
-  const alerts = {
-    stockBajo: ['Pizza jamón', 'Nuggets veggies', 'Lima limón', 'Medialunas J&Q', 'Churros', 'Combo cena'],
-    agotados: ['Pizza sin TACC', 'Helados palito'],
-  }
+  const alerts = useMemo(() => {
+    const list: { icon: LucideIcon; text: string; href: string; cta: string }[] = []
+    if (metrics.pagosPendientes > 0) {
+      list.push({
+        icon: CreditCard,
+        text: `${metrics.pagosPendientes} pagos por revisar`,
+        href: '/admin/comprobantes',
+        cta: 'Revisar',
+      })
+    }
+    if (storeStatus === 'closed') {
+      list.push({ icon: Store, text: 'La tienda está cerrada', href: '/admin/config', cta: 'Abrir' })
+    }
+    // Stock agotado (demo)
+    list.push({
+      icon: AlertTriangle,
+      text: '2 productos agotados',
+      href: '/admin/productos',
+      cta: 'Ver stock',
+    })
+    return list
+  }, [metrics.pagosPendientes, storeStatus])
 
   return (
-    <AdminShell section="Panel general" status={storeBadge[storeStatus]}>
-
-      {/* ---- Greeting + live indicator + event context ---- */}
-      <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
-        <h1 className="font-display text-[20px] font-bold tracking-tight text-[var(--km-azul)] sm:text-[24px]">
-          Buenos días{user?.name ? `, ${user.name.split(' ')[0]}` : ''}.
-        </h1>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-full border border-[var(--km-linea)] bg-white px-2.5 py-1">
-              <span
-                className={`h-[6px] w-[6px] rounded-full ${
-                  storeStatus === 'open'
-                    ? 'bg-[var(--km-listo-text)] shadow-[0_0_6px_rgba(0,91,102,0.4)]'
-                    : storeStatus === 'demo'
-                      ? 'bg-[var(--km-demo-text)] shadow-[0_0_6px_rgba(91,33,182,0.4)]'
-                      : 'bg-[var(--km-peligro-text)] shadow-[0_0_6px_rgba(140,29,45,0.4)]'
-                }`}
-              />
-              <span className="text-[11px] font-medium text-[var(--km-tinta-suave)]">
-                {storeStatus === 'open' ? 'En vivo' : storeStatus === 'demo' ? 'Demo' : 'Cerrada'}
-              </span>
-            </div>
-          </div>
+    <AdminShell
+      section="Panel general"
+      status={storeBadge[storeStatus]}
+      lastUpdate="20:46"
+    >
+      <div className="space-y-7">
+        {/* ---- Greeting + event context ---- */}
+        <div>
+          <h1 className="font-display text-lg font-extrabold text-[#003B73] sm:text-xl">
+            Buenos días{user?.name ? `, ${user.name.split(' ')[0]}` : ''}.
+          </h1>
+          <p className="mt-0.5 text-xs font-medium text-[#3A5675]">
+            {EVENTO.fecha} · {EVENTO.horario} · {EVENTO.direccion}
+          </p>
         </div>
 
-        {/* Event context bar — compact, informative */}
-        <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--km-tinta-suave)] sm:mb-6">
-          <span className="font-medium">{EVENTO.fecha}</span>
-          <span className="text-[var(--km-linea)]">·</span>
-          <span>{EVENTO.horario}</span>
-          <span className="text-[var(--km-linea)]">·</span>
-          <span>{EVENTO.direccion}</span>
-        </div>
-
-        {/* ============================================================
-         *  1. AHORA EN EL EVENTO — operational strip, not metric cards
-         * ============================================================ */}
-        <section className="mb-5 sm:mb-6">
-          <DashSection>Ahora en el evento</DashSection>
-          <div className="km-panel overflow-hidden">
-            {/* Desktop: horizontal strip */}
-            <div className="hidden sm:block">
-              <div className="flex divide-x divide-[var(--km-linea)]">
-                <AhoraItem
-                  icon={Clock}
-                  label="Pendientes"
-                  value={metrics.pendientes}
-                  estado="pendiente"
-                  href="/admin/pedidos"
-                />
-                <AhoraItem
-                  icon={CreditCard}
-                  label="Pagos por revisar"
-                  value={metrics.pagosPendientes}
-                  estado="pagoPendiente"
-                  href="/admin/pedidos"
-                />
-                <AhoraItem
-                  icon={CheckCircle2}
-                  label="Listos para entregar"
-                  value={metrics.listos}
-                  estado="listo"
-                  href="/admin/cocina"
-                />
-                <AhoraItem
-                  icon={ChefHat}
-                  label="Preparando"
-                  value={metrics.preparando}
-                  estado="preparando"
-                  href="/admin/cocina"
-                />
-              </div>
-            </div>
-            {/* Mobile: 2x2 grid */}
-            <div className="grid grid-cols-2 divide-y divide-[var(--km-linea)] sm:hidden">
-              <div className="border-b border-[var(--km-linea)]">
-                <AhoraItem
-                  icon={Clock}
-                  label="Pendientes"
-                  value={metrics.pendientes}
-                  estado="pendiente"
-                  href="/admin/pedidos"
-                />
-              </div>
-              <div className="border-b border-[var(--km-linea)]">
-                <AhoraItem
-                  icon={CreditCard}
-                  label="Pagos por revisar"
-                  value={metrics.pagosPendientes}
-                  estado="pagoPendiente"
-                  href="/admin/pedidos"
-                />
-              </div>
-              <div className="col-span-1">
-                <AhoraItem
-                  icon={CheckCircle2}
-                  label="Listos"
-                  value={metrics.listos}
-                  estado="listo"
-                  href="/admin/cocina"
-                />
-              </div>
-              <div className="col-span-1">
-                <AhoraItem
-                  icon={ChefHat}
-                  label="Preparando"
-                  value={metrics.preparando}
-                  estado="preparando"
-                  href="/admin/cocina"
-                />
-              </div>
-            </div>
+        {/* ---- Alert strip ---- */}
+        {alerts.length > 0 && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {alerts.map((a) => {
+              const Icon = a.icon
+              return (
+                <Link
+                  key={a.text}
+                  href={a.href}
+                  className="group flex flex-1 items-center gap-2.5 rounded-xl border border-[#F6B21A]/40 bg-[#FBF0D6]/70 px-3.5 py-2.5 transition-colors hover:bg-[#FBF0D6] sm:min-w-[220px]"
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-[#8A5A00]" strokeWidth={2.4} />
+                  <span className="flex-1 text-sm font-semibold text-[#8A5A00]">{a.text}</span>
+                  <span className="flex items-center gap-0.5 text-xs font-bold text-[#8A5A00]">
+                    {a.cta}
+                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </Link>
+              )
+            })}
           </div>
-        </section>
-
-        {/* ============================================================
-         *  2. ACCIONES DE JORNADA — operational buttons, not SaaS cards
-         * ============================================================ */}
-        <section className="mb-5 sm:mb-6">
-          <DashSection>Acciones de jornada</DashSection>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
-            <AccionBtn href="/admin/caja" icon={Zap} label="Caja rápida" highlight />
-            <AccionBtn href="/admin/cocina" icon={ChefHat} label="Cocina" />
-            <AccionBtn href="/admin/pedidos" icon={Package} label="Pedidos" />
-            <AccionBtn href="/admin/productos" icon={UtensilsCrossed} label="Productos" />
-          </div>
-          {/* Disabled / Próximamente row */}
-          <div className="mt-2.5 grid grid-cols-3 gap-2.5 sm:mt-3 sm:gap-3">
-            <AccionBtnDisabled icon={FileText} label="Comprobantes" />
-            <AccionBtnDisabled icon={BarChart3} label="Reportes" />
-            <AccionBtnDisabled icon={Settings} label="Configuración" />
-          </div>
-        </section>
-
-        {/* ============================================================
-         *  3. ALERTAS DE STOCK
-         * ============================================================ */}
-        {(alerts.stockBajo.length > 0 || alerts.agotados.length > 0) && (
-          <section className="mb-5 sm:mb-6">
-            <DashSection>Alertas de stock</DashSection>
-            <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
-              {alerts.stockBajo.length > 0 && (
-                <StockAlertBlock icon={AlertTriangle} title="Stock bajo" items={alerts.stockBajo} estado="stockBajo" />
-              )}
-              {alerts.agotados.length > 0 && (
-                <StockAlertBlock icon={XCircle} title="Agotados" items={alerts.agotados} estado="agotado" />
-              )}
-            </div>
-          </section>
         )}
 
-        {/* ============================================================
-         *  4 & 5. RECAUDACIÓN + ÚLTIMOS PEDIDOS (side by side on desktop)
-         * ============================================================ */}
-        <div className="grid gap-5 sm:grid-cols-[1fr_2fr] sm:gap-6">
-          {/* Recaudación — secondary financial data */}
-          <section>
-            <DashSection>Recaudación</DashSection>
-            <div className="km-panel px-4 py-4 sm:py-5">
-              <div className="mb-1 text-[12px] font-medium text-[var(--km-tinta-suave)]">
-                Total del evento
-              </div>
-              <p className="font-display text-[26px] font-bold leading-none tracking-tight text-[var(--km-azul)] km-tabular sm:text-[30px]">
-                {formatPrice(metrics.recaudacion)}
-              </p>
-              <div className="mt-2.5 text-[11px] text-[var(--km-tinta-suave)]/70">
-                {metrics.entregados} entregados
-              </div>
-            </div>
-          </section>
+        {/* ---- Metric cards ---- */}
+        <section>
+          <SectionTitle>Resumen en vivo</SectionTitle>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <MetricCard icon={Clock} label="Pendientes" value={metrics.pendientes} />
+            <MetricCard icon={ChefHat} label="Preparando" value={metrics.preparando} />
+            <MetricCard icon={CheckCircle2} label="Listos" value={metrics.listos} />
+            <MetricCard icon={Truck} label="Entregados" value={metrics.entregados} />
+            <MetricCard
+              icon={CreditCard}
+              label="Pagos pend."
+              value={metrics.pagosPendientes}
+              variant={metrics.pagosPendientes > 0 ? 'alert' : 'default'}
+            />
+            <MetricCard
+              icon={DollarSign}
+              label="Recaudación"
+              value={formatPrice(metrics.recaudacion)}
+              variant="primary"
+            />
+          </div>
+        </section>
 
-          {/* Últimos pedidos */}
-          <section>
-            <DashSection
-              action={
-                <Link
-                  href="/admin/pedidos"
-                  className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-[var(--km-tinta-suave)] transition-colors hover:text-[var(--km-azul)]"
-                >
-                  Ver todos
-                  <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.5} />
-                </Link>
-              }
-            >
-              Últimos pedidos
-            </DashSection>
+        {/* ---- Quick access ---- */}
+        <section>
+          <SectionTitle>Accesos rápidos</SectionTitle>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {QUICK_ACCESS.map((q) => (
+              <QuickAccess key={q.href} {...q} />
+            ))}
+          </div>
+        </section>
 
-            <div className="km-panel overflow-hidden">
-              {/* Desktop table */}
-              <div className="hidden overflow-x-auto sm:block">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[var(--km-linea)] text-left text-[11px] font-semibold text-[var(--km-tinta-suave)]/60">
-                      <th className="whitespace-nowrap px-3 py-2.5">Código</th>
-                      <th className="whitespace-nowrap px-3 py-2.5">Cliente</th>
-                      <th className="whitespace-nowrap px-3 py-2.5">Estado</th>
-                      <th className="whitespace-nowrap px-3 py-2.5">Pago</th>
-                      <th className="whitespace-nowrap px-3 py-2.5 text-right">Total</th>
-                      <th className="w-8" />
+        {/* ---- Recent orders ---- */}
+        <section>
+          <SectionTitle
+            action={
+              <Link
+                href="/admin/pedidos"
+                className="flex items-center gap-1 text-xs font-bold text-[#003B73] hover:underline"
+              >
+                Ver todos <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            }
+          >
+            Últimos pedidos
+          </SectionTitle>
+
+          <AdminCard className="overflow-hidden">
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#75AADB]/15 bg-[#EEF5FF]/60 text-left text-[11px] font-bold uppercase tracking-wide text-[#003B73]/55">
+                    <th className="px-4 py-3">Código</th>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3">Origen</th>
+                    <th className="px-4 py-3">Método</th>
+                    <th className="px-4 py-3">Estado pago</th>
+                    <th className="px-4 py-3">Estado pedido</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3 text-right">Hora</th>
+                    <th className="px-4 py-3 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#75AADB]/10">
+                  {DEMO_ORDERS.map((order) => (
+                    <tr key={order.id} className="transition-colors hover:bg-[#EEF5FF]/50">
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-2 font-mono font-bold text-[#003B73]">
+                          {order.code}
+                          {order.isNew && (
+                            <span className="rounded-full bg-[#F6B21A] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#003B73]">
+                              Nuevo
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-medium text-[#1F3A56]">{order.customer}</td>
+                      <td className="px-4 py-3">
+                        <OriginPill origin={order.origin} />
+                      </td>
+                      <td className="px-4 py-3 text-xs font-medium capitalize text-[#3A5675]">
+                        {order.method}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge tone={order.paymentTone}>
+                          {order.paymentLabel}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge tone={order.statusTone} dot>
+                          {order.statusLabel}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold tabular-nums text-[#003B73]">
+                        {formatPrice(order.total)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[#3A5675]">
+                        {order.time}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href="/admin/pedidos"
+                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]"
+                        >
+                          Ver
+                        </Link>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {DEMO_ORDERS.map((order) => (
-                      <tr
-                        key={order.id}
-                        className="group border-b border-[var(--km-fondo)] last:border-0 transition-colors hover:bg-[var(--km-fondo)]"
-                      >
-                        <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[12px] font-semibold text-[var(--km-azul)] km-tabular">
-                          {order.code}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-[12px] font-medium text-[var(--km-tinta-suave)]">
-                          {order.customer}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5">
-                          <EstadoBadge estado={ORDER_ESTADO[order.orderStatus].estado}>
-                            {ORDER_ESTADO[order.orderStatus].label}
-                          </EstadoBadge>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5">
-                          <EstadoBadge estado={PAYMENT_ESTADO[order.paymentStatus].estado}>
-                            {PAYMENT_ESTADO[order.paymentStatus].label}
-                          </EstadoBadge>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-[12px] font-semibold text-[var(--km-tinta)] km-tabular">
-                          {formatPrice(order.total)}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <Link
-                            href={`/admin/pedidos?focus=${order.code}`}
-                            aria-label={`Ver pedido ${order.code}`}
-                            className="inline-flex rounded-md p-1 text-[var(--km-linea)] transition-colors hover:bg-[var(--km-fondo)] hover:text-[var(--km-azul)]"
-                          >
-                            <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.5} />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile list */}
-              <div className="divide-y divide-[var(--km-fondo)] sm:hidden">
-                {DEMO_ORDERS.map((order) => (
-                  <Link
-                    key={order.id}
-                    href={`/admin/pedidos?focus=${order.code}`}
-                    className="flex items-center gap-2.5 px-3 py-3 transition-colors active:bg-[var(--km-fondo)]"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="font-mono text-[12px] font-semibold text-[var(--km-azul)] km-tabular">
-                          {order.code}
-                        </span>
-                        <span className="font-mono text-[11px] text-[var(--km-tinta-suave)]/50 km-tabular">
-                          {order.time}
-                        </span>
-                      </div>
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <span className="truncate text-[12px] font-medium text-[var(--km-tinta-suave)]">
-                          {order.customer}
-                        </span>
-                        <span className="flex-shrink-0 font-mono text-[12px] font-semibold text-[var(--km-azul)] km-tabular">
-                          {formatPrice(order.total)}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <EstadoBadge estado={ORDER_ESTADO[order.orderStatus].estado}>
-                          {ORDER_ESTADO[order.orderStatus].label}
-                        </EstadoBadge>
-                        <EstadoBadge estado={PAYMENT_ESTADO[order.paymentStatus].estado}>
-                          {PAYMENT_ESTADO[order.paymentStatus].label}
-                        </EstadoBadge>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--km-linea)]" strokeWidth={2.5} />
-                  </Link>
-                ))}
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </section>
-        </div>
-      </AdminShell>
+
+            {/* Mobile list */}
+            <div className="divide-y divide-[#75AADB]/10 md:hidden">
+              {DEMO_ORDERS.map((order) => (
+                <Link
+                  key={order.id}
+                  href="/admin/pedidos"
+                  className="block space-y-2 p-4 transition-colors active:bg-[#EEF5FF]/60"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 font-mono font-bold text-[#003B73]">
+                      {order.code}
+                      {order.isNew && (
+                        <span className="rounded-full bg-[#F6B21A] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#003B73]">
+                          Nuevo
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs tabular-nums text-[#3A5675]">{order.time}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 font-medium text-[#1F3A56]">
+                      {order.customer}
+                      <OriginPill origin={order.origin} />
+                    </span>
+                    <span className="font-bold tabular-nums text-[#003B73]">
+                      {formatPrice(order.total)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={order.paymentTone}>
+                      {order.paymentLabel}
+                    </Badge>
+                    <Badge tone={order.statusTone} dot>
+                      {order.statusLabel}
+                    </Badge>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </AdminCard>
+        </section>
+      </div>
+    </AdminShell>
   )
 }
 
-/* ===========================================================================
- *  AhoraItem — single metric in the "Ahora en el evento" strip.
- *  Uses EstadoBadge colors, km-tabular, links to relevant section.
- *  No shadows, no generic card pattern.
- * ======================================================================== */
-function AhoraItem({
+/* --- Subcomponents --- */
+
+function MetricCard({
   icon: Icon,
   label,
   value,
-  estado,
-  href,
+  variant = 'default',
 }: {
   icon: LucideIcon
   label: string
-  value: number
-  estado: EstadoVisual
-  href: string
+  value: string | number
+  variant?: 'default' | 'primary' | 'alert'
 }) {
-  return (
-    <Link
-      href={href}
-      className="group flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--km-fondo)] sm:flex-1 sm:flex-col sm:items-start sm:gap-2 sm:px-5 sm:py-4"
-    >
-      <div className="flex items-center gap-2.5 sm:gap-0">
-        <Icon
-          className={`h-4 w-4 text-[var(--km-tinta-suave)] sm:mb-1.5 sm:h-[18px] sm:w-[18px]`}
-          strokeWidth={2}
-        />
-        <span className={`text-[12px] font-medium text-[var(--km-tinta-suave)] sm:text-[11px] sm:font-normal`}>
-          {label}
-        </span>
-      </div>
-      <div className="flex items-center gap-2 sm:gap-0">
-        <span className="font-display text-[24px] font-bold leading-none tracking-tight text-[var(--km-azul)] km-tabular sm:text-[32px]">
-          {value}
-        </span>
-        <span className="sm:hidden">
-          <EstadoBadge estado={estado} dot>
-            {label}
-          </EstadoBadge>
-        </span>
-      </div>
-    </Link>
-  )
-}
-
-/* ===========================================================================
- *  AccionBtn — operational action button (jornada).
- *  Dorado only for highlight (Caja rápida). Others are azul/celeste.
- *  Not a card — it's a large touch-friendly button.
- * ======================================================================== */
-function AccionBtn({
-  href,
-  icon: Icon,
-  label,
-  highlight,
-}: {
-  href: string
-  icon: LucideIcon
-  label: string
-  highlight?: boolean
-}) {
-  return (
-    <Link
-      href={href}
-      className={`group flex items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors sm:flex-col sm:gap-2 sm:px-4 sm:py-5 ${
-        highlight
-          ? 'border-[var(--km-dorado)]/30 bg-[var(--km-dorado)]/[0.06] hover:border-[var(--km-dorado)]/50 hover:bg-[var(--km-dorado)]/10'
-          : 'border-[var(--km-linea)] bg-white hover:border-[var(--km-celeste)]/40 hover:bg-[var(--km-fondo)]'
-      }`}
-    >
-      <span
-        className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11 ${
-          highlight
-            ? 'bg-[var(--km-dorado)] text-[var(--km-azul)]'
-            : 'bg-[var(--km-fondo)] text-[var(--km-azul)] group-hover:bg-[var(--km-celeste)]/20'
-        }`}
-      >
-        <Icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" strokeWidth={2.2} />
-      </span>
-      <div className="min-w-0 sm:text-center">
-        <span className={`text-[13px] font-semibold sm:text-[14px] ${highlight ? 'text-[var(--km-azul)]' : 'text-[var(--km-azul)]'}`}>
-          {label}
-        </span>
-      </div>
-    </Link>
-  )
-}
-
-/* ===========================================================================
- *  AccionBtnDisabled — disabled route with "Próximamente" label.
- *  Visually muted, no link, not interactive.
- * ======================================================================== */
-function AccionBtnDisabled({
-  icon: Icon,
-  label,
-}: {
-  icon: LucideIcon
-  label: string
-}) {
-  return (
-    <div
-      className="flex items-center gap-2.5 rounded-lg border border-[var(--km-linea)]/50 bg-white/60 px-3.5 py-2.5 opacity-50 sm:flex-col sm:gap-1.5 sm:px-4 sm:py-4"
-      aria-disabled="true"
-    >
-      <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)] sm:h-8 sm:w-8">
-        <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-      </span>
-      <div className="min-w-0 sm:text-center">
-        <span className="block text-[11px] font-medium text-[var(--km-entregado-text)] sm:text-[12px]">{label}</span>
-        <span className="block text-[10px] font-normal text-[var(--km-tinta-suave)]/50 sm:text-[11px]">Próximamente</span>
-      </div>
-    </div>
-  )
-}
-
-/* ===========================================================================
- *  StockAlertBlock — alert panel using Kermingo tokens.
- *  Replaces the old amber/rose Tailwind defaults with km-alerta/km-peligro.
- * ======================================================================== */
-function StockAlertBlock({
-  icon: Icon,
-  title,
-  items,
-  estado,
-}: {
-  icon: LucideIcon
-  title: string
-  items: string[]
-  estado: 'stockBajo' | 'agotado'
-}) {
-  const isAgotado = estado === 'agotado'
+  const isPrimary = variant === 'primary'
+  const isAlert = variant === 'alert'
 
   return (
     <div
-      className={`rounded-lg border px-3.5 py-3 ${
-        isAgotado
-          ? 'border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)]/40'
-          : 'border-[var(--km-alerta-bg)] bg-[var(--km-alerta-bg)]/40'
+      className={`flex h-full flex-col rounded-2xl border p-4 ${
+        isPrimary
+          ? 'border-[#003B73] bg-[#003B73]'
+          : isAlert
+            ? 'border-[#F6B21A] bg-white ring-1 ring-[#F6B21A]/40'
+            : 'border-[#75AADB]/20 bg-white'
       }`}
     >
-      <div className="mb-2 flex items-center gap-2">
-        <Icon
-          className={`h-3.5 w-3.5 ${isAgotado ? 'text-[var(--km-peligro-text)]' : 'text-[var(--km-alerta-text)]'}`}
-          strokeWidth={2.2}
-        />
-        <span className={`text-[12px] font-semibold ${isAgotado ? 'text-[var(--km-peligro-text)]' : 'text-[var(--km-alerta-text)]'}`}>
-          {title}
-        </span>
-        <span
-          className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold km-tabular ${
-            isAgotado
-              ? 'bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]'
-              : 'bg-[var(--km-alerta-bg)] text-[var(--km-alerta-text)]'
+      <div className="flex items-center gap-2.5">
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+            isPrimary
+              ? 'bg-[#F6B21A] text-[#003B73]'
+              : isAlert
+                ? 'bg-[#F6B21A]/15 text-[#8A5A00]'
+                : 'bg-[#EEF5FF] text-[#003B73]'
           }`}
         >
-          {items.length}
+          <Icon className="h-5 w-5" strokeWidth={2.2} />
+        </div>
+        <span
+          className={`text-xs font-semibold leading-tight ${
+            isPrimary ? 'text-[#AFC8E6]' : 'text-[#3A5675]'
+          }`}
+        >
+          {label}
         </span>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <span
-            key={item}
-            className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-              isAgotado
-                ? 'border-[var(--km-peligro-bg)] bg-white text-[var(--km-peligro-text)]'
-                : 'border-[var(--km-alerta-bg)] bg-white text-[var(--km-alerta-text)]'
-            }`}
-          >
-            {item}
-          </span>
-        ))}
-      </div>
+      <p
+        className={`mt-3 text-2xl font-extrabold tabular-nums ${
+          isPrimary ? 'text-white' : 'text-[#003B73]'
+        }`}
+      >
+        {value}
+      </p>
     </div>
+  )
+}
+
+function QuickAccess({
+  href,
+  icon: Icon,
+  label,
+  hint,
+  primary,
+}: {
+  href: string
+  icon: LucideIcon
+  label: string
+  hint: string
+  primary?: boolean
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group flex items-center gap-3 rounded-2xl border p-4 transition-all hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003B73] focus-visible:ring-offset-2 ${
+        primary
+          ? 'border-[#F6B21A] bg-[#F6B21A] text-[#003B73] hover:bg-[#ffbe2e]'
+          : 'border-[#75AADB]/25 bg-white hover:border-[#75AADB]'
+      }`}
+    >
+      <div
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+          primary ? 'bg-[#003B73] text-[#F6B21A]' : 'bg-[#EEF5FF] text-[#003B73]'
+        }`}
+      >
+        <Icon className="h-5 w-5" strokeWidth={2.2} />
+      </div>
+      <div className="min-w-0">
+        <p
+          className={`truncate text-sm font-extrabold ${
+            primary ? 'text-[#003B73]' : 'text-[#003B73]'
+          }`}
+        >
+          {label}
+        </p>
+        <p
+          className={`truncate text-xs font-medium ${
+            primary ? 'text-[#003B73]/70' : 'text-[#3A5675]'
+          }`}
+        >
+          {hint}
+        </p>
+      </div>
+    </Link>
+  )
+}
+
+function OriginPill({ origin }: { origin: Origin }) {
+  const isOnline = origin === 'online'
+  const Icon = isOnline ? Smartphone : Store
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#75AADB]/35 bg-[#EEF5FF] px-2 py-0.5 text-[11px] font-semibold text-[#0F4C81]">
+      <Icon className="h-3 w-3" strokeWidth={2.4} />
+      {isOnline ? 'Online' : 'Caja'}
+    </span>
   )
 }

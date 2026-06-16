@@ -83,7 +83,11 @@
 
 - Vista optimizada: solo pedidos en estados `recibido`, `en_preparacion`, `listo`.
 - Orden: primero los `recibido`, después `en_preparacion`, después `listo`, y dentro de cada grupo por antigüedad.
-- Avanza estado: `recibido → en_preparacion → listo → entregado`.
+- Transiciones ágiles de estado:
+  - `recibido → en_preparacion` (empezar a cocinar), o directo `recibido → listo` (skip preparación).
+  - `en_preparacion → listo` (marcar listo), o volver a `recibido` (corrección antes de preparar).
+  - `listo → entregado` (terminal, con confirmación), o volver a `en_preparacion` (corrección antes de entregar).
+  - `entregado` y `cancelado` son estados terminales (sin acciones).
 
 ### Gestión de pagos (admin)
 

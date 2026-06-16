@@ -31,6 +31,10 @@
 22. [AdminSessionProvider no debe tratar errores de red/5xx como authenticated](#22-adminsessionprovider-no-debe-tratar-errores-de-red5xx-como-authenticated)
 23. [Comprobante endpoint devuelve metadata, no bytes de archivo](#23-comprobante-endpoint-devuelve-metadata-no-bytes-de-archivo)
 24. [Configuración endpoints: configuracion-tienda, no configuracion](#24-configuración-endpoints-configuracion-tienda-no-configuracion)
+25. [`diseno-de-landing-kermingo/` es local, no versionada](#25-diseno-de-landing-kermingo-es-local-no-versionada)
+26. [Manual visual testing required after frontend UI changes](#26-manual-visual-testing-required-after-frontend-ui-changes)
+27. [Cocina: transiciones ágiles (backward y direct ready)](#27-cocina-transiciones-ágiles-backward-y-direct-ready)
+28. [Assets demo de comprobantes en `public/` (P2-3, pendiente)](#28-assets-demo-de-comprobantes-en-public-p2-3-pendiente)
 
 ---
 
@@ -345,3 +349,73 @@ items: z.preprocess((val) => {
 **Fix:** `ConfigScreen` ahora usa los endpoints correctos y `PUT` en vez de `PATCH`.
 
 **Regla:** Los endpoints de configuración siempre llevan sufijo `-tienda`: `/api/configuracion-tienda` (público) y `/api/admin/configuracion-tienda` (admin con PUT).
+
+---
+
+## 25. `diseno-de-landing-kermingo/` es local, no versionada
+
+**Síntoma:** Agentes o prompts pueden intentar leer archivos de `diseno-de-landing-kermingo/` y no encontrarlos si la carpeta no existe localmente. Git muestra la carpeta como untracked si no está en `.gitignore`.
+
+**Causa:** La carpeta fue removida de git en el commit `1361d5a` (intencionalmente). Existe solo localmente como referencia visual del prototipo v0. No se debe versionar ni depender de ella en CI.
+
+**Regla:**
+- La carpeta está en `.gitignore`. No hacer `git add` de su contenido.
+- Si se necesita referencia visual, consultar localmente. No depender de ella para builds.
+- Si se elimina la carpeta local, el frontend ya está migrado a `frontend/` y no se rompe nada.
+- No modificar archivos dentro de `diseno-de-landing-kermingo/`.
+
+---
+
+## 26. Manual visual testing required after frontend UI changes
+
+**Síntoma:** Una pantalla admin puede pasar lint, typecheck y build, pero tener problemas visuales: márgenes inconsistentes, colores incorrectos, distribución rota, o componentes fuera de lugar.
+
+**Causa:** Los tests automatizados (Vitest, Jest) verifican lógica, estado y comportamiento, pero **no verifican layout visual** (CSS, espaciado, colores, tipografía, centrado). Un cambio que ajusta clases Tailwind puede romper la alineación visual sin que ningún test falle.
+
+**Regla:** Después de cualquier cambio que afecte la UI del frontend (admin o público), se debe realizar una verificación manual en browser:
+- Navegar todas las pantallas afectadas en desktop (1440px) y mobile (360px).
+- Verificar que cards, tablas, formularios y modales mantengan la estética v0: cards redondeadas, paleta azul/celeste/amarillo, tipografía consistente, espaciado uniforme.
+- En admin específicamente: verificar sidebar, topbar, km-panel, km-tabular, EstadoBadge, tokens `--km-*`, y que no haya colores Tailwind genéricos (emerald, amber, rose, sky, slate) en componentes operativos.
+- Si se cambió `globals.css` o se agregaron nuevos tokens `--km-*`, verificar que todos los consumidores existentes sigan funcionando.
+
+**Referencia visual:** La carpeta local `diseno-de-landing-kermingo/` es la fuente de verdad visual. Comparar el resultado real contra la referencia.
+
+---
+
+## 27. Cocina: transiciones ágiles (backward y direct ready)
+
+**Síntoma:** Si un cocinero marca un pedido como listo por error, no había forma de revertirlo sin cancelar el pedido completo.
+
+**Causa:** La state machine original solo permitía transiciones hacia adelante (`recibido → en_preparacion → listo → entregado`). No existía `en_preparacion → recibido` ni `listo → en_preparacion`, ni `recibido → listo` directo.
+
+**Fix:** Se ampliaron las transiciones válidas en `TRANSICIONES_VALIDAS` (backend) y en la UI del KDS (frontend):
+- `recibido → en_preparacion` (empezar preparación)
+- `recibido → listo` (directo, para productos ya listos como medialunas)
+- `en_preparacion → recibido` (retroceso por error)
+- `en_preparacion → listo` (terminó preparación)
+- `listo → en_preparacion` (retroceso por error)
+- `listo → entregado` (confirmar entrega, con confirmación en frontend)
+
+**Regla:** `entregado` sigue siendo terminal. No se puede retroceder desde entregado. El frontend muestra confirmación (`window.confirm`) antes de marcar `listo → entregado`. Las acciones backward se muestran como botones secundarios (más sutiles) y las forward como primarios.
+
+---
+
+## 28. Assets demo de comprobantes en `public/` (P2-3, pendiente)
+
+---
+
+## 29. Imagen de producto relativa: 404 si no se convierte a absoluta
+
+**Síntoma:** En `/admin/productos`, la imagen de un producto no se muestra (404 gris) aunque el producto tenga imagen subida. En consola del navegador se ve un `GET http://localhost:3000/api/productos/...` 404.
+
+**Causa:** El backend (`backend/src/api/controllers/producto.controller.js`) devuelve `imagen_url` como una ruta relativa (ej: `/api/productos/6/imagen?v=42`) en la respuesta de `GET /api/admin/productos`. Si el mapper frontend no la convierte a absoluta, el navegador resuelve la URL relativa contra el host actual (Next dev server → `localhost:3000`) en vez del backend (`localhost:3001`).
+
+**Mappers obligatorios a convertir:**
+- `lib/mappers.ts` → `mapProducto()` — público (menú)
+- `lib/admin.ts` → `apiToAdminProduct()` — admin productos
+- `lib/admin.ts` → `apiToCajaProduct()` — caja rápida
+- `components/admin/product-form-dialog.tsx` → preview tras crear/actualizar
+
+**Helper:** `ABSOLUTE_IMAGE_URL(path)` en `lib/config.ts`. Toma un string relativo o `null/undefined`, antepone `API_BASE` (default `http://localhost:3001` o `NEXT_PUBLIC_API_URL`). Si el path ya es absoluto (`http://...`), lo devuelve sin cambios. Si es null/undefined, devuelve `undefined`.
+
+**Regla:** Cualquier mapper o componente que consuma `imagen_url` de la API debe pasarlo por `ABSOLUTE_IMAGE_URL()`. No asumir que el path es absoluto ni que el navegador lo resuelve contra el backend.

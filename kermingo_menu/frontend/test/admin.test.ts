@@ -140,6 +140,50 @@ describe('apiToAdminProduct', () => {
     const p = apiToAdminProduct(api)
     expect(p.icon).toBe('pizza')
   })
+
+  it('converts relative imagen_url to absolute URL', () => {
+    const api: ApiProducto = {
+      id: 6,
+      nombre: 'Item',
+      descripcion: 'x',
+      precio: '100',
+      tipo: 'comida',
+      stock_limitado: 1,
+      stock_actual: 5,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: 42,
+      imagen_nombre_original: 'pic.jpg',
+      imagen_mime_type: 'image/jpeg',
+      imagen_tamanio_bytes: 1234,
+      imagen_url: '/api/productos/6/imagen?v=42',
+      categorias: 'Cena',
+    }
+    const p = apiToAdminProduct(api)
+    expect(p.image).toBe('http://localhost:3001/api/productos/6/imagen?v=42')
+  })
+
+  it('returns undefined image when imagen_url is null', () => {
+    const api: ApiProducto = {
+      id: 7,
+      nombre: 'Item',
+      descripcion: 'x',
+      precio: '100',
+      tipo: 'comida',
+      stock_limitado: 1,
+      stock_actual: 5,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+      categorias: 'Cena',
+    }
+    const p = apiToAdminProduct(api)
+    expect(p.image).toBeUndefined()
+  })
 })
 
 describe('adminToApiPayload', () => {
@@ -436,7 +480,7 @@ describe('apiToCajaProduct', () => {
     expect(p.name).toBe('Pizza')
     expect(p.price).toBe(100)
     expect(p.type).toBe('comida')
-    expect(p.image).toBe('/api/productos/1/imagen?v=42')
+    expect(p.image).toBe('http://localhost:3001/api/productos/1/imagen?v=42')
     expect(p.stockLimited).toBe(true)
     expect(p.stockActual).toBe(5)
   })

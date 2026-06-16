@@ -3,10 +3,10 @@ import type { LucideIcon } from 'lucide-react'
 
 /* ---------------------------------------------------------------------------
  * Primitivas de UI compartidas del panel admin de Kermingo.
- * Estilo "operativo real" (lineal, denso, sin cards infladas):
- * - Tipografía Bricolage para display, Inter para cuerpo, Mono para códigos.
- * - Bordes sutiles, sin sombras pesadas.
- * - Acento: azul #003B73 y dorado #F6B21A. Paleta sobria.
+ * Paleta sobria, conectada con las páginas públicas:
+ * fondo #EEF5FF, azul #003B73, celeste #75AADB, dorado #F6B21A.
+ * Los acentos verde/rojo se usan con criterio (solo para pago/estado), en
+ * versiones apagadas, nunca el verde/rojo puro de Tailwind por defecto.
  *
  * Tokens de estado (doc 28 §3.2):
  *   info → celeste/azul     (recibido, pendiente)
@@ -32,17 +32,17 @@ export type BadgeTone =
   | 'demo'
 
 const BADGE_TONES: Record<BadgeTone, string> = {
-  neutral: 'bg-[var(--km-fondo)] text-[var(--km-tinta-suave)] border-[var(--km-linea)]',
-  info: 'bg-[var(--km-info-bg)] text-[var(--km-info-text)] border-[#75AADB]/35',
-  success: 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)] border-[var(--km-listo-bg)]',
-  warning: 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)] border-[var(--km-preparando-bg)]',
-  danger: 'bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)] border-[var(--km-peligro-bg)]',
-  gold: 'bg-[var(--km-dorado)]/12 text-[#7A5500] border-[var(--km-dorado)]/35',
-  preparando: 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)] border-[var(--km-preparando-bg)]',
-  listo: 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)] border-[var(--km-listo-bg)]',
-  entregado: 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)] border-[var(--km-entregado-bg)]',
-  alerta: 'bg-[var(--km-alerta-bg)] text-[var(--km-alerta-text)] border-[var(--km-alerta-bg)]',
-  demo: 'bg-[var(--km-demo-bg)] text-[var(--km-demo-text)] border-[var(--km-demo-bg)]',
+  neutral: 'bg-[#EEF5FF] text-[#3A5675] border-[#75AADB]/35',
+  info: 'bg-[#75AADB]/15 text-[#0F4C81] border-[#75AADB]/40',
+  success: 'bg-[#E6F2EA] text-[#1F6B43] border-[#1F6B43]/25',
+  warning: 'bg-[#FBF0D6] text-[#8A5A00] border-[#F6B21A]/40',
+  danger: 'bg-[#FBE9E7] text-[#A63329] border-[#A63329]/25',
+  gold: 'bg-[#F6B21A]/15 text-[#8A5A00] border-[#F6B21A]/40',
+  preparando: 'bg-[#FBF0D6] text-[#8A5A00] border-[#F6B21A]/40',
+  listo: 'bg-[#E6F2EA] text-[#1F6B43] border-[#1F6B43]/25',
+  entregado: 'bg-[#EAF0F7] text-[#304C68] border-[#304C68]/25',
+  alerta: 'bg-[#FFF1E6] text-[#8A4A00] border-[#8A4A00]/25',
+  demo: 'bg-[#F3F0FF] text-[#5B21B6] border-[#5B21B6]/25',
 }
 
 /**
@@ -104,18 +104,21 @@ export function Badge({
   className = '',
   uppercase = false,
   dot = false,
+  icon: Icon,
 }: {
   tone?: BadgeTone
   children: React.ReactNode
   className?: string
   uppercase?: boolean
   dot?: boolean
+  icon?: LucideIcon
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${BADGE_TONES[tone]} ${uppercase ? 'uppercase tracking-wide' : ''} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${BADGE_TONES[tone]} ${uppercase ? 'text-[10px] uppercase tracking-wide' : ''} ${className}`}
     >
       {dot && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+      {Icon && <Icon className="h-3 w-3" strokeWidth={2.6} />}
       {children}
     </span>
   )
@@ -129,8 +132,8 @@ export function SectionTitle({
   action?: React.ReactNode
 }) {
   return (
-    <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#75AADB]/12 pb-2">
-      <h2 className="font-mono text-[11px] font-semibold tracking-wide text-[#003B73]/60">
+    <div className="mb-3 flex items-center justify-between">
+      <h2 className="text-xs font-bold uppercase tracking-widest text-[#003B73]/55">
         {children}
       </h2>
       {action}
@@ -147,12 +150,14 @@ export function AdminCard({
 }) {
   return (
     <div
-      className={`rounded-xl border border-[#75AADB]/15 bg-white ${className}`}
+      className={`rounded-2xl border border-[#75AADB]/20 bg-white shadow-sm shadow-[#003B73]/5 ${className}`}
     >
       {children}
     </div>
   )
 }
+
+export type IconBoxTone = 'blue' | 'gold' | 'celeste' | 'ghost' | 'slate' | 'emerald' | 'amber' | 'sky' | 'red'
 
 export function IconBox({
   icon: Icon,
@@ -160,31 +165,33 @@ export function IconBox({
   className = '',
 }: {
   icon: LucideIcon
-  tone?: 'blue' | 'gold' | 'slate' | 'emerald' | 'amber' | 'sky' | 'red'
+  tone?: IconBoxTone
   className?: string
 }) {
-  const tones: Record<string, string> = {
-    blue: 'bg-[var(--km-azul)] text-[var(--km-dorado)]',
-    gold: 'bg-[var(--km-dorado)] text-[var(--km-azul)]',
-    slate: 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]',
-    emerald: 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]',
-    amber: 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]',
-    sky: 'bg-[var(--km-info-bg)] text-[var(--km-info-text)]',
-    red: 'bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]',
+  const tones: Record<IconBoxTone, string> = {
+    blue: 'bg-[#003B73] text-[#F6B21A]',
+    gold: 'bg-[#F6B21A] text-[#003B73]',
+    celeste: 'bg-[#75AADB]/18 text-[#0F4C81]',
+    ghost: 'bg-[#EEF5FF] text-[#003B73]',
+    slate: 'bg-[#EAF0F7] text-[#304C68]',
+    emerald: 'bg-[#E6F2EA] text-[#1F6B43]',
+    amber: 'bg-[#FBF0D6] text-[#8A5A00]',
+    sky: 'bg-[#E8F3FF] text-[#003B73]',
+    red: 'bg-[#FBE9E7] text-[#A63329]',
   }
   return (
     <div
-      className={`flex items-center justify-center rounded ${tones[tone]} ${className}`}
+      className={`flex items-center justify-center rounded-xl ${tones[tone]} ${className}`}
     >
-      <Icon className="h-4 w-4" strokeWidth={2.2} />
+      <Icon className="h-5 w-5" strokeWidth={2.2} />
     </div>
   )
 }
 
 export function AdminFooter() {
   return (
-    <footer className="mt-2 border-t border-[#75AADB]/15 py-4 text-center">
-      <p className="font-mono text-[11px] tracking-wide text-[#75AADB]/60">
+    <footer className="mt-2 border-t border-[#75AADB]/20 py-5 text-center">
+      <p className="text-xs font-medium text-[#75AADB]">
         {EVENTO.nombre} Admin · {EVENTO.fechaCorta}
       </p>
     </footer>

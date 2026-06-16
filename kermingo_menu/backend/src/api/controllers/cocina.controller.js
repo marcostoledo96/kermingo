@@ -40,8 +40,12 @@ export async function obtenerCocina(req, res, next) {
 
 /**
  * PATCH /api/admin/cocina/pedidos/:id/estado
- * Avanza el estado del pedido por la ruta de cocina
- * (recibido -> en_preparacion -> listo -> entregado).
+ * Cambia el estado del pedido en cocina.
+ * Transiciones permitidas por TRANSICIONES_VALIDAS:
+ *   recibido → en_preparacion | listo
+ *   en_preparacion → recibido | listo
+ *   listo → en_preparacion | entregado
+ *   entregado: estado terminal (sin transiciones)
  * Reutiliza updateEstadoPedido del modelo pedido.
  */
 export async function cambiarEstadoCocina(req, res, next) {

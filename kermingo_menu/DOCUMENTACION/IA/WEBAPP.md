@@ -130,7 +130,9 @@ interface CartItem {
 
 ## 5. Diseño y referencia visual
 
-**Carpeta de referencia (SOLO LECTURA):** `diseno-de-landing-kermingo/`
+**Carpeta de referencia (LOCAL, NO versionada en git):** `diseno-de-landing-kermingo/`
+
+> **Nota:** Esta carpeta existe solo localmente como referencia visual del prototipo v0. Fue removida de git intencionalmente (ver `.gitignore`). No se debe depender de ella para CI/build ni modificar su contenido. Si se necesita comparar diseño, consultarla localmente.
 
 | Archivo de referencia | Qué contiene |
 |---|---|
@@ -151,10 +153,11 @@ interface CartItem {
 | `components/menu/` | Componentes de menú |
 
 **Reglas:**
-- No modificar `diseno-de-landing-kermingo/`.
+- No modificar `diseno-de-landing-kermingo/` (carpeta local, no versionada).
+- No depender de esta carpeta en CI/build — no existe en el repositorio remoto.
 - Mantener la estética v0: Argentina, Mundial, Día de la Bandera, scout sutil.
 - Cards redondeadas, fondo claro, azul/celeste/amarillo, mobile-first.
-- El dashboard admin puede mejorarse.
+- El dashboard admin ya fue alineado visualmente con la referencia v0 (ver §11).
 
 **Auditoría visual post-mejoras (Prompt 8):** Ver `docs/planificacion/31-AUDITORIA_FINAL_VISUAL_FRONTEND_POST_MEJORAS.md` para diagnóstico completo por pantalla, problemas pendientes, checklist de accesibilidad y escenarios de verificación manual. La auditoría encontró que admin y flujo público (carrito → seguimiento) están completamente migrados a tokens `--km-*`, mientras que landing y menú público aún usan colores hex hardcodeados.
 
@@ -173,10 +176,11 @@ Componentes esperados (alineados con la referencia v0):
 | `OrderStatusBadge` | Badge de estado del pedido |
 | `PaymentStatusBadge` | Badge de estado de pago |
 | `AdminLayout` | Layout del panel admin con sidebar |
-| `AdminHeader` | Header del panel admin |
+| `AdminHeader` | Header del panel admin. Usa `useAdminSession()` para mostrar usuario activo y botón de logout. Muestra skeleton durante loading, alerta en error, y nombre real en authenticated |
 | `AdminSessionProvider` | Guard de sesión: protege rutas admin, solo renderiza contenido cuando `status === 'authenticated'` o `'unauthenticated'` (login). Estado `'error'` muestra retry, `'loading'` muestra spinner. |
 | `AdminShell` | Shell con sidebar, topbar y footer para secciones admin |
-| `ConfigScreen` | Configuración de tienda: estado abierto/cerrado + mensaje público. Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
+| `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado. Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
+| `ReportesScreen` | Placeholder honesto: hero con `Construction` + 3 cards de preview con `IconBox`. Sin endpoints backend todavía |
 | `ComprobantesScreen` | Revisión de comprobantes de transferencia. Fetch metadata de `GET /api/admin/pedidos/:id/comprobante` y abre `url_publica` de Drive |
 | `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |
 | `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=` |
@@ -287,7 +291,7 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 
 **Estado UI:** cada página pública maneja `loading | ready | error` con skeletons, retry y mensajes contextuales. Ver patrón recomendado en §3.
 
-**Imagen de producto:** el backend devuelve una URL relativa (`/api/productos/:id/imagen?v=:archivoId`); el helper `ABSOLUTE_IMAGE_URL()` en `lib/config.ts` la convierte a absoluta anteponiendo `API_BASE`.
+**Imagen de producto:** el backend devuelve una URL relativa (`/api/productos/:id/imagen?v=:archivoId`); el helper `ABSOLUTE_IMAGE_URL()` en `lib/config.ts` la convierte a absoluta anteponiendo `API_BASE`. **Todos los mappers deben usar `ABSOLUTE_IMAGE_URL()` — tanto los públicos (`mapProducto` en `mappers.ts`) como los admin (`apiToAdminProduct`, `apiToCajaProduct` en `admin.ts`) y el preview del formulario (`product-form-dialog.tsx`).** Si no se convierte, el navegador pide la imagen desde el servidor de desarrollo de Next (`localhost:3000`) en vez del backend (`localhost:3001`), generando un 404.
 
 | Endpoint público | Uso en frontend |
 |---|---|
@@ -406,7 +410,11 @@ La pantalla `/admin/cocina` funciona como un tablero KDS (Kitchen Display System
 2. **Desktop: KDS en columnas** — 3 columnas fijas por estado (Recibidos, En preparación, Listos). Cada columna tiene header con icono + label + conteo. Los pedidos se ubican en su columna correspondiente. Pedidos cerrados (entregados/cancelados) están colapsados en un `<details>` al final.
 3. **Mobile: tabs con estado visual** — tabs Recibidos / Preparando / Listos / Entregados. Cada tab usa el color de estado correspondiente (no solo el conteo). Pendientes repetido como chips debajo de los tabs para consulta rápida.
 4. **Card de pedido KDS** — cada pedido tiene: borde izquierdo coloreado por estado (no solo badge), banner de estado con icono + texto (no solo color), código, cliente, hora, mesa, observaciones con tokens `--km-preparando-*`, líneas de producto con cantidad y nombre.
-5. **Acción principal única** — un solo botón grande "Empezar" / "Marcar listo" / "Entregado" según el estado actual, con icono de destino. No hay grilla 2×2 de botones.
+5. **Acciones múltiples por card** — según el estado actual, se muestran acciones primarias y secundarias:
+   - **Recibido**: primaria "Empezar" (→ preparación) + secundaria "Listo directo" (→ listo, para productos ya listos como medialunas)
+   - **En preparación**: secundaria "Volver a recibido" (→ recibido, retroceso por error) + primaria "Marcar listo" (→ listo)
+   - **Listo**: secundaria "Volver a preparación" (→ preparación, retroceso por error) + primaria "Entregado" (→ entregado, con confirmación)
+   - **Entregado/Cancelado**: sin acciones (estado terminal)
 6. **Cancelar oculto** — la acción de cancelar está en un menú desplegable (icono `MoreHorizontal` / "…"), no como botón visible que compite con las acciones de avance. Solo aparece en estados `recibido` y `preparacion`.
 
 **Diseño visual por estado (no solo color):**
@@ -531,3 +539,46 @@ La pantalla `/admin/productos` funciona como inventario operativo del evento, no
 - `km-panel` en vez de `rounded-2xl border shadow`.
 - Formulario de producto: `text-red-600`, `text-slate-400`, `text-slate-500`, `bg-red-50`, `border-red-200`, `border-slate-300`, `bg-slate-300` reemplazados por tokens `--km-*`.
 - Endpoints, data flow y lógica preservados sin cambios.
+
+---
+
+## 16. Admin Configuración — Estado de la tienda
+
+La pantalla `/admin/config` permite abrir/cerrar la tienda y editar el mensaje público del menú.
+
+**Jerarquía de la pantalla:**
+
+1. **Banner de estado** — `AdminCard` con fondo coloreado por estado (abierto: `--km-listo-bg`, cerrado: `--km-peligro-bg`), `IconBox` con ícono `DoorOpen`/`DoorClosed` (tono `emerald`/`red`), título y descripción contextuales.
+2. **Botones de estado** — grilla de 2 columnas: "Abrir tienda" (activo con fondo azul `#003B73` cuando está abierto), "Cerrar tienda" (activo con fondo gris `#5B7793` cuando está cerrado). Usa `km-focus` y `active:scale-[0.98]`.
+3. **Mensaje público** — `AdminCard` con `SectionTitle`, ícono `MessageSquare`, textarea con contador de caracteres (160 max), botón guardar con ícono `Save` en azul oscuro (`#003B73`).
+4. **Feedback de guardado** — banner con `--km-listo-*` tokens e ícono `Check` al guardar exitosamente.
+
+**Endpoints preservados:** `GET /api/configuracion-tienda` (público), `PUT /api/admin/configuracion-tienda` (admin). Toggle de estado envía `{ estado }`, mensaje envía `{ mensaje_publico }`.
+
+**Cambios vs. versión anterior:**
+- De `km-panel` suelto a `AdminCard` con `overflow-hidden` y sección de banner coloreado.
+- De botón toggle genérico a grilla de botones de estado con ícono, activo/desactivado visual.
+- De `SectionTitle` sola a `AdminCard` con label + ícono + textarea con contador.
+- De mensaje de guardado como texto plano a banner con ícono `Check` y tokens `--km-listo-*`.
+- Guardar mensaje: de botón `bg-[var(--km-azul)]` a botón full-width `bg-[#003B73]` con shadow y `active:scale-[0.99]`.
+- Endpoints y data flow preservados sin cambios.
+
+---
+
+## 17. Admin Reportes — Placeholder de integración pendiente
+
+La pantalla `/admin/reportes` funciona como placeholder honesto: no muestra métricas falsas y avisa que la integración está pendiente.
+
+**Jerarquía de la pantalla:**
+
+1. **Hero placeholder** — `AdminCard` centrada con ícono `Construction`, título "Reportes en desarrollo", descripción y badge de aviso con tokens `--km-preparando-*`.
+2. **Cards de preview** — grilla de 3 columnas con `IconBox` (`gold`, `celeste`, `blue`) mostrando "Recaudación", "Pedidos", "Producto estrella" con placeholder "—". No tienen datos reales.
+3. **Sin funcionalidad backend** — no hay endpoints de reportes todavía. Las cards son puramente visuales como preview de lo que vendrá.
+
+**Comportamiento esperado:** Cuando se agreguen endpoints de reportes, las cards deben conectarse a datos reales y expandirse con métricas, filtros de fecha y descargas CSV (ver referencia v0 en `diseno-de-landing-kermingo/components/admin/reports-screen.tsx`).
+
+**Cambios vs. versión anterior:**
+- De placeholder mínimo sin estructura a hero placeholder + 3 cards de preview con `AdminCard` e `IconBox`.
+- De `AdminShell` sin `subtitle` a `subtitle="Estadísticas del evento"`.
+- Se agregan íconos `TrendingUp`, `FileSpreadsheet`, `Clock` para las cards de preview.
+- Endpoints: ninguno (placeholder puro).

@@ -165,14 +165,14 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Comprobantes (integration) | `comprobantes.test.js` | Multipart upload, MIME/size validation, magic bytes rejection, comprobante access, payment transitions, Drive failure, preflight store closed |
 | Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup |
 | Cocina (integration) | `cocina.test.js` | Endpoints HTTP de cocina con DB real |
-| Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller |
-| Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model |
+| Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller (mocks del modelo): forward, backward, direct ready, delivered rollback invalid |
+| Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model: `transicionEstadoValida` (forward, backward, direct ready, delivered rollback, same-state) |
 | Configuración (integration) | `configuracion.test.js` | Integration tests con DB real |
 | Configuración (controller) | `configuracion.controller.test.js` | Controller unit tests |
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
 | Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 12 suites, **187 tests** | Contar con `npm test` para verificación exacta |
+| **Total** | 13 suites, **225 tests** | Contar con `npm test` para verificación exacta |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 
@@ -203,20 +203,29 @@ Se espera ~18 tests reales de Drive cuando las credenciales OAuth están configu
 
 El frontend usa **Vitest + React Testing Library** para tests de componentes y hooks:
 
-| Test | Archivo | Qué cubre |
-|------|---------|-----------|
-| TicketScreen QR | `frontend/test/ticket-screen.test.tsx` | QR codifica URL correcta, no expone datos privados, tamaño 168px |
-| TrackingScreen token | `frontend/test/tracking-screen-token.test.tsx` | Auto-fetch por `?token=`, missing token muestra form, URL token sobreescribe localStorage |
-| useLocalStorageState | `frontend/test/use-local-storage.test.ts` | Estabilidad referencial, cache invalidation, evita React #185 |
+| Test | Archivo | Tests | Qué cubre |
+|------|---------|-------|-----------|
+| AdminSession | `frontend/test/admin-session.test.ts` | 13 | Login/logout/me usan credentials include, 401 limpia sesión, refresh restaura usuario |
+| AdminHeader | `frontend/test/admin-header.test.tsx` | 14 | Header usa `useAdminSession`, muestra usuario/logout, maneja loading/error |
+| Admin API | `frontend/test/admin.test.ts` | 36 | ConfigScreen endpoints correctos, ComprobantesScreen metadata/url_publica, sesión vencida |
+| Mappers | `frontend/test/mappers.test.ts` | 27 | Traducción ApiProducto/ApiPedido a tipos UI, normalización teléfono |
+| TicketScreen QR | `frontend/test/ticket-screen.test.tsx` | 6 | QR codifica URL correcta, no expone datos privados, tamaño 168px |
+| TrackingScreen token | `frontend/test/tracking-screen-token.test.tsx` | 6 | Auto-fetch por `?token=`, missing token muestra form, URL token sobreescribe localStorage |
+| useLocalStorageState | `frontend/test/use-local-storage.test.ts` | 10 | Estabilidad referencial, cache invalidation, evita React #185 |
+| useApiResource | `frontend/test/use-api-resource.test.ts` | 7 | Estabilidad de fetcher, refetch manual, evita loop infinito |
+| Cocina actions | `frontend/test/cocina-actions.test.ts` | 7 | Acciones ágiles por estado: recibido→preparacion|listo, preparacion→recibido|listo, listo→preparacion|entregado, terminal sin acciones |
 
 **Comandos:**
 ```bash
 cd frontend
-pnpm test        # Todos los tests
+pnpm test        # Todos los tests (actualmente 10 files / 132 tests, 225 backend)
 pnpm test -- --coverage  # Con cobertura
 ```
 
 ### Lo que NO se testea (todavía)
+
+- **Layout visual / diseño pixel-perfect**: Los tests de frontend (Vitest + RTL) verifican comportamiento, estado y renderizado lógico, pero **no verifican CSS, espaciado, colores, tipografía, ni distribución visual**. Después de cambios de UI, se requiere verificación manual en browser (desktop y mobile) contra la referencia v0 en `diseno-de-landing-kermingo/`.
+- **Flujo admin completo end-to-end**: No hay tests E2E (Playwright) implementados. El login, navegación entre secciones admin, caja sale, revisión de comprobantes, y flujo completo de pedidos se verifican manualmente.
 
 ### Testing de Drive service
 

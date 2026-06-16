@@ -117,9 +117,21 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 |---|---|---|---|
 | `GET` | `/admin/cocina/pedidos` | `cocina.listarCocina` | Pedidos operativos (excluye `cancelado` y `entregado`). Orden: `recibido → en_preparacion → listo`, luego antigüedad |
 | `GET` | `/admin/cocina/pedidos/:id` | `cocina.obtenerCocina` | Detalle de un pedido para cocina |
-| `PATCH` | `/admin/cocina/pedidos/:id/estado` | `cocina.cambiarEstadoCocina` | Avanzar estado vía cocina. Valida transición |
+| `PATCH` | `/admin/cocina/pedidos/:id/estado` | `cocina.cambiarEstadoCocina` | Cambiar estado vía cocina. Valida transición |
 
 **Schema:** `updateEstadoPedidoCocinaSchema`: `{ estado_pedido }` enum `recibido|en_preparacion|listo|entregado`
+
+**Transiciones válidas (Cocina):**
+
+| Estado actual | Puede pasar a | Caso de uso |
+|---|---|---|
+| `recibido` | `en_preparacion` | Empezar a preparar |
+| `recibido` | `listo` | Producto ya listo (ej: medialunas, bebidas) |
+| `en_preparacion` | `recibido` | Retroceso: se marcó por error |
+| `en_preparacion` | `listo` | Terminó la preparación |
+| `listo` | `en_preparacion` | Retroceso: se marcó listo por error |
+| `listo` | `entregado` | Confirmar entrega (con confirmación en frontend) |
+| `entregado` | *(ninguna)* | Estado terminal |
 
 ---
 

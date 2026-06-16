@@ -45,9 +45,10 @@ export async function assertStoreOpen(pool) {
 }
 
 export const TRANSICIONES_VALIDAS = {
-  recibido: ['en_preparacion'],
-  en_preparacion: ['listo'],
-  listo: ['entregado'],
+  recibido: ['en_preparacion', 'listo'],
+  en_preparacion: ['recibido', 'listo'],
+  listo: ['en_preparacion', 'entregado'],
+  entregado: [],
 };
 
 export function transicionEstadoValida(actual, siguiente) {

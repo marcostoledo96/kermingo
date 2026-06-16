@@ -17,6 +17,20 @@ coverage/
 # QA captures and screenshots
 captures/
 
+# Playwright MCP generated artifacts (browser automation logs)
+.playwright-mcp/
+
+# Ad-hoc screenshots at repo root (debug artifacts, not source)
+/*.png
+
+# Backend uses npm, not pnpm — prevent accidental lock file
+backend/pnpm-lock.yaml
+
+# Visual reference folder (v0 prototype, local-only, NOT versioned)
+# This folder exists locally for reference but was intentionally removed from git.
+# See AGENTS.md §0 and §5 for usage rules. Do NOT track in version control.
+diseno-de-landing-kermingo/
+
 # Archives and secrets
 *.zip
 *.pem

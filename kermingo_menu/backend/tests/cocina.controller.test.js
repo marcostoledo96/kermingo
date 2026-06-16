@@ -133,6 +133,74 @@ describe('Cocina admin workflow (con mocks del modelo)', () => {
     expect(res.body.data.estado_pedido).toEqual('en_preparacion');
   });
 
+  it('PATCH /:id/estado backward en_preparacion→recibido → 200 (agile)', async () => {
+    const pedidoMock = { id: 1, estado_pedido: 'en_preparacion' };
+    const pedidoActualizado = { id: 1, estado_pedido: 'recibido' };
+    findByIdMock
+      .mockResolvedValueOnce(pedidoMock)
+      .mockResolvedValueOnce(pedidoActualizado);
+    transicionEstadoValidaMock.mockReturnValue(true);
+    updateEstadoPedidoMock.mockResolvedValue(1);
+
+    const res = await request(app)
+      .patch('/api/admin/cocina/pedidos/1/estado')
+      .send({ estado_pedido: 'recibido' });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.ok).toEqual(true);
+    expect(res.body.data.estado_pedido).toEqual('recibido');
+  });
+
+  it('PATCH /:id/estado backward listo→en_preparacion → 200 (agile)', async () => {
+    const pedidoMock = { id: 1, estado_pedido: 'listo' };
+    const pedidoActualizado = { id: 1, estado_pedido: 'en_preparacion' };
+    findByIdMock
+      .mockResolvedValueOnce(pedidoMock)
+      .mockResolvedValueOnce(pedidoActualizado);
+    transicionEstadoValidaMock.mockReturnValue(true);
+    updateEstadoPedidoMock.mockResolvedValue(1);
+
+    const res = await request(app)
+      .patch('/api/admin/cocina/pedidos/1/estado')
+      .send({ estado_pedido: 'en_preparacion' });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.ok).toEqual(true);
+    expect(res.body.data.estado_pedido).toEqual('en_preparacion');
+  });
+
+  it('PATCH /:id/estado direct recibido→listo → 200 (agile)', async () => {
+    const pedidoMock = { id: 1, estado_pedido: 'recibido' };
+    const pedidoActualizado = { id: 1, estado_pedido: 'listo' };
+    findByIdMock
+      .mockResolvedValueOnce(pedidoMock)
+      .mockResolvedValueOnce(pedidoActualizado);
+    transicionEstadoValidaMock.mockReturnValue(true);
+    updateEstadoPedidoMock.mockResolvedValue(1);
+
+    const res = await request(app)
+      .patch('/api/admin/cocina/pedidos/1/estado')
+      .send({ estado_pedido: 'listo' });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.ok).toEqual(true);
+    expect(res.body.data.estado_pedido).toEqual('listo');
+  });
+
+  it('PATCH /:id/estado entregado→listo → 400 (delivered is terminal)', async () => {
+    const pedidoMock = { id: 1, estado_pedido: 'entregado' };
+    findByIdMock.mockResolvedValue(pedidoMock);
+    transicionEstadoValidaMock.mockReturnValue(false);
+
+    const res = await request(app)
+      .patch('/api/admin/cocina/pedidos/1/estado')
+      .send({ estado_pedido: 'listo' });
+
+    expect(res.statusCode).toEqual(400);
+    expect(res.body.ok).toEqual(false);
+    expect(res.body.error).toMatch(/no válida/i);
+  });
+
   it('PATCH /:id/estado salto inválido → 400 con mensaje unificado', async () => {
     const pedidoMock = { id: 1, estado_pedido: 'listo' };
     findByIdMock.mockResolvedValue(pedidoMock);

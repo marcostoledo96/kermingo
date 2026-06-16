@@ -12,33 +12,76 @@ import {
   RotateCcw,
   X,
   Loader2,
+  AlertCircle,
+  Hash,
+  Clock,
+  FilterX,
+  ArrowRightLeft,
+  Banknote,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { AdminShell } from './admin-shell'
-import { Badge, SectionTitle } from './admin-ui'
+import { EstadoBadge } from './admin-ui'
+import type { EstadoVisual } from './admin-ui'
 import { useAdminSession } from './admin-session'
 import { apiGet, apiPatch, ApiError } from '@/lib/api'
 import type { ApiPedidoListItem, ApiPedido } from '@/lib/types'
 
-const STATUS_META: Record<string, { label: string; tone: 'warning' | 'success' | 'danger' | 'neutral' }> = {
-  comprobante_subido: { label: 'Comprobante subido', tone: 'warning' },
-  pendiente: { label: 'Pendiente', tone: 'neutral' },
-  pagado: { label: 'Pagado', tone: 'success' },
-  rechazado: { label: 'Rechazado', tone: 'danger' },
+/* ---------------------------------------------------------------------------
+ * Comprobantes Screen — v0-aligned visual revision
+ * -------------------------------------------------------------------------
+ * Goals:
+ *   1. Use EstadoBadge for all status displays (replaces Badge tone mapping).
+ *   2. AdminCard containers, rounded-full chips, v0 palette (hex, not vars).
+ *   3. Dark blue modal header, rounded panels, action buttons with tokens.
+ *   4. Centered empty/loading/error states with icons.
+ *   5. Preserve all real API: fetch, filter, search, approve/reject, metadata/url_publica.
+ *   6. Use km-panel, km-focus, km-tabular where appropriate.
+ * ------------------------------------------------------------------------- */
+
+/* ---- Payment status → EstadoBadge mapping ---- */
+
+const PAYMENT_ESTADO_MAP: Record<string, EstadoVisual> = {
+  comprobante_subido: 'preparando',
+  pendiente: 'pendiente',
+  pagado: 'listo',
+  rechazado: 'cancelado',
 }
+
+const PAYMENT_LABEL_MAP: Record<string, string> = {
+  comprobante_subido: 'Comprobante subido',
+  pendiente: 'Pendiente',
+  pagado: 'Pagado',
+  rechazado: 'Rechazado',
+}
+
+/* ---- Filter type ---- */
+
+type ComprobanteFilter = 'comprobante_subido' | 'rechazado' | 'all'
+
+const FILTER_OPTIONS: { key: ComprobanteFilter; label: string }[] = [
+  { key: 'comprobante_subido', label: 'Pendientes' },
+  { key: 'rechazado', label: 'Rechazados' },
+  { key: 'all', label: 'Todos' },
+]
+
+/* ====================================================================== */
+/* Main component                                                          */
+/* ====================================================================== */
 
 export function ComprobantesScreen() {
   const { expireSession } = useAdminSession()
   const [orders, setOrders] = useState<ApiPedidoListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'comprobante_subido' | 'rechazado' | 'all'>('comprobante_subido')
+  const [filter, setFilter] = useState<ComprobanteFilter>('comprobante_subido')
   const [search, setSearch] = useState('')
   const [acting, setActing] = useState<number | null>(null)
   const [detail, setDetail] = useState<ApiPedido | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null)
   const [comprobanteError, setComprobanteError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const loadOrders = useCallback(async () => {
     setLoading(true)
@@ -47,9 +90,6 @@ export function ComprobantesScreen() {
       const params: Record<string, string | number | undefined> = {
         solo_pagos_pendientes: filter === 'all' ? undefined : 'true',
         limit: 100,
-      }
-      if (filter !== 'all') {
-        // We'll filter client-side for status
       }
       const data = await apiGet<{ pedidos: ApiPedidoListItem[]; paginacion: { total: number } }>('/api/admin/pedidos', params)
       setOrders(data.pedidos)
@@ -86,14 +126,25 @@ export function ComprobantesScreen() {
     return list
   }, [orders, filter, search])
 
+  const hasFilters = search !== '' || filter !== 'comprobante_subido'
+
+  function clearFilters() {
+    setSearch('')
+    setFilter('comprobante_subido')
+  }
+
+  /* ---- Actions ---- */
+
   const markPaid = async (id: number) => {
     setActing(id)
+    setActionError(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'pagado' })
       setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, estado_pago: 'pagado' } : o)))
       if (detail?.id === id) setDetail({ ...detail, estado_pago: 'pagado' })
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo marcar como pagado')
     } finally {
       setActing(null)
     }
@@ -101,12 +152,14 @@ export function ComprobantesScreen() {
 
   const markRejected = async (id: number) => {
     setActing(id)
+    setActionError(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'rechazado' })
       setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, estado_pago: 'rechazado' } : o)))
       if (detail?.id === id) setDetail({ ...detail, estado_pago: 'rechazado' })
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo rechazar')
     } finally {
       setActing(null)
     }
@@ -117,10 +170,10 @@ export function ComprobantesScreen() {
     setDetail(null)
     setComprobanteUrl(null)
     setComprobanteError(null)
+    setActionError(null)
     try {
       const pedido = await apiGet<ApiPedido>(`/api/admin/pedidos/${id}`)
       setDetail(pedido)
-      // If the pedido has a comprobante, fetch its metadata to get the Drive URL
       if (pedido.comprobante_archivo_id) {
         try {
           type ComprobanteMeta = { url_publica: string | null; nombre_original: string; mime_type: string }
@@ -136,204 +189,483 @@ export function ComprobantesScreen() {
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle')
     } finally {
       setDetailLoading(false)
     }
   }
 
-  const statusBadge = (status: string) => {
-    const meta = STATUS_META[status] || { label: status, tone: 'neutral' as const }
-    const toneMap: Record<string, string> = {
-      warning: 'preparando',
-      success: 'listo',
-      danger: 'peligro',
-      neutral: 'neutral',
-    }
-    return <Badge tone={(toneMap[meta.tone] || 'neutral') as any} dot>{meta.label}</Badge>
-  }
+  /* ---- Render ---- */
 
   return (
     <AdminShell section="Comprobantes" subtitle="Revisión de transferencias">
-      <SectionTitle>Filtrar por estado</SectionTitle>
-      <div className="mb-4 flex flex-wrap gap-2">
-        {([
-          ['comprobante_subido', 'Pendientes'],
-          ['rechazado', 'Rechazados'],
-          ['all', 'Todos'],
-        ] as const).map(([key, label]) => (
+      {/* Error banner */}
+      {actionError && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-4 py-3 text-sm text-[var(--km-peligro-text)]">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+          <span className="flex-1 font-medium">{actionError}</span>
           <button
-            key={key}
-            onClick={() => setFilter(key as any)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              filter === key
-                ? 'border-[var(--km-azul)] bg-[var(--km-azul)] text-white'
-                : 'border-[var(--km-linea)] bg-white text-[var(--km-azul)] hover:bg-[var(--km-fondo)]'
-            }`}
+            onClick={() => setActionError(null)}
+            className="rounded-lg border border-[var(--km-peligro-bg)] bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
           >
-            {label}
+            Cerrar
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
-      <div className="mb-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--km-tinta-suave)]" strokeWidth={2} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre o número…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="kermingo-input pl-10"
-          />
+      {/* Filters panel */}
+      <div className="km-panel overflow-hidden">
+        {/* Search bar */}
+        <div className="border-b border-[#75AADB]/12 px-4 py-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#75AADB]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por número o cliente…"
+              aria-label="Buscar comprobantes"
+              className="w-full rounded-xl border border-[#75AADB]/25 bg-[#EEF5FF]/30 py-2.5 pl-10 pr-3 text-sm font-medium text-[#003B73] placeholder:text-[#75AADB]/70 focus:border-[#003B73] focus:bg-white focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Filter chips */}
+        <div className="flex items-center gap-1.5 border-b border-[#75AADB]/12 px-4 py-2">
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setFilter(opt.key)}
+              className={`km-focus rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                filter === opt.key
+                  ? 'border-[#003B73] bg-[#003B73] text-white'
+                  : 'border-[#75AADB]/25 bg-white text-[#003B73] hover:border-[#75AADB]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+
+          <div className="flex-1" />
+
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 rounded-full border border-[var(--km-peligro-bg)] bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-peligro-text)] transition-colors hover:bg-[var(--km-peligro-bg)]"
+            >
+              <FilterX className="h-3 w-3" strokeWidth={2.4} />
+              <span className="hidden sm:inline">Limpiar</span>
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Loading state */}
       {loading ? (
-        <div className="flex flex-col items-center gap-3 py-16 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[var(--km-celeste)]" />
+        <div className="km-panel flex flex-col items-center gap-3 px-6 py-14 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#75AADB]" strokeWidth={2.2} />
           <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Cargando comprobantes…</p>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center gap-3 py-16 text-center">
-          <p className="text-sm font-medium text-[var(--km-peligro-text)]">{error}</p>
-          <button onClick={loadOrders} className="text-xs font-bold text-[var(--km-azul)] underline">
+        <div className="km-panel flex flex-col items-center gap-3 px-6 py-14 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+            <AlertCircle className="h-7 w-7" strokeWidth={1.8} />
+          </div>
+          <p className="font-bold text-[#003B73]">Error al cargar</p>
+          <p className="text-sm text-[var(--km-tinta-suave)]">{error}</p>
+          <button
+            onClick={() => loadOrders()}
+            className="mt-1 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60"
+          >
             Reintentar
           </button>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-16 text-center">
-          <Inbox className="h-10 w-10 text-[var(--km-celeste)]" strokeWidth={1.6} />
-          <p className="text-sm font-medium text-[var(--km-tinta-suave)]">No hay comprobantes para revisar.</p>
-        </div>
+        <ComprobanteEmptyState hasFilters={hasFilters} onClearFilters={clearFilters} filter={filter} />
       ) : (
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {filtered.map((order) => (
-            <div key={order.id} className="km-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-[var(--km-azul)]">{order.numero}</span>
-                  {statusBadge(order.estado_pago)}
-                </div>
-                <p className="truncate text-sm font-semibold text-[var(--km-azul)]">{order.nombre_cliente}</p>
-                <p className="text-xs text-[var(--km-tinta-suave)]">
-                  {order.created_at ? new Date(order.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-[var(--km-azul)] km-tabular">{formatPrice(Number(order.total))}</span>
-                <button
-                  onClick={() => openDetail(order.id)}
-                  className="flex items-center gap-1 rounded-lg border border-[var(--km-linea)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
-                >
-                  <Eye className="h-3.5 w-3.5" strokeWidth={2} />
-                  Ver
-                </button>
-                {order.estado_pago === 'comprobante_subido' && (
-                  <>
-                    <button
-                      onClick={() => markPaid(order.id)}
-                      disabled={acting === order.id}
-                      className="flex items-center gap-1 rounded-lg bg-[var(--km-listo-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-listo-text)] transition-colors hover:brightness-110 disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
-                      Aprobar
-                    </button>
-                    <button
-                      onClick={() => markRejected(order.id)}
-                      disabled={acting === order.id}
-                      className="flex items-center gap-1 rounded-lg bg-[var(--km-peligro-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-peligro-text)] transition-colors hover:brightness-110 disabled:opacity-50"
-                    >
-                      <XCircle className="h-3.5 w-3.5" strokeWidth={2} />
-                      Rechazar
-                    </button>
-                  </>
-                )}
-                {order.estado_pago === 'rechazado' && (
-                  <button
-                    onClick={() => markPaid(order.id)}
-                    disabled={acting === order.id}
-                    className="flex items-center gap-1 rounded-lg bg-[var(--km-listo-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-listo-text)] transition-colors hover:brightness-110 disabled:opacity-50"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
-                    Reaprobar
-                  </button>
-                )}
-              </div>
-            </div>
+            <ComprobanteCard
+              key={order.id}
+              order={order}
+              acting={acting === order.id}
+              onView={() => openDetail(order.id)}
+              onApprove={() => markPaid(order.id)}
+              onReject={() => markRejected(order.id)}
+              onReapprove={order.estado_pago === 'rechazado' ? () => markPaid(order.id) : undefined}
+            />
           ))}
         </div>
       )}
 
       {/* Detail modal */}
       {(detail || detailLoading) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#003B73]/50 backdrop-blur-sm" onClick={() => { setDetail(null); setDetailLoading(false); setComprobanteUrl(null); setComprobanteError(null); }}>
-          <div className="mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            {detailLoading ? (
-              <div className="flex flex-col items-center gap-3 py-10 text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-[var(--km-celeste)]" />
-                <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Cargando detalle…</p>
-              </div>
-            ) : detail ? (
-              <>
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-extrabold text-[var(--km-azul)]">
-                    {detail.numero} — {detail.nombre_cliente}
-                  </h3>
-                  <button onClick={() => setDetail(null)} className="text-[var(--km-tinta-suave)] hover:text-[var(--km-azul)]">
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[var(--km-tinta-suave)]">Total</span>
-                    <span className="font-bold text-[var(--km-azul)]">{formatPrice(Number(detail.total))}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[var(--km-tinta-suave)]">Estado de pago</span>
-                    {statusBadge(detail.estado_pago)}
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-[var(--km-tinta-suave)]">Estado del pedido</span>
-                    <span className="font-medium">{detail.estado_pedido}</span>
-                  </div>
-                  {detail.comprobante_archivo_id && (
-                    <div className="space-y-1">
-                      {comprobanteUrl ? (
-                        <a
-                          href={comprobanteUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 rounded-lg bg-[var(--km-fondo)] px-3 py-2 text-sm font-semibold text-[var(--km-azul)] transition-colors hover:bg-[var(--km-celeste)]/25"
-                        >
-                          <FileText className="h-4 w-4" strokeWidth={2} />
-                          Abrir en Drive
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : comprobanteError ? (
-                        <p className="text-xs text-[var(--km-peligro-text)]">{comprobanteError}</p>
-                      ) : (
-                        <p className="flex items-center gap-1.5 text-xs text-[var(--km-tinta-suave)]">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Cargando comprobante…
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <div className="border-t border-[var(--km-linea)] pt-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--km-tinta-suave)]">Items</p>
-                    {detail.items?.map((item, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span>{item.nombre_producto} × {item.cantidad}</span>
-                        <span className="font-medium">{formatPrice(Number(item.subtotal))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
+        <ComprobanteDetailModal
+          order={detail}
+          loading={detailLoading}
+          comprobanteUrl={comprobanteUrl}
+          comprobanteError={comprobanteError}
+          acting={acting === detail?.id}
+          onClose={() => { setDetail(null); setDetailLoading(false); setComprobanteUrl(null); setComprobanteError(null) }}
+          onApprove={() => detail && markPaid(detail.id)}
+          onReject={() => detail && markRejected(detail.id)}
+        />
       )}
     </AdminShell>
+  )
+}
+
+/* ====================================================================== */
+/* Subcomponents                                                          */
+/* ====================================================================== */
+
+/* ---- Comprobante card ---- */
+
+function ComprobanteCard({
+  order,
+  acting,
+  onView,
+  onApprove,
+  onReject,
+  onReapprove,
+}: {
+  order: ApiPedidoListItem
+  acting: boolean
+  onView: () => void
+  onApprove: () => void
+  onReject: () => void
+  onReapprove?: () => void
+}) {
+  const estado = PAYMENT_ESTADO_MAP[order.estado_pago] || 'pendiente'
+  const label = PAYMENT_LABEL_MAP[order.estado_pago] || order.estado_pago
+  const isComprobanteSubido = order.estado_pago === 'comprobante_subido'
+  const isRechazado = order.estado_pago === 'rechazado'
+
+  return (
+    <div className="km-panel overflow-hidden p-4">
+      {/* Top row: code + badge */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1 km-tabular text-lg font-extrabold leading-none text-[#003B73]">
+            <Hash className="h-4 w-4 text-[#75AADB]" strokeWidth={2.6} />
+            {order.numero?.replace('KMG-', '') || '—'}
+          </div>
+          <p className="mt-1 truncate font-bold text-[#003B73]">{order.nombre_cliente}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--km-tinta-suave)]">
+            <span className="flex items-center gap-1 km-tabular">
+              <Clock className="h-3 w-3" strokeWidth={2.4} />
+              {order.created_at ? new Date(order.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+            </span>
+          </div>
+        </div>
+        <EstadoBadge estado={estado} dot>
+          {label}
+        </EstadoBadge>
+      </div>
+
+      {/* Total + method */}
+      <div className="mt-3 flex items-center justify-between border-t border-[#75AADB]/8 pt-3">
+        <span className="flex items-center gap-1 text-xs font-medium text-[var(--km-tinta-suave)]">
+          {order.metodo_pago === 'efectivo' ? (
+            <Banknote className="h-3.5 w-3.5" strokeWidth={2.2} />
+          ) : (
+            <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={2.2} />
+          )}
+          Transferencia
+        </span>
+        <span className="km-tabular text-lg font-extrabold text-[#003B73]">
+          {formatPrice(Number(order.total))}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#75AADB]/8 pt-3">
+        <button
+          onClick={onView}
+          className="km-focus flex items-center gap-1 rounded-lg border border-[#75AADB]/25 bg-white px-2.5 py-2 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+        >
+          <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
+          Ver
+        </button>
+        {isComprobanteSubido && (
+          <>
+            <button
+              onClick={onApprove}
+              disabled={acting}
+              className="km-focus flex items-center gap-1 rounded-lg border border-[var(--km-listo-bg)] bg-[var(--km-listo-bg)] px-2.5 py-2 text-xs font-semibold text-[var(--km-listo-text)] transition-colors hover:bg-[var(--km-listo-bg)]/80 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+              Aprobar
+            </button>
+            <button
+              onClick={onReject}
+              disabled={acting}
+              className="km-focus flex items-center gap-1 rounded-lg border border-[var(--km-peligro-bg)] bg-white px-2.5 py-2 text-xs font-semibold text-[var(--km-peligro-text)] transition-colors hover:bg-[var(--km-peligro-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <XCircle className="h-3.5 w-3.5" strokeWidth={2.2} />
+              Rechazar
+            </button>
+          </>
+        )}
+        {isRechazado && onReapprove && (
+          <button
+            onClick={onReapprove}
+            disabled={acting}
+            className="km-focus flex items-center gap-1 rounded-lg border border-[var(--km-listo-bg)] bg-[var(--km-listo-bg)] px-2.5 py-2 text-xs font-semibold text-[var(--km-listo-text)] transition-colors hover:bg-[var(--km-listo-bg)]/80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" strokeWidth={2.2} />
+            Reaprobar
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ---- Comprobante empty state ---- */
+
+function ComprobanteEmptyState({
+  hasFilters,
+  onClearFilters,
+  filter,
+}: {
+  hasFilters: boolean
+  onClearFilters: () => void
+  filter: ComprobanteFilter
+}) {
+  const label = FILTER_OPTIONS.find((f) => f.key === filter)?.label || ''
+  return (
+    <div className="km-panel flex flex-col items-center gap-3 px-6 py-14 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#75AADB]">
+        <Inbox className="h-7 w-7" strokeWidth={1.6} />
+      </div>
+      <p className="font-bold text-[#003B73]">
+        {hasFilters ? 'No hay comprobantes con esos filtros' : `No hay comprobantes ${label.toLowerCase()}`}
+      </p>
+      <p className="text-sm text-[var(--km-tinta-suave)]">
+        {hasFilters
+          ? 'Probá ajustar la búsqueda o los filtros.'
+          : 'Cuando lleguen comprobantes de transferencia, los vas a ver acá.'}
+      </p>
+      {hasFilters && (
+        <button
+          onClick={onClearFilters}
+          className="mt-1 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60"
+        >
+          Limpiar filtros
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ---- Comprobante detail modal ---- */
+
+function ComprobanteDetailModal({
+  order,
+  loading,
+  comprobanteUrl,
+  comprobanteError,
+  acting,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  order: ApiPedido | null
+  loading: boolean
+  comprobanteUrl: string | null
+  comprobanteError: string | null
+  acting: boolean
+  onClose: () => void
+  onApprove: () => void
+  onReject: () => void
+}) {
+  if (!order && !loading) return null
+
+  const estado = order ? (PAYMENT_ESTADO_MAP[order.estado_pago] || 'pendiente') : 'pendiente'
+  const label = order ? (PAYMENT_LABEL_MAP[order.estado_pago] || order.estado_pago) : ''
+  const isComprobanteSubido = order?.estado_pago === 'comprobante_subido'
+  const isRechazado = order?.estado_pago === 'rechazado'
+  const isPagado = order?.estado_pago === 'pagado'
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+      <button
+        aria-label="Cerrar"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#003B73]/40 backdrop-blur-sm"
+      />
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+        {/* Header — v0 dark blue */}
+        <div className="border-b border-[#75AADB]/12 bg-[#003B73] px-5 py-4 pr-14 text-white">
+          {loading ? (
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-[#F6B21A]" strokeWidth={2.4} />
+              <span className="text-sm font-medium text-white/70">Cargando detalle…</span>
+            </div>
+          ) : order ? (
+            <>
+              <div className="flex items-center gap-1.5 km-tabular text-2xl font-extrabold leading-none">
+                <Hash className="h-5 w-5 text-[#F6B21A]" strokeWidth={2.6} />
+                {order.numero?.replace('KMG-', '') || '—'}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-white/90">{order.nombre_cliente}</span>
+                <EstadoBadge estado={estado} dot>
+                  {label}
+                </EstadoBadge>
+                <span className="km-tabular text-sm font-extrabold text-[#F6B21A]">
+                  {formatPrice(Number(order.total))}
+                </span>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <button
+          onClick={onClose}
+          aria-label="Cerrar"
+          className="absolute right-4 top-4 rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        {/* Body */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {/* Error in detail */}
+          {comprobanteError && (
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3 py-2 text-xs font-medium text-[var(--km-peligro-text)]">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
+              {comprobanteError}
+            </div>
+          )}
+
+          {/* Customer info */}
+          {order && (
+            <section>
+              <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-[#003B73]/50">
+                Datos del pedido
+              </h3>
+              <div className="space-y-1.5 rounded-xl bg-[#EEF5FF]/60 p-3.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--km-tinta-suave)]">Estado de pago</span>
+                  <EstadoBadge estado={estado} dot>
+                    {label}
+                  </EstadoBadge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--km-tinta-suave)]">Estado del pedido</span>
+                  <span className="font-medium text-[#003B73]">{order.estado_pedido}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--km-tinta-suave)]">Total</span>
+                  <span className="km-tabular font-bold text-[#003B73]">
+                    {formatPrice(Number(order.total))}
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Comprobante link */}
+          {order?.comprobante_archivo_id && (
+            <section>
+              <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-[#003B73]/50">
+                Comprobante
+              </h3>
+              {comprobanteUrl ? (
+                <a
+                  href={comprobanteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-xl border border-[#75AADB]/20 bg-white p-3 text-left transition-colors hover:bg-[#EEF5FF]/60"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
+                    <FileText className="h-5 w-5" strokeWidth={2} />
+                  </span>
+                  <span className="flex-1">
+                    <span className="block text-sm font-bold text-[#003B73]">
+                      Abrir en Drive
+                    </span>
+                    <span className="block text-xs text-[var(--km-tinta-suave)]">
+                      Ver comprobante de transferencia
+                    </span>
+                  </span>
+                  <ExternalLink className="h-4 w-4 text-[var(--km-tinta-suave)]" strokeWidth={2.2} />
+                </a>
+              ) : !comprobanteError ? (
+                <div className="flex items-center gap-2 rounded-xl border border-[#75AADB]/15 bg-[#EEF5FF]/40 px-4 py-3 text-xs font-medium text-[var(--km-tinta-suave)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.2} />
+                  Cargando comprobante…
+                </div>
+              ) : null}
+            </section>
+          )}
+
+          {/* Items */}
+          {order?.items && order.items.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-[#003B73]/50">
+                Items
+              </h3>
+              <ul className="divide-y divide-[#75AADB]/8 overflow-hidden rounded-xl border border-[#75AADB]/15">
+                {order.items.map((item, i) => (
+                  <li key={i} className="flex items-center justify-between px-3.5 py-2.5">
+                    <span className="text-sm font-semibold text-[#003B73]">
+                      {item.nombre_producto} × {item.cantidad}
+                    </span>
+                    <span className="km-tabular text-sm font-bold text-[var(--km-tinta)]">
+                      {formatPrice(Number(item.subtotal))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+
+        {/* Action footer */}
+        {order && (
+          <div className="space-y-2 border-t border-[#75AADB]/12 bg-[#EEF5FF]/40 p-4">
+            {isComprobanteSubido && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={onReject}
+                  disabled={acting}
+                  className="km-focus flex items-center justify-center gap-1.5 rounded-lg border border-[var(--km-peligro-bg)] bg-white px-3 py-2.5 text-xs font-semibold text-[var(--km-peligro-text)] transition-colors hover:bg-[var(--km-peligro-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <XCircle className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Rechazar
+                </button>
+                <button
+                  onClick={onApprove}
+                  disabled={acting}
+                  className="km-focus flex items-center justify-center gap-1.5 rounded-lg bg-[#F6B21A] px-3 py-2.5 text-xs font-extrabold text-[#003B73] shadow-sm transition-colors hover:bg-[#ffbe2e] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Aprobar pago
+                </button>
+              </div>
+            )}
+            {isRechazado && (
+              <button
+                onClick={onApprove}
+                disabled={acting}
+                className="km-focus flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--km-listo-bg)] bg-[var(--km-listo-bg)] px-3 py-2.5 text-xs font-semibold text-[var(--km-listo-text)] transition-colors hover:bg-[var(--km-listo-bg)]/80 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Reaprobar pago
+              </button>
+            )}
+            {isPagado && (
+              <div className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--km-listo-bg)] px-4 py-3 text-sm font-semibold text-[var(--km-listo-text)]">
+                <CheckCircle2 className="h-4 w-4" strokeWidth={2.2} />
+                Pago aprobado
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

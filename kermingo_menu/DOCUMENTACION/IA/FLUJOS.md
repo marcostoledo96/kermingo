@@ -142,14 +142,22 @@ El mensaje público se muestra en el frontend cuando la tienda está cerrada.
     │       Ordenados por prioridad (recibido primero).
     │
     ├── PATCH /api/admin/cocina/pedidos/:id/estado
-    │   ├── Body: { estado_pedido: 'en_preparacion'|'listo'|'entregado' }
-    │   ├── Valida transición: recibido → en_preparacion → listo → entregado
+    │   ├── Body: { estado_pedido: 'en_preparacion'|'listo'|'entregado'|'recibido' }
+    │   ├── Valida transición según TRANSICIONES_VALIDAS:
+    │   │   recibido → en_preparacion|listo
+    │   │   en_preparacion → recibido|listo
+    │   │   listo → en_preparacion|entregado
+    │   │   entregado → (ninguna, terminal)
     │   └── Si transición inválida → 400 (ValidationError)
     │
     └── Cockpit visual: cards con estado, nombre, items.
+        Acciones por estado:
+        - Recibido: "Empezar" (→ preparación) + "Listo directo" (→ listo)
+        - En preparación: "Volver a recibido" (→ recibido) + "Marcar listo" (→ listo)
+        - Listo: "Volver a preparación" (→ preparación) + "Entregado" (→ entregado, con confirmación)
 ```
 
-La cocina usa la misma state machine que el flujo de admin normal, pero con una vista optimizada.
+La cocina usa la misma state machine que el flujo de admin normal, pero con una vista optimizada y transiciones ágiles que permiten retroceder un paso para corregir errores o marcar productos como listos directamente.
 
 ---
 

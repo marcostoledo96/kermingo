@@ -6,6 +6,7 @@ import type { MealCategory, ProductIcon, ProductType } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
 import type { AdminProduct } from '@/lib/admin'
 import { apiDelete, apiPostForm, ApiError } from '@/lib/api'
+import { ABSOLUTE_IMAGE_URL } from '@/lib/config'
 import type { ApiProducto } from '@/lib/types'
 
 const ICON_OPTIONS: ProductIcon[] = [
@@ -125,8 +126,10 @@ export function ProductFormDialog({
       setUploadingImage(true)
       try {
         const updated = await uploadImage(form.id, file)
-        setForm((f) => ({ ...f, image: updated.imagen_url ?? undefined }))
-        setPreviewUrl(updated.imagen_url ?? objectUrl)
+        const absoluteUrl = ABSOLUTE_IMAGE_URL(updated.imagen_url)
+        setForm((f) => ({ ...f, image: absoluteUrl }))
+        // Keep object URL as fallback while the absolute URL loads
+        setPreviewUrl(absoluteUrl ?? objectUrl)
         setPendingFile(null)
       } catch (err) {
         setImageError(
@@ -153,8 +156,8 @@ export function ProductFormDialog({
     setImageError(null)
     try {
       const updated = await deleteImage(form.id)
-      setForm((f) => ({ ...f, image: undefined }))
-      setPreviewUrl(updated.imagen_url ?? null)
+      setForm((f) => ({ ...f, image: ABSOLUTE_IMAGE_URL(updated.imagen_url) }))
+      setPreviewUrl(ABSOLUTE_IMAGE_URL(updated.imagen_url) ?? null)
     } catch (err) {
       setImageError(
         err instanceof ApiError ? err.message : 'No se pudo quitar la imagen',

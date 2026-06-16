@@ -32,6 +32,8 @@ diseno-de-landing-kermingo/
 
 `diseno-de-landing-kermingo/` contiene el prototipo generado con v0. Se puede leer, comparar, tomar ideas y copiar patrones de diseño con cuidado, pero no se debe modificar. Todo desarrollo real del frontend debe hacerse en `frontend/`.
 
+> **Nota importante:** `diseno-de-landing-kermingo/` fue removida de git intencionalmente. Existe solo localmente como referencia visual. No se debe versionar ni depender de ella en CI/build. Está incluida en `.gitignore`. Si la carpeta no existe localmente, el proyecto no se rompe — el frontend ya está migrado a `frontend/`.
+
 ## 1. Contexto del proyecto
 
 Kermingo es un sistema web para un evento scout recaudatorio del campamento de verano.
@@ -50,7 +52,7 @@ kermingo_menu/
 ├── AGENTS.md
 ├── backend/                      # Express + MySQL + API REST + MVC
 ├── frontend/                     # Frontend activo Next.js + React + TypeScript + TailwindCSS
-├── diseno-de-landing-kermingo/   # Referencia visual v0 de solo lectura
+├── diseno-de-landing-kermingo/   # Referencia visual v0 (LOCAL, NO versionada en git)
 ├── docs/
 │   └── planificacion/
 ├── scripts/
@@ -61,11 +63,12 @@ kermingo_menu/
 Importante:
 
 - El frontend activo es `frontend/`.
-- La referencia visual es `diseno-de-landing-kermingo/`.
+- La referencia visual es `diseno-de-landing-kermingo/` (local, no versionada en git, en `.gitignore`).
 - Para Vercel, el **Root Directory** debe ser `frontend`.
 - El backend está en `backend/`.
 - La documentación está en `docs/planificacion/`.
 - No implementar EJS. El profesor autorizó React/Next.js para reemplazar el frontend.
+- CI/build no depende de `diseno-de-landing-kermingo/`.
 
 ## 3. Stack backend obligatorio
 
@@ -101,11 +104,13 @@ Importante:
 
 ## 5. Fuente visual obligatoria
 
-Antes de tocar frontend, inspeccionar esta carpeta:
+Antes de tocar frontend, inspeccionar esta carpeta (si existe localmente):
 
 ```txt
 /home/marcos/Escritorio/Kermingo/kermingo_menu/diseno-de-landing-kermingo
 ```
+
+> **Nota:** Esta carpeta es local y no versionada en git (está en `.gitignore`). Si no existe localmente, el frontend ya está migrado a `frontend/` y no se rompe nada. No depender de ella para CI/build.
 
 Archivos visuales de referencia:
 
@@ -131,7 +136,7 @@ diseno-de-landing-kermingo/components/menu/
 
 Reglas:
 
-- No modificar `diseno-de-landing-kermingo/`.
+- No modificar `diseno-de-landing-kermingo/` (local, no versionada).
 - No rediseñar desde cero.
 - No convertir la home en dashboard.
 - No cambiar el ADN visual sin pedido explícito.

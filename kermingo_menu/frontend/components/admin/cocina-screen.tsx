@@ -22,6 +22,7 @@ import {
 import { AdminShell } from './admin-shell'
 import { EstadoBadge, SectionTitle } from './admin-ui'
 import type { EstadoVisual } from './admin-ui'
+import { ProductIconGlyph } from '@/components/menu/product-visual'
 import { apiGet, apiPatch, ApiError } from '@/lib/api'
 import { useApiResource } from '@/lib/use-api-resource'
 import {
@@ -35,6 +36,7 @@ import type {
   ApiCocinaPedido,
   ApiPedido,
 } from '@/lib/types'
+import { getActions } from '@/lib/cocina-actions'
 
 /* ---------------------------------------------------------------------------
  * Estado visual para KDS — mapea OrderStatus a EstadoBadge + icon + borde
@@ -298,7 +300,8 @@ export function CocinaScreen() {
     return Array.from(map.values()).sort((a, b) => b.qty - a.qty)
   }, [orders])
 
-  async function advance(id: string, next: 'preparacion' | 'listo' | 'entregado') {
+  async function advance(id: string, next: OrderStatus, confirmMsg?: string) {
+    if (confirmMsg && !window.confirm(confirmMsg)) return
     if (isMutatingRef.current) return
     isMutatingRef.current = true
     setActingId(id)
@@ -418,6 +421,7 @@ export function CocinaScreen() {
                   key={p.name}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--km-preparando-text)]/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73]"
                 >
+                  <ProductIconGlyph icon={p.icon} className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span className="km-tabular font-extrabold text-[var(--km-preparando-text)]">{p.qty}×</span>
                   <span className="max-w-[140px] truncate">{p.name}</span>
                 </span>
@@ -436,7 +440,7 @@ export function CocinaScreen() {
       <div className="hidden lg:block">
         <div className="mx-auto max-w-7xl px-4 py-5">
           {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#75AADB]/30 bg-white/60 py-16 text-center">
               <p className="text-sm font-semibold text-[#003B73]/60">Cargando pedidos…</p>
             </div>
           ) : !hasActiveOrders && (orders ?? []).every((o) => o.status === 'entregado' || o.status === 'cancelado') ? (
@@ -448,7 +452,7 @@ export function CocinaScreen() {
                 return (
                   <div key={col.id} className="flex flex-col">
                     {/* Column header with state icon + count */}
-                    <div className={`flex items-center gap-2 rounded-t-lg px-4 py-2.5 font-bold text-sm ${col.headerClass}`}>
+                    <div className={`flex items-center gap-2 rounded-t-2xl px-4 py-2.5 font-bold text-sm ${col.headerClass}`}>
                       <col.icon className="h-4 w-4" strokeWidth={2.4} />
                       <span>{col.label}</span>
                       <span className="km-tabular ml-auto rounded-full bg-white/50 px-2 py-0.5 text-xs font-extrabold">
@@ -457,7 +461,7 @@ export function CocinaScreen() {
                     </div>
 
                     {/* Column body */}
-                    <div className="min-h-[200px] flex-1 rounded-b-lg border border-t-0 border-[#75AADB]/15 bg-white/80">
+                    <div className="min-h-[200px] flex-1 rounded-b-2xl border border-t-0 border-[#75AADB]/15 bg-white shadow-sm shadow-[#003B73]/5">
                       {colOrders.length === 0 ? (
                         <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
                           <col.icon className="h-6 w-6 text-[#75AADB]/40" strokeWidth={1.8} />
@@ -472,7 +476,7 @@ export function CocinaScreen() {
                               key={order.id}
                               order={order}
                               acting={actingId === order.id}
-                              onAdvance={(s) => advance(order.id, s)}
+                              onAction={(next, confirmMsg) => advance(order.id, next, confirmMsg)}
                               onCancel={() => cancelOrder(order.id)}
                               cancelMenuOpen={cancelMenuOpenId === order.id}
                               onCancelMenuToggle={() =>
@@ -493,7 +497,7 @@ export function CocinaScreen() {
           {/* Entregados/Cancelados collapsed at bottom on desktop */}
           {(orders ?? []).some((o) => o.status === 'entregado' || o.status === 'cancelado') && (
             <details className="mt-4">
-              <summary className="km-focus cursor-pointer select-none rounded-lg border border-[#75AADB]/15 bg-white/60 px-4 py-2.5 text-xs font-bold text-[#003B73]/50 hover:bg-white">
+              <summary className="km-focus cursor-pointer select-none rounded-xl border border-[#75AADB]/15 bg-white/60 px-4 py-2.5 text-xs font-bold text-[#003B73]/50 hover:bg-white">
                 <span className="flex items-center gap-2">
                   <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
                   Pedidos cerrados ({(orders ?? []).filter((o) => o.status === 'entregado' || o.status === 'cancelado').length})
@@ -507,7 +511,7 @@ export function CocinaScreen() {
                       key={order.id}
                       order={order}
                       acting={false}
-                      onAdvance={() => {}}
+                      onAction={() => {}}
                       onCancel={() => {}}
                       cancelMenuOpen={false}
                       onCancelMenuToggle={() => {}}
@@ -524,28 +528,26 @@ export function CocinaScreen() {
       <div className="lg:hidden">
         {/* Tabs */}
         <div className="sticky top-[57px] z-30 border-b border-[#75AADB]/20 bg-[#EEF5FF]/95 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto px-3 py-2.5">
+          <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-3 py-2.5">
             {TABS.map((t) => {
               const active = tab === t.id
-              const col = KDS_COLUMNS.find((c) => c.id === t.id)
-              const headerClass = col?.headerClass ?? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
                   aria-label={`${t.label}: ${counts[t.id]}`}
-                  className={`km-focus flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+                  className={`km-focus flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-colors ${
                     active
-                      ? `${headerClass} shadow-sm`
-                      : 'border border-[#75AADB]/30 bg-white text-[#003B73]/70 hover:bg-[#EEF5FF]'
+                      ? 'bg-[#003B73] text-white shadow-sm'
+                      : 'border border-[#75AADB]/40 bg-white text-[#003B73] hover:bg-[#EEF5FF]'
                   }`}
                 >
                   <t.icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                   {t.label}
                   <span
-                    className={`km-tabular ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-extrabold ${
-                      active ? 'bg-white/40' : 'bg-[#EEF5FF] text-[#003B73]/50'
+                    className={`km-tabular ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-extrabold ${
+                      active ? 'bg-[#F6B21A] text-[#003B73]' : 'bg-[#EEF5FF] text-[#003B73]'
                     }`}
                   >
                     {counts[t.id]}
@@ -560,18 +562,19 @@ export function CocinaScreen() {
         {pending.length > 0 && (
           <div className="border-b border-[var(--km-preparando-bg)]/40 bg-white/60 px-3 py-2">
             <SectionTitle>Para preparar ahora</SectionTitle>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {pending.slice(0, 8).map((p) => (
                 <span
                   key={p.name}
-                  className="inline-flex items-center gap-1 rounded-md border border-[#75AADB]/20 bg-white px-2 py-1 text-[11px] font-semibold text-[#003B73]"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#75AADB]/20 bg-white px-2 py-1.5 text-xs font-semibold text-[#003B73]"
                 >
+                  <ProductIconGlyph icon={p.icon} className="h-3.5 w-3.5" strokeWidth={2.2} />
                   <span className="km-tabular font-extrabold text-[var(--km-preparando-text)]">{p.qty}×</span>
                   <span className="max-w-[100px] truncate">{p.name}</span>
                 </span>
               ))}
               {pending.length > 8 && (
-                <span className="inline-flex items-center rounded-md border border-[#75AADB]/15 bg-white px-2 py-1 text-[11px] font-medium text-[#003B73]/50">
+                <span className="inline-flex items-center rounded-lg border border-[#75AADB]/15 bg-white px-2 py-1.5 text-xs font-medium text-[#003B73]/50">
                   +{pending.length - 8}
                 </span>
               )}
@@ -582,7 +585,7 @@ export function CocinaScreen() {
         {/* Mobile: order list */}
         <div className="mx-auto max-w-6xl px-3 py-4">
           {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#75AADB]/30 bg-white/60 py-16 text-center">
               <p className="text-sm font-semibold text-[#003B73]/60">Cargando pedidos…</p>
             </div>
           ) : visibleOrders.length === 0 ? (
@@ -594,7 +597,7 @@ export function CocinaScreen() {
                   key={order.id}
                   order={order}
                   acting={actingId === order.id}
-                  onAdvance={(s) => advance(order.id, s)}
+                  onAction={(next, confirmMsg) => advance(order.id, next, confirmMsg)}
                   onCancel={() => cancelOrder(order.id)}
                   cancelMenuOpen={cancelMenuOpenId === order.id}
                   onCancelMenuToggle={() =>
@@ -615,12 +618,13 @@ export function CocinaScreen() {
  * Each card has:
  * 1. Left border colored by state (not just a badge)
  * 2. State banner with icon + text (not color-only)
- * 3. Cancel hidden in a "more" menu (doesn't compete with advance actions)
+ * 3. Multiple actions per state (primary + secondary)
+ * 4. Cancel hidden in a "more" menu (doesn't compete with advance actions)
  */
 function KdsOrderCard({
   order,
   acting,
-  onAdvance,
+  onAction,
   onCancel,
   cancelMenuOpen,
   onCancelMenuToggle,
@@ -628,7 +632,7 @@ function KdsOrderCard({
 }: {
   order: CocinaPedido
   acting: boolean
-  onAdvance: (s: 'preparacion' | 'listo' | 'entregado') => void
+  onAction: (next: OrderStatus, confirmMsg?: string) => void
   onCancel: () => void
   cancelMenuOpen: boolean
   onCancelMenuToggle: () => void
@@ -637,21 +641,12 @@ function KdsOrderCard({
   const sv = CARD_STATUS_VISUAL[order.status]
   const isClosed = order.status === 'entregado' || order.status === 'cancelado'
   const canCancel = order.status === 'recibido' || order.status === 'preparacion'
-
-  // Determine next action based on current status
-  const nextAction =
-    order.status === 'recibido'
-      ? { label: 'Empezar', next: 'preparacion' as const, icon: Flame }
-      : order.status === 'preparacion'
-        ? { label: 'Marcar listo', next: 'listo' as const, icon: Bell }
-        : order.status === 'listo'
-          ? { label: 'Entregado', next: 'entregado' as const, icon: CheckCircle2 }
-          : null
+  const actions = getActions(order.status)
 
   return (
-    <div className={`km-panel overflow-hidden ${sv.borderClass}`}>
+    <div className={`overflow-hidden rounded-2xl border-2 border-[#75AADB]/20 bg-white shadow-sm shadow-[#003B73]/5 ${sv.borderClass}`}>
       {/* State banner — icon + label + payment, not color-only */}
-      <div className={`flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-bold ${sv.bannerClass}`}>
+      <div className={`flex items-center justify-between gap-2 px-4 py-2 text-xs font-bold ${sv.bannerClass}`}>
         <span className="flex items-center gap-1.5">
           <sv.bannerIcon className="h-3.5 w-3.5" strokeWidth={2.4} />
           {sv.label}
@@ -667,14 +662,26 @@ function KdsOrderCard({
       </div>
 
       {/* Order header: code, customer, time */}
-      <div className="px-3 pt-2.5 pb-1">
+      <div className="border-b border-[#75AADB]/15 px-4 py-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 font-mono text-base font-extrabold leading-none text-[#003B73] km-tabular">
-              <Hash className="h-3.5 w-3.5 text-[#75AADB]" strokeWidth={2.6} />
+            <div className="flex items-center gap-1.5 font-mono text-lg font-extrabold leading-none text-[#003B73] km-tabular">
+              <Hash className="h-4 w-4 text-[#75AADB]" strokeWidth={2.6} />
               {order.code.replace('KMG-', '')}
             </div>
             <p className="mt-1 truncate text-sm font-bold text-[#003B73]">{order.customer}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-medium text-[#003B73]/55">
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" strokeWidth={2.4} />
+                <span className="km-tabular">{order.time}</span>
+              </span>
+              {order.table && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" strokeWidth={2.4} />
+                  Mesa {order.table}
+                </span>
+              )}
+            </div>
           </div>
           {/* Cancel menu — subtle, doesn't compete */}
           {canCancel && !isClosed && (
@@ -686,19 +693,19 @@ function KdsOrderCard({
                   onCancelMenuToggle()
                 }}
                 aria-label="Más acciones"
-                className="km-focus flex h-7 w-7 items-center justify-center rounded-md border border-[#75AADB]/20 text-[#003B73]/40 hover:bg-[#EEF5FF] hover:text-[#003B73]/70"
+                className="km-focus flex h-7 w-7 items-center justify-center rounded-lg border border-[#75AADB]/30 text-[#003B73]/40 hover:bg-[#EEF5FF] hover:text-[#003B73]/70"
               >
                 <MoreHorizontal className="h-4 w-4" strokeWidth={2.2} />
               </button>
               {cancelMenuOpen && (
-                <div className="absolute right-0 top-8 z-20 w-36 rounded-lg border border-[var(--km-peligro-bg)] bg-white shadow-lg">
+                <div className="absolute right-0 top-8 z-20 w-36 rounded-xl border border-[var(--km-peligro-bg)] bg-white shadow-lg">
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation()
                       onCancel()
                     }}
-                    className="km-focus flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+                    className="km-focus flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
                   >
                     <CircleX className="h-3.5 w-3.5" strokeWidth={2.2} />
                     Cancelar pedido
@@ -708,75 +715,87 @@ function KdsOrderCard({
             </div>
           )}
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-medium text-[#003B73]/50">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" strokeWidth={2.4} />
-            <span className="km-tabular">{order.time}</span>
-          </span>
-          {order.table && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3 w-3" strokeWidth={2.4} />
-              Mesa {order.table}
-            </span>
-          )}
-        </div>
       </div>
 
-      {/* Observations — uses Kermingo tokens, not amber-50/amber-700 */}
+      {/* Observations — uses Kermingo tokens */}
       {order.observations && (
-        <div className="mx-3 mt-1.5 flex items-start gap-2 rounded-lg bg-[var(--km-preparando-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-preparando-text)]">
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-lg bg-[var(--km-preparando-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-preparando-text)]">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
           <span>Nota: {order.observations}</span>
         </div>
       )}
 
-      {/* Product lines */}
-      <div className="px-3 py-2">
+      {/* Product lines — v0-like with icon box + qty badge */}
+      <ul className="flex-1 space-y-1.5 px-4 py-3">
         {order.lines.length === 0 ? (
-          <p className="text-xs font-medium text-[#003B73]/35">Sin productos</p>
+          <li className="text-xs font-medium text-[#003B73]/35">Sin productos</li>
         ) : (
-          <ul className="space-y-1">
-            {order.lines.map((l) => (
-              <li key={`${l.name}-${l.qty}`} className="flex items-center gap-2">
-                <span className="km-tabular flex h-5 min-w-5 items-center justify-center rounded bg-[#003B73]/10 px-1 text-[11px] font-extrabold text-[#003B73]">
-                  {l.qty}
-                </span>
-                <span className="flex-1 truncate text-xs font-semibold text-[#003B73]">
-                  {l.name}
-                </span>
-              </li>
-            ))}
-          </ul>
+          order.lines.map((l) => (
+            <li key={`${l.name}-${l.qty}`} className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#EEF5FF] text-[#003B73]">
+                <ProductIconGlyph icon={l.icon} className="h-4 w-4" strokeWidth={2.2} />
+              </span>
+              <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-[#003B73] px-1.5 text-sm font-extrabold text-white km-tabular">
+                {l.qty}
+              </span>
+              <span className="flex-1 truncate text-sm font-semibold text-[#003B73]">
+                {l.name}
+              </span>
+            </li>
+          ))
         )}
-      </div>
+      </ul>
 
-      {/* Action area */}
-      <div className="border-t border-[#75AADB]/10 px-3 py-2">
+      {/* Action area — primary + secondary buttons per state */}
+      <div className="border-t border-[#75AADB]/15 bg-[#EEF5FF]/40 p-3">
         {isClosed ? (
-          <div className="flex items-center justify-center gap-1.5 py-0.5 text-[11px] font-bold text-[#003B73]/40">
+          <div className="flex items-center justify-center gap-2 py-1 text-sm font-bold text-[#003B73]/55">
             {order.status === 'entregado' ? (
               <>
-                <CircleCheck className="h-3.5 w-3.5 text-[var(--km-entregado-text)]" strokeWidth={2.4} />
-                Entregado
+                <CheckCircle2 className="h-4 w-4 text-[var(--km-entregado-text)]" strokeWidth={2.4} />
+                Pedido entregado
               </>
             ) : (
               <>
-                <CircleX className="h-3.5 w-3.5 text-[var(--km-peligro-text)]" strokeWidth={2.4} />
+                <CircleX className="h-4 w-4 text-[var(--km-peligro-text)]" strokeWidth={2.4} />
                 Cancelado
               </>
             )}
           </div>
-        ) : nextAction ? (
-          <button
-            type="button"
-            onClick={() => onAdvance(nextAction.next)}
-            disabled={acting}
-            className="km-focus flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#003B73] py-2 text-xs font-bold text-white transition-colors hover:bg-[#003B73]/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <nextAction.icon className="h-3.5 w-3.5" strokeWidth={2.4} />
-            {nextAction.label}
-            <ArrowRight className="h-3 w-3" strokeWidth={2.4} />
-          </button>
+        ) : actions.length > 0 ? (
+          <div className="flex gap-2">
+            {actions.map((action) => {
+              const Icon = action.icon
+              if (action.variant === 'secondary') {
+                return (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => onAction(action.next, action.confirm)}
+                    disabled={acting}
+                    className="km-focus flex flex-1 items-center justify-center gap-1 rounded-xl border border-[#75AADB]/40 bg-white py-2.5 text-sm font-semibold text-[#003B73]/70 transition-colors hover:bg-[#EEF5FF] hover:text-[#003B73] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    {action.label}
+                  </button>
+                )
+              }
+              // primary
+              return (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={() => onAction(action.next, action.confirm)}
+                  disabled={acting}
+                  className="km-focus flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#003B73] py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#003B73]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Icon className="h-4 w-4" strokeWidth={2.4} />
+                  {action.label}
+                  <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.4} />
+                </button>
+              )
+            })}
+          </div>
         ) : null}
       </div>
     </div>
@@ -786,14 +805,14 @@ function KdsOrderCard({
 /* ── Empty state ── */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--km-entregado-bg)]">
-        <ChefHat className="h-7 w-7 text-[var(--km-entregado-text)]" strokeWidth={1.8} />
+    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#75AADB]/30 bg-white/60 py-16 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EEF5FF]">
+        <ChefHat className="h-7 w-7 text-[#75AADB]" strokeWidth={2} />
       </div>
-      <p className="text-sm font-semibold text-[#003B73]/50">
-        Sin pedidos en este estado.
+      <p className="text-sm font-semibold text-[#003B73]/60">
+        No hay pedidos en este estado.
       </p>
-      <p className="text-xs font-medium text-[#003B73]/35">
+      <p className="text-xs font-medium text-[#003B73]/40">
         Los pedidos nuevos aparecerán automáticamente.
       </p>
     </div>

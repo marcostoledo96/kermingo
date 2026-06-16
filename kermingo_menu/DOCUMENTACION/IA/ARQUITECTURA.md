@@ -90,7 +90,7 @@ kermingo_menu/
 │   ├── lib/                          # Utilidades
 │   ├── public/                       # Assets estáticos
 │   └── package.json
-├── diseno-de-landing-kermingo/       # Referencia visual v0 (SOLO LECTURA)
+├── diseno-de-landing-kermingo/       # Referencia visual v0 (LOCAL, NO versionada en git)
 ├── docs/planificacion/               # Planificación original
 ├── scripts/                          # Scripts de utilidad
 └── DOCUMENTACION/IA/                 # Esta documentación
@@ -143,7 +143,7 @@ kermingo_menu/
 - **Endpoints en español:** `/pedidos`, `/productos`, `/auth/login`, `/admin/cocina`.
 - **Validación Zod antes del controller:** Los schemas se aplican en la ruta vía `validateBody` / `validateQuery` / `validateParams`.
 - **Respuesta estándar:** `{ ok: true, data, message }` o `{ ok: false, error: "mensaje" }`.
-- **Frontend en `frontend/`:** Toda modificación va ahí. `diseno-de-landing-kermingo/` es solo lectura.
+- **Frontend en `frontend/`:** Toda modificación va ahí. `diseno-de-landing-kermingo/` es referencia visual local no versionada (ver `.gitignore`). No modificar su contenido ni depender de ella en CI/build.
 - **Diseño mobile-first:** Argentina, Mundial, Día de la Bandera, scout sutil.
 
 ---

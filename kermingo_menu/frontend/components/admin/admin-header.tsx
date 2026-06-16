@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { ArrowLeft, LogOut } from 'lucide-react'
 import { KermingoLogo } from '@/components/kermingo-logo'
 import { Badge, type BadgeTone } from './admin-ui'
-import { useAuth } from '@/lib/auth'
+import { useAdminSession } from './admin-session'
 
 type AdminHeaderProps = {
   /** Título de la sección actual (ej: "Productos"). */
@@ -24,7 +24,7 @@ export function AdminHeader({
   backLabel = 'Volver',
   status,
 }: AdminHeaderProps) {
-  const { user, logout } = useAuth()
+  const { user, logout } = useAdminSession()
   const pathname = usePathname()
   const isLogin = pathname === '/admin'
 
@@ -79,7 +79,7 @@ export function AdminHeader({
           {user && !isLogin && (
             <button
               type="button"
-              onClick={() => logout()}
+              onClick={() => void logout()}
               aria-label="Cerrar sesión"
               className="flex items-center gap-1.5 rounded border border-[#75AADB]/30 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF] sm:px-3"
             >

@@ -23,22 +23,31 @@
 ## 1. State machine de pedido
 
 ```
-recibido → en_preparacion → listo → entregado
-    ↓
-cancelado  (solo desde 'recibido' o 'en_preparacion')
+recibido ──→ en_preparacion ──→ listo ──→ entregado
+   │              │    ↑            │    ↑
+   │              │    │            │    │
+   └──→ listo ────┘    └────────────┘
+   (directo)        (retroceso)  (retroceso)
+     ↓
+ cancelado  (solo desde 'recibido' o 'en_preparacion')
 ```
 
 **Transiciones válidas** (definidas en `pedido.model.js` → `TRANSICIONES_VALIDAS`):
 
-| Estado actual | Puede pasar a |
-|---|---|
-| `recibido` | `en_preparacion` |
-| `en_preparacion` | `listo` |
-| `listo` | `entregado` |
+| Estado actual | Puede pasar a | Propósito |
+|---|---|---|
+| `recibido` | `en_preparacion`, `listo` | Empezar preparación o marcar directo (productos ya listos) |
+| `en_preparacion` | `recibido`, `listo` | Retroceder por error o avanzar a listo |
+| `listo` | `en_preparacion`, `entregado` | Retroceder por error o marcar entregado |
+| `entregado` | *(ninguna — estado terminal)* | No se puede deshacer |
 
 **Reglas:**
-- No se puede retroceder estados.
-- No se puede pasar de `entregado` a nada.
+- `entregado` es terminal: no se puede retroceder ni cambiar.
+- Se permite retroceder un paso (`en_preparacion → recibido`, `listo → en_preparacion`) para corregir errores.
+- Se permite saltar de `recibido → listo` directamente para productos que no necesitan preparación (ej: medialunas, bebidas).
+- No se permite `recibido → entregado` (salto doble).
+- No se permite `en_preparacion → entregado` (salto doble).
+- Same-state transitions siempre son inválidas.
 - `cancelado` solo desde `recibido` o `en_preparacion` (enforce en `cancelWithTransaction`).
 - La cocina usa la misma state machine vía `cocina.controller.js` → `updateEstadoPedido`.
 - `updateEstadoPedido` es atómico:

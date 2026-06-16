@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle, ArrowLeft, ShieldCheck, Lock, Loader2 } from 'lucide-react'
 import { ArgentinaStripe } from '@/components/argentina-stripe'
 import { KermingoLogo } from '@/components/kermingo-logo'
@@ -9,6 +10,7 @@ import { useAdminSession, cacheAdminUser } from './admin-session'
 import { API_BASE } from '@/lib/config'
 
 export function AdminLoginScreen() {
+  const router = useRouter()
   const { refresh } = useAdminSession()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -39,6 +41,7 @@ export function AdminLoginScreen() {
         role: 'admin',
       })
       await refresh()
+      router.replace('/admin/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
     } finally {
@@ -53,7 +56,7 @@ export function AdminLoginScreen() {
       <div className="mx-auto flex w-full max-w-sm items-center px-4 pt-5">
         <Link
           href="/"
-          className="flex items-center gap-1.5 text-sm font-semibold text-[#003B73]/70 transition-colors hover:text-[#003B73]"
+          className="flex items-center gap-1.5 text-sm font-semibold text-[#3A5675] transition-colors hover:text-[#003B73]"
         >
           <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
           Volver al sitio
@@ -72,8 +75,8 @@ export function AdminLoginScreen() {
                 }}
                 aria-hidden="true"
               />
-              <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-[#F6B21A] shadow-lg shadow-black/20">
-                <KermingoLogo className="h-12 w-12" />
+              <div className="relative inline-flex items-center justify-center">
+                <KermingoLogo className="h-16 w-16" />
               </div>
               <h1 className="relative mt-4 font-display text-2xl font-extrabold tracking-tight text-white">
                 Kermingo Admin
@@ -93,7 +96,7 @@ export function AdminLoginScreen() {
                 <div className="space-y-1.5">
                   <label
                     htmlFor="email"
-                    className="block text-xs font-semibold uppercase tracking-wide text-[#003B73]/70"
+                    className="block text-xs font-semibold uppercase tracking-wide text-[#3A5675]"
                   >
                     Usuario o email
                   </label>
@@ -113,7 +116,7 @@ export function AdminLoginScreen() {
                 <div className="space-y-1.5">
                   <label
                     htmlFor="password"
-                    className="block text-xs font-semibold uppercase tracking-wide text-[#003B73]/70"
+                    className="block text-xs font-semibold uppercase tracking-wide text-[#3A5675]"
                   >
                     Contraseña
                   </label>
@@ -144,7 +147,7 @@ export function AdminLoginScreen() {
                 {error && (
                   <div
                     role="alert"
-                    className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                    className="flex items-center gap-2 rounded-xl border border-[#E4B4B4] bg-[#FBEAEA] px-4 py-3 text-sm text-[#9B2C2C]"
                   >
                     <AlertCircle className="h-4 w-4 flex-shrink-0" />
                     <span className="font-medium">{error}</span>
@@ -185,7 +188,7 @@ export function AdminLoginScreen() {
 
             <div className="flex items-center justify-center gap-2 border-t border-[#75AADB]/20 bg-[#EEF5FF]/50 px-8 py-4">
               <ShieldCheck className="h-4 w-4 text-[#75AADB]" strokeWidth={2.2} />
-              <p className="text-xs font-medium text-[#6B7280]">
+              <p className="text-xs font-medium text-[#3A5675]">
                 Acceso exclusivo para organización
               </p>
             </div>
