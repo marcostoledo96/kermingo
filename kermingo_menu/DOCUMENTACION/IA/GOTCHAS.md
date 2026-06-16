@@ -15,9 +15,22 @@
 6. [jest.unstable_mockModule tiene scope de archivo](#6-jestunstable_mockmodule-tiene-scope-de-archivo)
 7. [ForbiddenError 403 en origin middleware (CSRF)](#7-forbiddenerror-403-en-origin-middleware-csrf)
 8. [Estados de pago sin comprobante real (B6.3)](#8-estados-de-pago-sin-comprobante-real-b63)
-9. [Pedidos online solo permiten efectivo](#9-pedidos-online-solo-permiten-efectivo)
+9. [Pedidos online solo aceptan transferencia con comprobante](#9-pedidos-online-solo-aceptan-transferencia-con-comprobante)
 10. [Transacciones de stock determinísticas](#10-transacciones-de-stock-determinísticas)
 11. [Cancelación/edición de promos depende de la composición actual de combo_producto](#11-cancelaciónedición-de-promos-depende-de-la-composición-actual-de-combo_producto)
+12. [z.preprocess necesario para items en multipart (B6.3)](#12-zpreprocess-necesario-para-items-en-multipart-b63)
+13. [Multer error vs Zod error ordering (B6.3)](#13-multer-error-vs-zod-error-ordering-b63)
+14. [Magic bytes ordering: después de Multer, antes del controller (B6.3.1)](#14-magic-bytes-ordering-después-de-multer-antes-del-controller-b631)
+15. [RUN_REAL_DRIVE_TESTS=false por defecto (B6.3.1)](#15-run_real_drive_testsfalse-por-defecto-b631)
+16. [Archivos huérfanos en Drive si falla la transacción DB (B6.3.1)](#16-archivos-huérfanos-en-drive-si-falla-la-transacción-db-b631)
+17. [Preflight assertStoreOpen evita huérfanos por tienda cerrada (B6.3.1)](#17-preflight-assertstoreopen-evita-huérfanos-por-tienda-cerrada-b631)
+18. [useSyncExternalStore + JSON.parse: referential stability (frontend-ticket-qr)](#18-usesyncexternalstore--jsonparse-referential-stability-frontend-ticket-qr)
+19. [useApiResource: fetcher inestable causaba loop infinito de re-fetch (frontend-menu)](#19-useapiresource-fetcher-inestable-causaba-loop-infinito-de-re-fetch-frontend-menu)
+20. [ZIP de auditoría: verificación post-generación (B6.3.1)](#20-zip-de-auditoría-verificación-post-generación-b631)
+21. [npm test con --experimental-vm-modules requiere path directo a jest.js](#21-npm-test-con---experimental-vm-modules-requiere-path-directo-a-jestjs)
+22. [AdminSessionProvider no debe tratar errores de red/5xx como authenticated](#22-adminsessionprovider-no-debe-tratar-errores-de-red5xx-como-authenticated)
+23. [Comprobante endpoint devuelve metadata, no bytes de archivo](#23-comprobante-endpoint-devuelve-metadata-no-bytes-de-archivo)
+24. [Configuración endpoints: configuracion-tienda, no configuracion](#24-configuración-endpoints-configuracion-tienda-no-configuracion)
 
 ---
 
@@ -131,14 +144,14 @@ Los estados `comprobante_subido` y `rechazado` existen en el ENUM de `estado_pag
 
 ---
 
-## 9. Pedidos online aceptan transferencia con comprobante
+## 9. Pedidos online solo aceptan transferencia con comprobante
 
-Los pedidos online con `metodo_pago=transferencia` son válidos **siempre que incluyan un archivo comprobante** (multipart/form-data).
+Los pedidos online con `metodo_pago=transferencia` son válidos **siempre que incluyan un archivo comprobante** (multipart/form-data). Efectivo solo está disponible en caja rápida (admin).
 
 **Código:** `pedido.controller.js` → `crear()`:
 
 - Si `metodo_pago === 'transferencia'` y no hay archivo → error 400.
-- Si `metodo_pago === 'efectivo'` y hay archivo → error 400.
+- Si `metodo_pago === 'efectivo'` → error 400, con o sin archivo.
 - Si `metodo_pago === 'transferencia'` con archivo válido → sube a Drive, crea `archivo_drive`, y genera pedido con `estado_pago=comprobante_subido`.
 
 **Ver también:** `upload.middleware.js` (validación MIME/tamaño), `drive.service.js` (subida a Drive).
@@ -259,10 +272,76 @@ items: z.preprocess((val) => {
 
 ---
 
-## 19. ZIP de auditoría: verificación post-generación (B6.3.1)
+## 19. useApiResource: fetcher inestable causaba loop infinito de re-fetch (frontend-menu)
+
+**Síntoma:** En `/menu`, la página hace cientos de requests `GET /api/productos` por segundo, causando que la pantalla se cuelgue/lentifique y el scrollbar parpadee.
+
+**Causa:** `useApiResource` recibía el `fetcher` como argumento directo en `useCallback([fetcher])`. En `menu-screen.tsx`, el fetcher era una arrow function inline `async () => { ... }` que crea una nueva referencia cada render. Esto hacía que `refetch` cambiara cada render, disparando el `useEffect([refetch])` que vuelve a ejecutar el fetch, causando un re-render, nueva referencia de fetcher, nuevo refetch... loop infinito.
+
+**Solución:** Usar `useRef(fetcher)` con `fetcherRef.current = fetcher` en cada render, y que `refetch` llame `fetcherRef.current()` en lugar de `fetcher` directamente. Así `refetch` es estable (`useCallback([])`) y el `useEffect([refetch])` solo se ejecuta una vez (mount).
+
+**Archivos afectados:** `frontend/lib/use-api-resource.ts`, `frontend/test/use-api-resource.test.ts`
+
+**Regla:** Nunca pasar una función inline como `fetcher` a un hook que la use en un `useEffect` sin estabilizarla. Usar el patrón ref-based para que el hook solo haga fetch en mount y cuando el consumidor llame `refetch()` manualmente.
+
+---
+
+## 20. ZIP de auditoría: verificación post-generación (B6.3.1)
 
 **Síntoma:** `scripts/crear_zip_auditoria.sh` ahora verifica que ningún patrón prohibido (`.env`, `node_modules`, etc.) esté presente en el ZIP después de generarlo.
 
 **Causa:** Post-generation `unzip -l` + `grep` de patrones prohibidos. Si encuentra algo, el script sale non-zero.
 
 **Regla:** Siempre usar `scripts/crear_zip_auditoria.sh` para generar ZIPs de auditoría. No generar ZIPs manualmente.
+
+---
+
+## 21. npm test con --experimental-vm-modules requiere path directo a jest.js
+
+**Síntoma:** `npm test` falla con error de sintaxis o "node_modules/.bin/jest: not found" cuando se usa `node --experimental-vm-modules node_modules/.bin/jest`.
+
+**Causa:** `.bin/jest` es un shell shim que no funciona como argumento directo de `node --experimental-vm-modules`. Se necesita apuntar al archivo JS real.
+
+**Fix:** El script en `package.json` usa `./node_modules/jest/bin/jest.js` en vez de `node_modules/.bin/jest`:
+
+```json
+"test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand"
+```
+
+**Regla:** Nunca usar `node_modules/.bin/jest` como argumento de `node --experimental-vm-modules`. Siempre usar el path al `.js` real.
+
+---
+
+## 22. AdminSessionProvider no debe tratar errores de red/5xx como authenticated
+
+**Síntoma:** Si el backend está caído, el panel admin muestra la UI protegida con un usuario cached/default, dando la falsa impresión de que la sesión es válida.
+
+**Causa:** El código original hacía fallback a `setStatus('authenticated')` cuando `/api/auth/me` devolvía un error 5xx o fallaba la red. Esto permitía que la UI protegida se renderizara sin verificación real de la cookie.
+
+**Fix:** El `AdminSessionProvider` ahora tiene 4 estados: `loading`, `authenticated`, `unauthenticated`, `error`. Errores de red y 5xx setean `status: 'error'` y muestran pantalla de retry. Solo `status: 'authenticated'` (respuesta 200 con usuario válido) renderiza la UI protegida.
+
+**Regla:** Nunca tratar un error de red o respuesta no-200 como authenticated. El usuario cached solo se muestra como placeholder durante `loading`, no como prueba de autenticación.
+
+---
+
+## 23. Comprobante endpoint devuelve metadata, no bytes de archivo
+
+**Síntoma:** El frontend linkeaba directamente a `GET /api/admin/pedidos/:id/comprobante` como si fuera un archivo, pero ese endpoint devuelve JSON con metadata (`drive_id`, `url_publica`, `nombre_original`, etc.).
+
+**Causa:** El backend no proxea bytes de Drive. Devuelve metadata para que el frontend abra la URL pública de Drive si está disponible.
+
+**Fix:** `ComprobantesScreen` ahora hace fetch del endpoint de metadata y muestra un botón "Abrir en Drive" que linkea a `url_publica`. Si `url_publica` es null o el fetch falla, muestra un error contextual.
+
+**Regla:** Nunca linkear directamente a `/api/admin/pedidos/:id/comprobante` como si fuera un archivo. Siempre hacer fetch de metadata y usar `url_publica` para abrir en Drive.
+
+---
+
+## 24. Configuración endpoints: configuracion-tienda, no configuracion
+
+**Síntoma:** `ConfigScreen` usaba `GET /api/configuracion` y `PATCH /api/admin/configuracion`, pero los endpoints reales del backend son `GET /api/configuracion-tienda` y `PUT /api/admin/configuracion-tienda`.
+
+**Causa:** Desalineación entre nombres de endpoints del backend y los paths hardcodeados en el frontend.
+
+**Fix:** `ConfigScreen` ahora usa los endpoints correctos y `PUT` en vez de `PATCH`.
+
+**Regla:** Los endpoints de configuración siempre llevan sufijo `-tienda`: `/api/configuracion-tienda` (público) y `/api/admin/configuracion-tienda` (admin con PUT).

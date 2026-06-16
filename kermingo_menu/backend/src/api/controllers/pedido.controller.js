@@ -25,9 +25,15 @@ export async function crear(req, res, next) {
     const metodoPago = req.body.metodo_pago;
     const tieneComprobante = !!req.file;
 
+    // Los pedidos online solo aceptan transferencia.
+    // Efectivo solo está disponible en caja.
+    if (metodoPago === 'efectivo') {
+      throw new ValidationError('Los pedidos online solo aceptan pago por transferencia. Para pagar en efectivo, acercate a caja.');
+    }
+
     // Validar método de pago vs file
     if (metodoPago === 'transferencia' && !tieneComprobante) {
-      throw new ValidationError('Transferencia online requiere comprobante. Usá efectivo o contactá al vendedor.');
+      throw new ValidationError('Transferencia online requiere comprobante. Usá efectivo en caja o subí el comprobante.');
     }
     if (metodoPago === 'efectivo' && tieneComprobante) {
       throw new ValidationError('Los pedidos en efectivo no requieren comprobante.');

@@ -32,7 +32,7 @@
     │   └── Si es promo, se acumulan las cantidades necesarias.
     │
     ├── POST /api/pedidos
-    │   ├── Body: { nombre_cliente, items, metodo_pago: 'efectivo' }
+    │   ├── multipart/form-data: { nombre_cliente, items, metodo_pago: 'transferencia', comprobante }
     │   ├── Backend valida stock con transacción.
     │   ├── Si stock insuficiente → 409 (InsufficientStockError).
     │   ├── Si tienda cerrada → 400 (ValidationError).
@@ -43,7 +43,7 @@
         └── Muestra estado del pedido y items.
 ```
 
-**Regla:** Los pedidos online aceptan `metodo_pago: 'efectivo'` (JSON) o `'transferencia'` (multipart con `comprobante`). Si el visitante elige transferencia sin archivo adjunto, el backend responde 400. Si elige efectivo con archivo, también 400. Ver `CORE.md` sección 2 para la state machine de pago.
+**Regla:** Los pedidos online aceptan únicamente `metodo_pago: 'transferencia'` con `comprobante` adjunto. Si falta el archivo, el backend responde 400. Si el visitante intenta `efectivo`, también responde 400; efectivo queda reservado para caja rápida (admin). Ver `CORE.md` sección 2 para la state machine de pago.
 
 ---
 

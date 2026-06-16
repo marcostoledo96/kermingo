@@ -69,7 +69,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `GET` | `/api/productos` | `producto.listar` | Lista productos activos. Query: `?categoria=`, `?tipo=`, `?buscar=` |
 | `GET` | `/api/productos/:id` | `producto.obtener` | Detalle de un producto activo |
 | `GET` | `/api/configuracion-tienda` | `configuracion.obtenerPublico` | Estado de la tienda (solo `estado`, `mensaje_publico`) |
-| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online. `efectivo` (JSON) o `transferencia` (multipart con `comprobante`). Body/fields: `nombre_cliente`, `items`, `metodo_pago`. Middleware chain: `uploadComprobante.single()` → `validateBody` → `assertMagicBytes` (magic bytes post-Multer) → `crear` (preflight `assertStoreOpen` antes de Drive upload) |
+| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online **solo transferencia** (multipart con `comprobante`). Body/fields: `nombre_cliente`, `items`, `metodo_pago='transferencia'`. `metodo_pago='efectivo'` devuelve 400; efectivo solo está disponible en caja admin. Middleware chain: `uploadComprobante.single()` → `validateBody` → `assertMagicBytes` (magic bytes post-Multer) → `crear` (preflight `assertStoreOpen` antes de Drive upload) |
 | `GET` | `/api/pedidos/seguimiento/:token` | `pedido.seguimiento` | Estado público del pedido por token |
 
 ---
@@ -172,7 +172,7 @@ Middleware de validación: `validateBody`, `validateQuery`, `validateParams` (en
 
 | Código | Clase | Cuándo |
 |---|---|---|
-| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida, MIME no soportado, efectivo con comprobante |
+| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida, MIME no soportado, pedido online en efectivo, transferencia sin comprobante |
 | `401` | `AuthError` | Token ausente/inválido, cuenta inactiva |
 | `403` | `ForbiddenError` | Origen no permitido (CSRF — `requireTrustedOrigin`) |
 | `404` | `NotFoundError` | Recurso no encontrado (pedido, producto, comprobante sin archivo) |

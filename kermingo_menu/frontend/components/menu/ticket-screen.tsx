@@ -6,18 +6,19 @@ import {
   Clock,
   CreditCard,
   Hash,
-  MapPin,
   Download,
   Search,
   Ticket as TicketIcon,
   Hourglass,
   CircleSlash,
+  Store,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { formatPrice, type LastOrder, type PedidoEstado } from '@/lib/products'
 import { ProductIconGlyph } from './product-visual'
 import { ArgentinaStripe } from '@/components/argentina-stripe'
 import { useLocalStorageState } from '@/lib/use-local-storage'
+import { EVENTO } from '@/lib/evento'
 
 const LAST_ORDER_KEY = 'kermingo:lastOrder'
 
@@ -46,15 +47,15 @@ export function TicketScreen() {
 
   if (!order) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#003B73] px-6 text-center text-white">
-        <TicketIcon className="h-12 w-12 text-[#F6B21A]" />
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--km-azul)] px-6 text-center text-white">
+        <TicketIcon className="h-12 w-12 text-[var(--km-dorado)]" />
         <h1 className="mt-4 text-xl font-extrabold">No hay un pedido reciente</h1>
         <p className="mt-2 text-sm text-white/70">
           Volvé al menú y armá tu pedido.
         </p>
         <Link
           href="/menu"
-          className="mt-5 rounded-2xl bg-[#F6B21A] px-6 py-3 text-sm font-extrabold text-[#003B73] shadow-lg"
+          className="km-focus mt-5 rounded-2xl bg-[var(--km-dorado)] px-6 py-3 text-sm font-extrabold text-[var(--km-azul)] shadow-lg"
         >
           Ver menú
         </Link>
@@ -82,19 +83,19 @@ export function TicketScreen() {
   const isDelivered = order.status === 'entregado'
 
   const statusColor = isCancelled
-    ? 'bg-[#DC2626] text-white'
+    ? 'bg-[var(--km-peligro-text)] text-white'
     : isDelivered
-      ? 'bg-[#003B73] text-white'
-      : 'bg-[#FFF6E0] text-[#9A6B00]'
+      ? 'bg-[var(--km-azul)] text-white'
+      : 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]'
 
   return (
-    <div className="min-h-screen bg-[#003B73] px-4 pb-10 pt-8">
+    <div className="min-h-screen bg-[var(--km-azul)] px-4 pb-10 pt-8">
       <div className="mx-auto w-full max-w-sm">
         <header className="mb-6 flex flex-col items-center text-center print:hidden">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#F6B21A]/20 ring-4 ring-[#F6B21A]/15">
-            <CheckCircle2 className="h-9 w-9 text-[#F6B21A]" strokeWidth={2.2} />
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--km-dorado)]/20 ring-4 ring-[var(--km-dorado)]/15">
+            <CheckCircle2 className="h-9 w-9 text-[var(--km-dorado)]" strokeWidth={2.2} />
           </div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#75AADB]">Kermingo</p>
+          <p className="text-xs font-bold tracking-[0.2em] text-[var(--km-celeste)]">{EVENTO.nombre}</p>
           <h1 className="mt-1 text-2xl font-extrabold text-white text-balance">
             ¡Pedido recibido!
           </h1>
@@ -106,18 +107,19 @@ export function TicketScreen() {
         <article className="overflow-hidden rounded-[1.75rem] bg-white shadow-2xl shadow-black/30">
           <ArgentinaStripe className="h-2" />
 
+          {/* Número y estado */}
           <div className="px-6 pt-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#003B73]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--km-azul)]">
                   <TicketIcon className="h-4.5 w-4.5 text-white" strokeWidth={2.2} />
                 </div>
                 <div className="leading-tight">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#9CA3AF]">
-                    Pedido confirmado
+                  <p className="text-[11px] font-medium tracking-wide text-[var(--km-tinta-suave)]">
+                    Talón de kermesse
                   </p>
-                  <p className="flex items-center gap-1 text-lg font-extrabold text-[#003B73]">
-                    <Hash className="h-3.5 w-3.5 text-[#75AADB]" strokeWidth={2.6} />
+                  <p className="flex items-center gap-1 text-lg font-extrabold text-[var(--km-azul)] km-tabular">
+                    <Hash className="h-3.5 w-3.5 text-[var(--km-celeste)]" strokeWidth={2.6} />
                     {order.numero}
                   </p>
                 </div>
@@ -135,6 +137,7 @@ export function TicketScreen() {
             </div>
           </div>
 
+          {/* Datos */}
           <dl className="mt-5 grid grid-cols-2 gap-y-4 px-6">
             <Detail label="Cliente" value={order.name} />
             {order.table && <Detail label="Mesa" value={`N° ${order.table}`} />}
@@ -150,27 +153,28 @@ export function TicketScreen() {
 
           <Perforation />
 
+          {/* Items */}
           <div className="px-6">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF]">
+            <p className="text-[11px] font-bold tracking-wide text-[var(--km-tinta-suave)]">
               Tu pedido
             </p>
             <ul className="mt-2.5 space-y-2.5">
               {order.items.map((item) => (
                 <li key={item.id} className="flex items-center gap-3">
-                  <span className="flex h-5 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[#003B73] text-xs font-extrabold text-white">
+                  <span className="flex h-5 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[var(--km-azul)] text-xs font-extrabold text-white km-tabular">
                     {item.cantidad}
                   </span>
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <ProductIconGlyph
                       icon={item.icon}
-                      className="h-4 w-4 flex-shrink-0 text-[#75AADB]"
+                      className="h-4 w-4 flex-shrink-0 text-[var(--km-celeste)]"
                       strokeWidth={2}
                     />
-                    <span className="truncate text-sm font-semibold text-[#003B73]">
+                    <span className="truncate text-sm font-semibold text-[var(--km-azul)]">
                       {item.nombre}
                     </span>
                   </div>
-                  <span className="text-sm font-bold text-[#003B73]">
+                  <span className="text-sm font-bold text-[var(--km-azul)] km-tabular">
                     {formatPrice(item.subtotal)}
                   </span>
                 </li>
@@ -178,39 +182,56 @@ export function TicketScreen() {
             </ul>
           </div>
 
-          <div className="mx-6 mt-4 flex items-end justify-between rounded-2xl bg-[#003B73] px-4 py-3">
+          {/* Total */}
+          <div className="mx-6 mt-4 flex items-end justify-between rounded-2xl bg-[var(--km-azul)] px-4 py-3">
             <span className="text-sm font-medium text-white/80">
               Total · {order.count} {order.count === 1 ? 'producto' : 'productos'}
             </span>
-            <span className="text-2xl font-extrabold leading-none text-[#F6B21A]">
+            <span className="text-2xl font-extrabold leading-none text-[var(--km-dorado)] km-tabular">
               {formatPrice(order.total)}
             </span>
           </div>
 
           <Perforation />
 
-          <div className="flex flex-col items-center px-6">
-            <div className="rounded-xl border-4 border-white bg-white p-2 shadow-inner">
-              <QRCodeSVG
-                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/seguimiento?token=${order.token}`}
-                size={168}
-                fgColor="#003B73"
-                bgColor="#FFFFFF"
-                level="M"
-              />
+          {/* QR protagonista — talón de kermesse */}
+          <div className="flex flex-col items-center px-6 pb-2">
+            <div className="rounded-2xl border-2 border-dashed border-[var(--km-celeste)]/30 bg-white p-4">
+              <div className="flex flex-col items-center">
+                <p className="mb-2 text-[11px] font-bold tracking-wide text-[var(--km-tinta-suave)]">
+                  Escaneá para seguir tu pedido
+                </p>
+                {/* White quiet zone around QR for scannability */}
+                <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+                  {typeof window !== 'undefined' ? (
+                    <QRCodeSVG
+                      value={`${window.location.origin}/seguimiento?token=${order.token}`}
+                      size={176}
+                      fgColor="#003B73"
+                      bgColor="#FFFFFF"
+                      level="M"
+                      includeMargin={false}
+                    />
+                  ) : (
+                    <div className="h-[176px] w-[176px]" />
+                  )}
+                </div>
+                <p className="mt-2 text-sm font-extrabold tracking-widest text-[var(--km-azul)] km-tabular">
+                  {order.token.slice(0, 12).toUpperCase()}
+                </p>
+              </div>
             </div>
-            <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF]">
-              Código de seguimiento
-            </p>
-            <p className="text-sm font-extrabold tracking-widest text-[#003B73]">{order.token.slice(0, 12).toUpperCase()}</p>
           </div>
 
-          <div className="mt-5 flex items-start gap-2.5 border-t border-dashed border-[#75AADB]/30 px-6 py-4">
-            <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#75AADB]" strokeWidth={2.4} />
+          {/* Dirección y retiro */}
+          <div className="flex items-start gap-2.5 border-t border-dashed border-[var(--km-linea)] px-6 py-4">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--km-fondo)] text-[var(--km-celeste)]">
+              <Store className="h-4 w-4" strokeWidth={2.4} />
+            </div>
             <div className="leading-snug">
-              <p className="text-sm font-bold text-[#003B73]">Estomba 1980</p>
-              <p className="text-xs text-[#6B7280] text-pretty">
-                Presentá este ticket en el mostrador para retirar tu pedido.
+              <p className="text-sm font-bold text-[var(--km-azul)]">Retirá en el mostrador</p>
+              <p className="text-xs text-[var(--km-tinta-suave)] text-pretty">
+                {EVENTO.direccion} · Presentá este ticket al retirar.
               </p>
             </div>
           </div>
@@ -220,28 +241,28 @@ export function TicketScreen() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#F6B21A] py-4 text-base font-extrabold text-[#003B73] shadow-lg shadow-black/20 transition-all hover:bg-[#ffbe2e] active:scale-[0.99]"
+            className="km-focus flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--km-dorado)] py-4 text-base font-extrabold text-[var(--km-azul)] shadow-lg shadow-black/20 transition-all hover:bg-[#ffbe2e] active:scale-[0.99]"
           >
             <Download className="h-5 w-5" strokeWidth={2.4} />
             Descargar ticket PDF
           </button>
           <Link
             href="/seguimiento"
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/25 bg-white/5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white/10"
+            className="km-focus flex w-full items-center justify-center gap-2 rounded-2xl border border-white/25 bg-white/5 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white/10"
           >
             <Search className="h-4 w-4" strokeWidth={2.4} />
             Seguir mi pedido
           </Link>
           <Link
             href="/"
-            className="block py-2 text-center text-sm font-medium text-[#75AADB] underline-offset-2 hover:underline"
+            className="block py-2 text-center text-sm font-medium text-[var(--km-celeste)] underline-offset-2 hover:underline"
           >
             Volver al inicio
           </Link>
         </div>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-white/55 text-pretty print:hidden">
-          Gracias por colaborar con el campamento de verano del Grupo Scout San Patricio.
+          {EVENTO.fraseInstitucional}
         </p>
       </div>
     </div>
@@ -259,11 +280,11 @@ function Detail({
 }) {
   return (
     <div className="leading-tight">
-      <dt className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-[#9CA3AF]">
+      <dt className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-[var(--km-tinta-suave)]">
         {icon}
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm font-bold text-[#003B73]">{value}</dd>
+      <dd className="mt-0.5 text-sm font-bold text-[var(--km-azul)]">{value}</dd>
     </div>
   )
 }
@@ -271,11 +292,9 @@ function Detail({
 function Perforation() {
   return (
     <div className="relative my-5 flex items-center" aria-hidden="true">
-      <div className="absolute -left-3 h-6 w-6 rounded-full bg-[#003B73]" />
-      <div className="mx-3 flex-1 border-t-2 border-dashed border-[#75AADB]/35" />
-      <div className="absolute -right-3 h-6 w-6 rounded-full bg-[#003B73]" />
+      <div className="absolute -left-3 h-6 w-6 rounded-full bg-[var(--km-azul)]" />
+      <div className="mx-3 flex-1 border-t-2 border-dashed border-[var(--km-celeste)]/35" />
+      <div className="absolute -right-3 h-6 w-6 rounded-full bg-[var(--km-azul)]" />
     </div>
   )
 }
-
-

@@ -5,8 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-heading: var(--font-sans);
-  --font-sans: 'Geist', 'Geist Fallback';
+  --font-heading: var(--font-bricolage), 'Bricolage Grotesque', 'Bricolage Grotesque Fallback', system-ui, sans-serif;
+  --font-sans: var(--font-inter), 'Inter Fallback', system-ui, sans-serif;
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -54,6 +54,7 @@
   --color-kermingo-gold: #F6B21A;
   --color-kermingo-white: #FFFFFF;
   --color-kermingo-gray: #6B7280;
+  --color-kermingo-ink: #3A5675;
 }
 
 :root {
@@ -103,9 +104,105 @@
   }
 }
 
+@layer utilities {
+  .font-display {
+    font-family: var(--font-heading);
+    letter-spacing: -0.025em;
+    font-feature-settings: "ss01" on, "ss02" on;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer components {
   .kermingo-input {
     @apply w-full rounded-2xl border border-[#75AADB]/40 bg-[#EEF5FF]/50 px-4 py-3 text-sm font-medium text-[#003B73] placeholder:text-[#9CA3AF] transition-colors;
     @apply focus:border-[#003B73] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#003B73]/15;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Kermingo status tokens & shared utility classes
+ * ---------------------------------------------------------------------------
+ * These replace raw Tailwind color defaults (emerald/amber/rose/sky/slate/red)
+ * in admin status badges and operational UI. The palette stays aligned with
+ * doc 28 §3.2: azul #003B73, celeste #75AADB, dorado #F6B21A, fondo #EEF5FF.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* — Status background/text pairs (light mode only for now) — */
+  --km-info-bg: #E8F3FF;
+  --km-info-text: #003B73;
+
+  --km-preparando-bg: #FFF4DA;
+  --km-preparando-text: #7A5500;
+
+  --km-listo-bg: #E2F7F8;
+  --km-listo-text: #005B66;
+
+  --km-alerta-bg: #FFF1E6;
+  --km-alerta-text: #8A4A00;
+
+  --km-peligro-bg: #FFF0F2;
+  --km-peligro-text: #8C1D2D;
+
+  --km-entregado-bg: #EAF0F7;
+  --km-entregado-text: #304C68;
+
+  --km-demo-bg: #F3F0FF;
+  --km-demo-text: #5B21B6;
+
+  /* — Core brand tokens (mirrors @theme for JS consumers) — */
+  --km-azul: #003B73;
+  --km-celeste: #75AADB;
+  --km-fondo: #EEF5FF;
+  --km-dorado: #F6B21A;
+  --km-tinta: #173B5C;
+  --km-tinta-suave: #3A5675;
+  --km-papel: #FFFFFF;
+  --km-linea: rgba(117, 170, 219, 0.28);
+}
+
+@layer utilities {
+  /* Focus ring visible — replaces outline-none without a visible ring */
+  .km-focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 59, 115, 0.2);
+  }
+  .km-focus:focus-visible {
+    box-shadow: 0 0 0 2px rgba(0, 59, 115, 0.4);
+  }
+
+  /* Operational panel — lighter than a card, no heavy shadow */
+  .km-panel {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(117, 170, 219, 0.15);
+    background-color: white;
+  }
+
+  /* Operational panel with header — compact header band */
+  .km-panel-operativo {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(117, 170, 219, 0.15);
+    background-color: white;
+  }
+
+  /* Tabular figures for codes, totals, hours */
+  .km-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Safe bottom for mobile bottom bars */
+  .km-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

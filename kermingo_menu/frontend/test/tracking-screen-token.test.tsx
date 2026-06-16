@@ -97,7 +97,7 @@ describe('TrackingScreen URL token (S5, S6, S7)', () => {
 
     // Should show the input form, not order details
     expect(screen.getByText('Seguí tu pedido')).toBeTruthy()
-    expect(screen.getByPlaceholderText('ej: 7f2a1c0e…')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Pegá el código que te llegó al confirmar')).toBeTruthy()
     // Should NOT auto-fetch
     expect(mockApiGet).not.toHaveBeenCalled()
   })

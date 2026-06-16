@@ -3,12 +3,11 @@
 import {
   createContext,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from 'react'
 import type { Product } from '@/lib/products'
+import { useLocalStorageState } from '@/lib/use-local-storage'
 
 export type CartItem = {
   product: Product
@@ -32,26 +31,12 @@ type CartContextValue = {
 const CartContext = createContext<CartContextValue | null>(null)
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([])
-
-  // Hidratar desde localStorage al montar (estado de sesión del cliente).
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (raw) setItems(JSON.parse(raw) as CartItem[])
-    } catch {
-      // Ignorar JSON inválido o almacenamiento no disponible.
-    }
-  }, [])
-
-  // Persistir ante cualquier cambio.
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-    } catch {
-      // Almacenamiento no disponible (modo privado, etc.).
-    }
-  }, [items])
+  // `useSyncExternalStore` handles the server/client snapshot difference so
+  // React 19 doesn't emit a hydration mismatch warning.
+  // The hook persists on every setter call, so no separate `useEffect` is needed.
+  const [items, setItems] = useLocalStorageState<CartItem[]>(STORAGE_KEY, {
+    defaultValue: [],
+  })
 
   const value = useMemo<CartContextValue>(() => {
     const add = (product: Product) => {
@@ -89,7 +74,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       items.find((i) => i.product.id === id)?.qty ?? 0
 
     return { items, count, total, add, increment, decrement, remove, clear, qtyOf }
-  }, [items])
+  }, [items, setItems])
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

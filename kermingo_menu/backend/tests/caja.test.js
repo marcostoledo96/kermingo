@@ -544,14 +544,25 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
   });
 
   it('PUT rejects editing an online pedido', async () => {
-    // create an online pedido via public route
+    // B7: public route only accepts transferencia with comprobante.
+    // Use a minimal valid JPEG to create an online pedido.
+    const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00]);
     const resPost = await request(app)
       .post('/api/pedidos')
-      .send({
-        nombre_cliente: `${RUN_ID}-ONLINE`,
-        metodo_pago: 'efectivo',
-        items: [{ producto_id: 5, cantidad: 1 }],
+      .field('nombre_cliente', `${RUN_ID}-ONLINE`)
+      .field('metodo_pago', 'transferencia')
+      .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]))
+      .attach('comprobante', jpegBuffer, {
+        filename: 'receipt.jpg',
+        contentType: 'image/jpeg',
       });
+
+    // If Drive is not configured, skip this test (upload fails with 503)
+    if (resPost.statusCode === 503) {
+      console.warn('Skipping online pedido edit test — Drive not configured');
+      return;
+    }
+
     expect(resPost.statusCode).toBe(201);
     const pedidoOnline = resPost.body.data;
 
@@ -821,6 +832,58 @@ describe('Caja cancelled payment block (integration)', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+// B7: Public vs caja payment method tests
+
+describe('B7: Public route rejects efectivo; caja accepts both', () => {
+  it('POST /api/pedidos with efectivo returns 400', async () => {
+    const res = await request(app)
+      .post('/api/pedidos')
+      .field('nombre_cliente', `${RUN_ID}-B7-PUBLIC-EFECTIVO`)
+      .field('metodo_pago', 'efectivo')
+      .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]));
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error.toLowerCase()).toContain('efectivo');
+  });
+
+  it('POST /api/admin/pedidos/caja with efectivo returns 201', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-EFECTIVO`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.metodo_pago).toBe('efectivo');
+  });
+
+  it('POST /api/admin/pedidos/caja with transferencia returns 201', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFER`,
+        metodo_pago: 'transferencia',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.metodo_pago).toBe('transferencia');
+  });
+
+  afterAll(async () => {
+    await limpiarPedidosDeTest();
   });
 });
 

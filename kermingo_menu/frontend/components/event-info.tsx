@@ -1,30 +1,58 @@
-import { Calendar, MapPin, Clock } from 'lucide-react'
+import { Calendar, Clock, MapPin, Tent } from 'lucide-react'
+import { EVENTO } from '@/lib/evento'
 
 export function EventInfo() {
   const items = [
-    { icon: Calendar, label: 'Cuándo', value: 'Sábado 20 de junio', sub: '2026 · Día de la Bandera' },
-    { icon: Clock, label: 'Horario', value: 'Desde las 18:00', sub: 'Hasta el cierre del bingo' },
-    { icon: MapPin, label: 'Dónde', value: 'Echeverría 3920', sub: 'Sede del Grupo Scout' },
+    {
+      icon: Calendar,
+      label: 'Cuándo',
+      value: EVENTO.fecha,
+      sub: EVENTO.efemeride,
+    },
+    {
+      icon: Clock,
+      label: 'Horario',
+      value: EVENTO.horario,
+      sub: `Entrada anticipada ${EVENTO.entradaAnticipada} · En puerta ${EVENTO.entradaEnPuerta}`,
+    },
+    {
+      icon: MapPin,
+      label: 'Dónde',
+      value: EVENTO.direccion,
+      sub: `Sede del ${EVENTO.organizador}`,
+    },
   ]
 
   return (
-    <section className="px-4 mt-8 max-w-md mx-auto">
-      <div className="bg-white rounded-3xl shadow-md shadow-[#003B73]/5 border border-[#75AADB]/15 overflow-hidden">
-        {items.map((item, i) => (
-          <div
-            key={item.label}
-            className={`flex items-center gap-4 p-4 ${i !== items.length - 1 ? 'border-b border-[#EEF5FF]' : ''}`}
-          >
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#75AADB]/25 to-[#75AADB]/10 flex items-center justify-center flex-shrink-0">
-              <item.icon className="w-6 h-6 text-[#003B73]" strokeWidth={2.2} />
+    <section className="mt-12 px-4 sm:mt-14">
+      <div className="mx-auto max-w-xl">
+        <div className="divide-y divide-[#75AADB]/25 border-y border-[#75AADB]/25">
+          {items.map((item) => (
+            <div key={item.label} className="flex items-center gap-4 py-4">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-[#75AADB]/15">
+                <item.icon className="h-5 w-5 text-[#003B73]" strokeWidth={2.2} />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-[#3A5675]">{item.label}</p>
+                <p className="font-display text-lg font-bold leading-tight text-[#003B73]">
+                  {item.value}
+                </p>
+                <p className="text-sm text-[#3A5675]">{item.sub}</p>
+              </div>
             </div>
-            <div className="flex-1">
-              <p className="text-[10px] uppercase tracking-[0.12em] text-[#75AADB] font-bold">{item.label}</p>
-              <p className="font-bold text-[#003B73] text-lg leading-tight">{item.value}</p>
-              <p className="text-[#6B7280] text-sm">{item.sub}</p>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        {/* Bloque institucional scout, sutil */}
+        <div className="mt-4 flex items-start gap-3 rounded-2xl bg-[#003B73] px-4 py-3.5">
+          <Tent className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#F6B21A]" strokeWidth={2.4} />
+          <p className="text-sm leading-relaxed text-white/90 text-pretty">
+            Organizado por la Tropa Raider{' '}
+            <span className="font-semibold text-white">&quot;{EVENTO.raider.tropa}&quot;</span> y la
+            Comunidad Raider{' '}
+            <span className="font-semibold text-white">&quot;{EVENTO.raider.comunidad}&quot;</span>.
+          </p>
+        </div>
       </div>
     </section>
   )

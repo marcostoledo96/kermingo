@@ -16,9 +16,9 @@ export default function KermingoLanding() {
       <main className="pb-10">
         <CTAButtons />
         <EventInfo />
+        <BingoTeaser />
         <Activities />
         <DisguiseNote />
-        <BingoTeaser />
       </main>
 
       <Footer />

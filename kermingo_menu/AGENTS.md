@@ -38,7 +38,7 @@ Kermingo es un sistema web para un evento scout recaudatorio del campamento de v
 
 - Nombre visible: **Kermingo**
 - Fecha del evento: **20 de junio de 2026**
-- Dirección: **Echeverría 3920**
+- Dirección: **Estomba 1980**
 - Temática: Argentina, Mundial de fútbol, Día de la Bandera, bingo, kermesse y toque scout sutil.
 - Organizan: Grupo Scout San Patricio, Tropa Raider “Compañía de Jesús” y Comunidad Raider “Fortaleza de María”.
 - Evento con venta de comida/bebida, bingo, kermesse, tradeo de figuritas y concurso de disfraces.

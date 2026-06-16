@@ -71,6 +71,16 @@ describe('Configuración — CSRF con origin middleware real', () => {
     expect(res.body.ok).toBe(true);
   });
 
+  it('PUT con Origin LAN http://192.168.0.34:3000 en desarrollo → 200', async () => {
+    const res = await request(app)
+      .put('/api/admin/configuracion-tienda')
+      .set('Origin', 'http://192.168.0.34:3000')
+      .send({ estado: 'abierta' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
   it('PUT con Origin http://evil.com → 403 (CSRF bloquea origen no confiable)', async () => {
     const res = await request(app)
       .put('/api/admin/configuracion-tienda')

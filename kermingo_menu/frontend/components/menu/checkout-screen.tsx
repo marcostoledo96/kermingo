@@ -5,12 +5,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ClipboardCheck,
-  Banknote,
   ArrowLeftRight,
   Copy,
   Check,
   UploadCloud,
-  FileText,
+  FileCheck2,
   X,
   Wallet,
   ArrowLeft,
@@ -22,10 +21,10 @@ import { formatPrice } from '@/lib/products'
 import { useCart } from './cart-context'
 import { MenuHeader } from './menu-header'
 import { ProductIconGlyph } from './product-visual'
-import { apiPost, apiPostForm, ApiError } from '@/lib/api'
+import { apiPostForm, ApiError } from '@/lib/api'
 import { mapPedido } from '@/lib/mappers'
 import type { ApiPedido } from '@/lib/types'
-import type { LastOrder, PaymentMethod } from '@/lib/products'
+import type { LastOrder } from '@/lib/products'
 
 const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
   { label: 'Nombre completo', value: 'Guadalupe Sofía Hryb Alvarez' },
@@ -42,7 +41,6 @@ const LAST_TOKEN_KEY = 'kermingo:lastToken'
 export function CheckoutScreen() {
   const router = useRouter()
   const { items, count, total, clear } = useCart()
-  const [method, setMethod] = useState<PaymentMethod>('transferencia')
   const [copied, setCopied] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -56,7 +54,7 @@ export function CheckoutScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const nameComplete = name.trim().length >= 2
-  const receiptComplete = method === 'efectivo' || receipt !== null
+  const receiptComplete = receipt !== null
   const canConfirm = nameComplete && receiptComplete && !submitting
 
   const handleCopy = async (value: string) => {
@@ -79,7 +77,7 @@ export function CheckoutScreen() {
       mesa: table.trim() || undefined,
       telefono_cliente: whatsapp.trim() || undefined,
       observaciones: notes.trim() || undefined,
-      metodo_pago: method,
+      metodo_pago: 'transferencia' as const,
       items: items.map((i) => ({
         producto_id: Number(i.product.id),
         cantidad: i.qty,
@@ -87,22 +85,18 @@ export function CheckoutScreen() {
     }
 
     try {
-      let pedido: ReturnType<typeof mapPedido>
-      if (method === 'transferencia' && receipt) {
-        const form = new FormData()
-        form.append('nombre_cliente', payload.nombre_cliente)
-        if (payload.mesa) form.append('mesa', payload.mesa)
-        if (payload.telefono_cliente) form.append('telefono_cliente', payload.telefono_cliente)
-        if (payload.observaciones) form.append('observaciones', payload.observaciones)
-        form.append('metodo_pago', payload.metodo_pago)
-        form.append('items', JSON.stringify(payload.items))
+      const form = new FormData()
+      form.append('nombre_cliente', payload.nombre_cliente)
+      if (payload.mesa) form.append('mesa', payload.mesa)
+      if (payload.telefono_cliente) form.append('telefono_cliente', payload.telefono_cliente)
+      if (payload.observaciones) form.append('observaciones', payload.observaciones)
+      form.append('metodo_pago', payload.metodo_pago)
+      form.append('items', JSON.stringify(payload.items))
+      if (receipt) {
         form.append('comprobante', receipt)
-        const raw = await apiPostForm<ApiPedido>('/api/pedidos', form)
-        pedido = mapPedido(raw)
-      } else {
-        const raw = await apiPost<ApiPedido>('/api/pedidos', payload)
-        pedido = mapPedido(raw)
       }
+      const raw = await apiPostForm<ApiPedido>('/api/pedidos', form)
+      const pedido = mapPedido(raw)
 
       const lastOrder: LastOrder = {
         id: pedido.id,
@@ -140,21 +134,21 @@ export function CheckoutScreen() {
 
   if (items.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col bg-[#EEF5FF]">
+      <div className="flex min-h-screen flex-col bg-[var(--km-fondo)]">
         <MenuHeader backHref="/carrito" backLabel="Volver al carrito" showCart={false} />
         <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-sm">
-            <ClipboardCheck className="h-9 w-9 text-[#75AADB]" strokeWidth={1.6} />
+            <ClipboardCheck className="h-9 w-9 text-[var(--km-celeste)]" strokeWidth={1.6} />
           </div>
           <div className="space-y-1">
-            <h1 className="text-xl font-extrabold text-[#003B73]">No hay nada para confirmar</h1>
-            <p className="text-sm leading-relaxed text-[#6B7280] text-pretty">
+            <h1 className="text-xl font-extrabold text-[var(--km-azul)]">No hay nada para confirmar</h1>
+            <p className="text-sm leading-relaxed text-[var(--km-tinta-suave)] text-pretty">
               Agregá productos al carrito antes de finalizar tu pedido.
             </p>
           </div>
           <Link
             href="/menu"
-            className="mt-1 rounded-2xl bg-[#F6B21A] px-7 py-3.5 text-base font-extrabold text-[#003B73] shadow-lg shadow-[#F6B21A]/30 transition-all hover:bg-[#ffbe2e] active:scale-[0.99]"
+            className="km-focus mt-1 rounded-2xl bg-[var(--km-dorado)] px-7 py-3.5 text-base font-extrabold text-[var(--km-azul)] shadow-lg shadow-[var(--km-dorado)]/30 transition-all hover:bg-[#ffbe2e] active:scale-[0.99]"
           >
             Ver menú
           </Link>
@@ -164,68 +158,78 @@ export function CheckoutScreen() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#EEF5FF]">
+    <div className="flex min-h-screen flex-col bg-[var(--km-fondo)]">
       <MenuHeader backHref="/carrito" backLabel="Volver al carrito" showCart={false} />
 
       <main className="mx-auto w-full max-w-xl flex-1 px-4 pb-4">
         <section className="flex items-center gap-2.5 pt-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#003B73]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--km-azul)]">
             <ClipboardCheck className="h-5 w-5 text-white" strokeWidth={2.2} />
           </div>
           <div className="leading-tight">
-            <h1 className="text-2xl font-extrabold tracking-tight text-[#003B73]">
+            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--km-azul)]">
               Confirmá tu pedido
             </h1>
-            <span className="text-sm font-medium text-[#6B7280]">No necesitás registrarte</span>
+            <span className="text-sm font-medium text-[var(--km-tinta-suave)]">
+              Pedido para retirar en el mostrador
+            </span>
           </div>
         </section>
 
-        {/* Resumen del pedido */}
-        <section className="mt-5 overflow-hidden rounded-3xl bg-white shadow-sm shadow-[#003B73]/5">
+        {/* Paso 1: Resumen del pedido */}
+        <section className="mt-5 overflow-hidden km-panel">
           <div className="flex items-center justify-between px-5 pt-4">
-            <h2 className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">
-              Resumen del pedido
+            <h2 className="flex items-center gap-1.5 text-sm font-bold text-[var(--km-azul)]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--km-azul)] text-xs font-extrabold text-white km-tabular">
+                1
+              </span>
+              Tu pedido
             </h2>
             <Link
               href="/carrito"
-              className="text-xs font-bold text-[#003B73] underline-offset-2 hover:underline"
+              className="text-xs font-bold text-[var(--km-azul)] underline-offset-2 hover:underline"
             >
               Editar
             </Link>
           </div>
-          <ul className="mt-3 divide-y divide-dashed divide-[#75AADB]/25 px-5">
+          <ul className="mt-3 divide-y divide-dashed divide-[var(--km-linea)] px-5">
             {items.map((item) => (
               <li key={item.product.id} className="flex items-center gap-3 py-3">
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#EEF5FF] text-[#003B73]">
-                  <ProductIconGlyph icon={item.product.icon} className="h-5 w-5" strokeWidth={2} />
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--km-fondo)] text-[var(--km-azul)]">
+                  <ProductIconGlyph icon={item.product.icon} className="h-4.5 w-4.5" strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-[#003B73]">{item.product.name}</p>
-                  <p className="text-xs text-[#6B7280]">
+                  <p className="truncate text-sm font-bold text-[var(--km-azul)]">{item.product.name}</p>
+                  <p className="text-xs text-[var(--km-tinta-suave)]">
                     {item.qty} × {formatPrice(item.product.price)}
                   </p>
                 </div>
-                <span className="text-sm font-bold text-[#003B73]">
+                <span className="text-sm font-bold text-[var(--km-azul)] km-tabular">
                   {formatPrice(item.qty * item.product.price)}
                 </span>
               </li>
             ))}
           </ul>
-          <div className="flex items-end justify-between bg-[#003B73] px-5 py-4">
+          <div className="flex items-end justify-between bg-[var(--km-azul)] px-5 py-3.5">
             <span className="text-sm font-medium text-white/80">
               Total · {count} {count === 1 ? 'producto' : 'productos'}
             </span>
-            <span className="text-2xl font-extrabold leading-none text-[#F6B21A]">
+            <span className="text-2xl font-extrabold leading-none text-[var(--km-dorado)] km-tabular">
               {formatPrice(total)}
             </span>
           </div>
         </section>
 
-        {/* Formulario */}
-        <section className="mt-5 rounded-3xl bg-white p-5 shadow-sm shadow-[#003B73]/5">
-          <h2 className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Tus datos</h2>
+        {/* Paso 2: Tus datos */}
+        <section className="mt-4 km-panel p-5">
+          <h2 className="flex items-center gap-1.5 text-sm font-bold text-[var(--km-azul)]">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--km-azul)] text-xs font-extrabold text-white km-tabular">
+              2
+            </span>
+            Tus datos
+          </h2>
           <form className="mt-3 space-y-3.5" onSubmit={(e) => e.preventDefault()}>
-            <Field label="Nombre y apellido" required>
+            <Field label="Nombre y apellido" required error={!nameComplete && name.length > 0 ? 'Escribí al menos 2 caracteres' : undefined}>
               <input
                 type="text"
                 required
@@ -234,6 +238,7 @@ export function CheckoutScreen() {
                 placeholder="Cómo te buscamos al entregar"
                 className="kermingo-input"
                 disabled={submitting}
+                autoFocus
               />
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -273,150 +278,147 @@ export function CheckoutScreen() {
           </form>
         </section>
 
-        {/* Método de pago */}
-        <section className="mt-5">
-          <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-[#6B7280]">
-            Método de pago
+        {/* Paso 3: Cómo pagás — solo transferencia */}
+        <section className="mt-4">
+          <h2 className="flex items-center gap-1.5 px-1 text-sm font-bold text-[var(--km-azul)]">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--km-azul)] text-xs font-extrabold text-white km-tabular">
+              3
+            </span>
+            Cómo pagás
           </h2>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <PaymentOption
-              active={method === 'transferencia'}
-              onClick={() => !submitting && setMethod('transferencia')}
-              icon={<ArrowLeftRight className="h-6 w-6" strokeWidth={2.2} />}
-              title="Transferencia"
-              subtitle="Subís el comprobante"
-            />
-            <PaymentOption
-              active={method === 'efectivo'}
-              onClick={() => !submitting && setMethod('efectivo')}
-              icon={<Banknote className="h-6 w-6" strokeWidth={2.2} />}
-              title="Efectivo"
-              subtitle="Al retirar el pedido"
-            />
+          <div className="mt-3">
+            <div className="km-panel flex items-center gap-3 p-4">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--km-azul)] text-white">
+                <ArrowLeftRight className="h-6 w-6" strokeWidth={2.2} />
+              </div>
+              <div>
+                <p className="text-sm font-extrabold text-[var(--km-azul)]">Transferencia bancaria</p>
+                <p className="text-xs text-[var(--km-tinta-suave)]">Subí el comprobante y te lo verificamos</p>
+              </div>
+            </div>
           </div>
 
-          {method === 'transferencia' ? (
-            <div className="mt-4 space-y-4">
-              <div className="rounded-3xl border border-[#75AADB]/30 bg-white p-5 shadow-sm shadow-[#003B73]/5">
-                <div className="flex items-center gap-2">
-                  <Wallet className="h-4.5 w-4.5 text-[#003B73]" strokeWidth={2.2} />
-                  <h3 className="text-sm font-extrabold text-[#003B73]">Datos para transferir</h3>
-                </div>
-                <dl className="mt-3 space-y-2.5">
-                  {BANK_DETAILS.map((d) => (
-                    <div key={d.label} className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9CA3AF]">
-                          {d.label}
-                        </dt>
-                        <dd className="truncate text-sm font-semibold text-[#003B73]">{d.value}</dd>
-                      </div>
-                      {d.copyable && (
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(d.value)}
-                          aria-label={`Copiar ${d.label}`}
-                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#EEF5FF] text-[#003B73] transition-colors hover:bg-[#75AADB]/25"
-                        >
-                          {copied === d.value ? (
-                            <Check className="h-4 w-4 text-emerald-600" strokeWidth={2.6} />
-                          ) : (
-                            <Copy className="h-4 w-4" strokeWidth={2.2} />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </dl>
+          <div className="mt-4 space-y-3">
+            {/* Datos bancarios */}
+            <div className="km-panel p-4">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4.5 w-4.5 text-[var(--km-azul)]" strokeWidth={2.2} />
+                <h3 className="text-sm font-bold text-[var(--km-azul)]">Datos para transferir</h3>
               </div>
-
-              <div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="sr-only"
-                  onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
-                  disabled={submitting}
-                />
-                {receipt ? (
-                  <div className="flex items-center gap-3 rounded-3xl border border-[#75AADB]/30 bg-white p-4 shadow-sm shadow-[#003B73]/5">
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#EEF5FF] text-[#003B73]">
-                      <FileText className="h-5 w-5" strokeWidth={2.2} />
+              <p className="mt-1 text-xs text-[var(--km-tinta-suave)]">
+                Copiá los datos y hacé la transferencia. Luego subí el comprobante.
+              </p>
+              <dl className="mt-3 space-y-2">
+                {BANK_DETAILS.map((d) => (
+                  <div key={d.label} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] font-medium tracking-wide text-[var(--km-tinta-suave)]">
+                        {d.label}
+                      </dt>
+                      <dd className="truncate text-sm font-semibold text-[var(--km-azul)] km-tabular">{d.value}</dd>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-[#003B73]">{receipt.name}</p>
-                      <p className="text-xs text-[#6B7280]">Comprobante adjuntado</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (submitting) return
-                        setReceipt(null)
-                        if (fileInputRef.current) fileInputRef.current.value = ''
-                      }}
-                      aria-label="Quitar comprobante"
-                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#EEF5FF] text-[#6B7280] transition-colors hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      <X className="h-4 w-4" strokeWidth={2.4} />
-                    </button>
+                    {d.copyable && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(d.value)}
+                        aria-label={`Copiar ${d.label}`}
+                        className="km-focus flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--km-fondo)] text-[var(--km-azul)] transition-colors hover:bg-[var(--km-celeste)]/25"
+                      >
+                        {copied === d.value ? (
+                          <Check className="h-4 w-4 text-[var(--km-listo-text)]" strokeWidth={2.6} />
+                        ) : (
+                          <Copy className="h-4 w-4" strokeWidth={2.2} />
+                        )}
+                      </button>
+                    )}
                   </div>
-                ) : (
+                ))}
+              </dl>
+            </div>
+
+            {/* Upload de comprobante */}
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="sr-only"
+                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                disabled={submitting}
+              />
+              {receipt ? (
+                <div className="km-panel flex items-center gap-3 p-4">
+                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
+                    <FileCheck2 className="h-5 w-5" strokeWidth={2.2} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-[var(--km-azul)]">{receipt.name}</p>
+                    <p className="text-xs text-[var(--km-listo-text)]">Comprobante adjuntado ✓</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={submitting}
-                    className="flex w-full flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-[#75AADB]/50 bg-white/60 px-4 py-7 text-center transition-colors hover:border-[#003B73]/40 hover:bg-white disabled:opacity-60"
+                    onClick={() => {
+                      if (submitting) return
+                      setReceipt(null)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }}
+                    aria-label="Quitar comprobante"
+                    className="km-focus flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--km-fondo)] text-[var(--km-tinta-suave)] transition-colors hover:bg-[var(--km-peligro-bg)] hover:text-[var(--km-peligro-text)]"
                   >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#003B73]">
-                      <UploadCloud className="h-6 w-6" strokeWidth={2.2} />
-                    </div>
-                    <span className="text-sm font-extrabold text-[#003B73]">
-                      Subir comprobante
-                    </span>
-                    <span className="text-xs text-[#6B7280]">
-                      El comprobante puede ser imagen o PDF
-                    </span>
+                    <X className="h-4 w-4" strokeWidth={2.4} />
                   </button>
-                )}
-              </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={submitting}
+                  className="km-focus flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-[var(--km-celeste)]/50 bg-white/60 px-4 py-7 text-center transition-colors hover:border-[var(--km-azul)]/40 hover:bg-white disabled:opacity-60"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--km-fondo)] text-[var(--km-azul)]">
+                    <UploadCloud className="h-6 w-6" strokeWidth={2.2} />
+                  </div>
+                  <span className="text-sm font-bold text-[var(--km-azul)]">
+                    Subir comprobante
+                  </span>
+                  <span className="text-xs text-[var(--km-tinta-suave)]">
+                    Imagen o PDF de la transferencia
+                  </span>
+                </button>
+              )}
             </div>
-          ) : (
-            <div className="mt-4 flex items-start gap-3 rounded-3xl border border-[#F6B21A]/40 bg-[#FFF6E0] p-4">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#F6B21A]/20 text-[#9A6B00]">
-                <Banknote className="h-5 w-5" strokeWidth={2.2} />
-              </div>
-              <div>
-                <p className="text-sm font-extrabold text-[#7A5500]">Pago en efectivo</p>
-                <p className="text-sm leading-relaxed text-[#7A5500]/80">
-                  Pagás en caja cuando retires tu pedido.
-                </p>
-              </div>
+
+            {/* Aviso de validación */}
+            <div className="flex items-start gap-2.5 rounded-xl bg-[var(--km-preparando-bg)] px-4 py-3">
+              <AlertCircle className="mt-0.5 h-4.5 w-4.5 flex-shrink-0 text-[var(--km-preparando-text)]" strokeWidth={2.2} />
+              <p className="text-xs leading-relaxed text-[var(--km-preparando-text)]">
+                El pago queda pendiente hasta que verifiquemos el comprobante. Te avisamos en el seguimiento.
+              </p>
             </div>
-          )}
+          </div>
         </section>
 
         {/* Error de envío */}
         {submitError && (
           <div
             role="alert"
-            className="mt-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+            className="mt-4 flex items-start gap-2 rounded-xl border border-[var(--km-peligro-text)]/30 bg-[var(--km-peligro-bg)] p-3 text-sm text-[var(--km-peligro-text)]"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <p>{submitError}</p>
           </div>
         )}
 
-        <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-[#6B7280]">
+        <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-[var(--km-tinta-suave)]">
           <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.2} />
           Pedido sin registro · confirmás en segundos
         </div>
       </main>
 
-      <div className="sticky bottom-0 z-40 border-t border-[#75AADB]/20 bg-white/95 backdrop-blur-md">
+      <div className="sticky bottom-0 z-40 border-t border-[var(--km-linea)] bg-white/95 backdrop-blur-md km-safe-bottom">
         <div className="mx-auto max-w-xl space-y-2.5 px-4 pb-5 pt-4">
           {!canConfirm && !submitting && (
-            <p className="text-center text-xs font-medium text-[#9A6B00]">
+            <p className="text-center text-xs font-medium text-[var(--km-preparando-text)]">
               {!nameComplete
                 ? 'Completá tu nombre para confirmar'
                 : 'Adjuntá el comprobante de transferencia'}
@@ -427,11 +429,11 @@ export function CheckoutScreen() {
             onClick={handleConfirm}
             disabled={!canConfirm}
             aria-disabled={!canConfirm}
-            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-extrabold transition-all ${
+            className={`km-focus flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-extrabold transition-all ${
               submitting
-                ? 'cursor-wait bg-[#F6B21A]/70 text-[#003B73]'
+                ? 'cursor-wait bg-[var(--km-dorado)]/70 text-[var(--km-azul)]'
                 : canConfirm
-                  ? 'bg-[#F6B21A] text-[#003B73] shadow-lg shadow-[#F6B21A]/30 hover:bg-[#ffbe2e] active:scale-[0.99]'
+                  ? 'bg-[var(--km-dorado)] text-[var(--km-azul)] shadow-lg shadow-[var(--km-dorado)]/30 hover:bg-[#ffbe2e] active:scale-[0.99]'
                   : 'cursor-not-allowed bg-[#E2E8F0] text-[#94A3B8] shadow-none'
             }`}
           >
@@ -446,7 +448,7 @@ export function CheckoutScreen() {
           </button>
           <Link
             href="/carrito"
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#75AADB]/40 bg-white py-3.5 text-sm font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]"
+            className="km-focus flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--km-linea)] bg-white py-3.5 text-sm font-bold text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={2.6} />
             Volver al carrito
@@ -461,73 +463,30 @@ function Field({
   label,
   required,
   hint,
+  error,
   children,
 }: {
   label: string
   required?: boolean
   hint?: string
+  error?: string
   children: React.ReactNode
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-[#003B73]">
+      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-[var(--km-azul)]">
         {label}
-        {required && <span className="text-rose-500">*</span>}
+        {required && <span className="text-[var(--km-peligro-text)]">*</span>}
         {hint && (
-          <span className="text-xs font-medium uppercase tracking-wide text-[#9CA3AF]">
+          <span className="text-xs font-medium text-[var(--km-tinta-suave)]">
             {hint}
           </span>
         )}
       </span>
       {children}
-    </label>
-  )
-}
-
-function PaymentOption({
-  active,
-  onClick,
-  icon,
-  title,
-  subtitle,
-}: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  title: string
-  subtitle: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`relative flex flex-col items-start gap-2 rounded-3xl border-2 p-4 text-left transition-all active:scale-[0.98] ${
-        active
-          ? 'border-[#003B73] bg-[#003B73] shadow-lg shadow-[#003B73]/20'
-          : 'border-[#75AADB]/30 bg-white hover:border-[#75AADB]/60'
-      }`}
-    >
-      <span
-        className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-          active ? 'bg-[#F6B21A] text-[#003B73]' : 'bg-[#EEF5FF] text-[#003B73]'
-        }`}
-      >
-        {icon}
-      </span>
-      <span className="leading-tight">
-        <span className={`block text-sm font-extrabold ${active ? 'text-white' : 'text-[#003B73]'}`}>
-          {title}
-        </span>
-        <span className={`block text-xs ${active ? 'text-white/70' : 'text-[#6B7280]'}`}>
-          {subtitle}
-        </span>
-      </span>
-      {active && (
-        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-[#F6B21A] text-[#003B73]">
-          <Check className="h-3 w-3" strokeWidth={3} />
-        </span>
+      {error && (
+        <p className="mt-1 text-xs font-medium text-[var(--km-peligro-text)]">{error}</p>
       )}
-    </button>
+    </label>
   )
 }

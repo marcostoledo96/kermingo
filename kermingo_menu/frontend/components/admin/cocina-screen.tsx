@@ -1,164 +1,234 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChefHat,
   Clock,
-  Banknote,
-  ArrowRightLeft,
   CheckCircle2,
-  XCircle,
-  Utensils,
-  PackageCheck,
   RefreshCw,
   Hash,
   MapPin,
+  AlertCircle,
+  Radio,
+  ArrowRight,
+  Eye,
+  MoreHorizontal,
+  Flame,
+  Bell,
+  CircleDot,
+  CircleCheck,
+  CircleX,
 } from 'lucide-react'
-import { formatPrice, type ProductIcon } from '@/lib/products'
-import { ProductIconGlyph } from '@/components/menu/product-visual'
-import { AdminHeader } from './admin-header'
-import { Badge, type BadgeTone, SectionTitle, AdminFooter } from './admin-ui'
+import { AdminShell } from './admin-shell'
+import { EstadoBadge, SectionTitle } from './admin-ui'
+import type { EstadoVisual } from './admin-ui'
+import { apiGet, apiPatch, ApiError } from '@/lib/api'
+import { useApiResource } from '@/lib/use-api-resource'
+import {
+  type CocinaPedido,
+  type OrderStatus,
+  apiToCocinaOrder,
+  mapOrderStatus,
+  orderStatusToApi,
+} from '@/lib/admin'
+import type {
+  ApiCocinaPedido,
+  ApiPedido,
+} from '@/lib/types'
 
 /* ---------------------------------------------------------------------------
- * Pantalla de Cocina / Entrega — solo frontend con datos demo.
- * Permite ver qué falta preparar y a quién entregar.
+ * Estado visual para KDS — mapea OrderStatus a EstadoBadge + icon + borde
+ * -------------------------------------------------------------------------
+ * Cada estado tiene:
+ *   - estadoVisual → token de color Kermingo (no Tailwind default)
+ *   - icono       → distinción visual que no depende solo del color
+ *   - borde       → banda lateral izquierda (left-border) que refuerza el estado
+ *   - label       → texto legible
  * ------------------------------------------------------------------------- */
 
-type OrderStatus = 'recibido' | 'preparacion' | 'listo' | 'entregado' | 'cancelado'
-type PayMethod = 'efectivo' | 'transferencia'
-type PayStatus = 'pendiente' | 'pagado'
+type KdsColumn = 'recibido' | 'preparacion' | 'listo'
 
-type OrderLine = {
-  name: string
-  icon: ProductIcon
-  qty: number
-  price: number
-}
-
-type Order = {
-  id: string
-  code: string
-  customer: string
-  table?: string
-  method: PayMethod
-  payStatus: PayStatus
-  status: OrderStatus
-  time: string
-  lines: OrderLine[]
-}
-
-const INITIAL_ORDERS: Order[] = [
+const KDS_COLUMNS: {
+  id: KdsColumn
+  label: string
+  estado: EstadoVisual
+  icon: typeof Clock
+  borderClass: string
+  headerClass: string
+}[] = [
   {
-    id: 'o1',
-    code: 'KMG-1042',
-    customer: 'Sofía Pérez',
-    table: '7',
-    method: 'transferencia',
-    payStatus: 'pagado',
-    status: 'recibido',
-    time: '20:42',
-    lines: [
-      { name: 'Pizza muzza', icon: 'pizza', qty: 2, price: 3500 },
-      { name: 'Coca Cola', icon: 'soda', qty: 2, price: 2000 },
-    ],
+    id: 'recibido',
+    label: 'Recibidos',
+    estado: 'informacion',
+    icon: CircleDot,
+    borderClass: 'border-l-[3px] border-l-[var(--km-info-text)]',
+    headerClass: 'bg-[var(--km-info-bg)] text-[var(--km-info-text)]',
   },
   {
-    id: 'o2',
-    code: 'KMG-1043',
-    customer: 'Martín Gómez',
-    method: 'efectivo',
-    payStatus: 'pendiente',
-    status: 'recibido',
-    time: '20:44',
-    lines: [
-      { name: 'Panchos', icon: 'sandwich', qty: 3, price: 2500 },
-      { name: 'Nuggets', icon: 'drumstick', qty: 1, price: 3000 },
-    ],
+    id: 'preparacion',
+    label: 'En preparación',
+    estado: 'preparando',
+    icon: Flame,
+    borderClass: 'border-l-[3px] border-l-[var(--km-preparando-text)]',
+    headerClass: 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]',
   },
   {
-    id: 'o3',
-    code: 'KMG-1039',
-    customer: 'Lucía Fernández',
-    table: '3',
-    method: 'transferencia',
-    payStatus: 'pagado',
-    status: 'preparacion',
-    time: '20:35',
-    lines: [
-      { name: 'Pizza napolitana', icon: 'pizza', qty: 1, price: 3800 },
-      { name: 'Pizza muzza', icon: 'pizza', qty: 1, price: 3500 },
-      { name: 'Agua mineral', icon: 'water', qty: 2, price: 1500 },
-    ],
-  },
-  {
-    id: 'o4',
-    code: 'KMG-1040',
-    customer: 'Diego Ramírez',
-    table: '12',
-    method: 'efectivo',
-    payStatus: 'pendiente',
-    status: 'preparacion',
-    time: '20:37',
-    lines: [
-      { name: 'Combo cena', icon: 'combo', qty: 2, price: 6500 },
-    ],
-  },
-  {
-    id: 'o5',
-    code: 'KMG-1036',
-    customer: 'Valentina Ruiz',
-    method: 'transferencia',
-    payStatus: 'pagado',
-    status: 'listo',
-    time: '20:28',
-    lines: [
-      { name: 'Chocotorta', icon: 'cake', qty: 2, price: 2500 },
-      { name: 'Café', icon: 'coffee', qty: 2, price: 1500 },
-    ],
-  },
-  {
-    id: 'o6',
-    code: 'KMG-1030',
-    customer: 'Tomás Díaz',
-    table: '5',
-    method: 'efectivo',
-    payStatus: 'pagado',
-    status: 'entregado',
-    time: '20:15',
-    lines: [
-      { name: 'Medialunas', icon: 'croissant', qty: 4, price: 1600 },
-      { name: 'Mate cocido', icon: 'coffee', qty: 2, price: 1200 },
-    ],
+    id: 'listo',
+    label: 'Listos',
+    estado: 'listo',
+    icon: Bell,
+    borderClass: 'border-l-[3px] border-l-[var(--km-listo-text)]',
+    headerClass: 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]',
   },
 ]
 
-const STATUS_META: Record<OrderStatus, { label: string; tone: BadgeTone }> = {
-  recibido: { label: 'Recibido', tone: 'info' },
-  preparacion: { label: 'En preparación', tone: 'warning' },
-  listo: { label: 'Listo', tone: 'success' },
-  entregado: { label: 'Entregado', tone: 'neutral' },
-  cancelado: { label: 'Cancelado', tone: 'danger' },
-}
+/* Mobile tabs — same data, tab-based */
+type TabId = 'recibido' | 'preparacion' | 'listo' | 'entregado'
 
-type TabId = OrderStatus | 'todos'
-
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'recibido', label: 'Recibidos' },
-  { id: 'preparacion', label: 'En preparación' },
-  { id: 'listo', label: 'Listos' },
-  { id: 'entregado', label: 'Entregados' },
-  { id: 'todos', label: 'Todos' },
+const TABS: { id: TabId; label: string; estado: EstadoVisual; icon: typeof Clock }[] = [
+  { id: 'recibido', label: 'Recibidos', estado: 'informacion', icon: CircleDot },
+  { id: 'preparacion', label: 'Preparando', estado: 'preparando', icon: Flame },
+  { id: 'listo', label: 'Listos', estado: 'listo', icon: Bell },
+  { id: 'entregado', label: 'Entregados', estado: 'entregado', icon: CircleCheck },
 ]
+
+const POLL_INTERVAL_MS = 10_000
+
+/* ---- Status visual mapping for OrderCard ---- */
+const CARD_STATUS_VISUAL: Record<
+  OrderStatus,
+  {
+    estado: EstadoVisual
+    icon: typeof Clock
+    borderClass: string
+    bannerClass: string
+    bannerIcon: typeof Clock
+    label: string
+  }
+> = {
+  recibido: {
+    estado: 'informacion',
+    icon: CircleDot,
+    borderClass: 'border-l-[3px] border-l-[var(--km-info-text)]',
+    bannerClass: 'bg-[var(--km-info-bg)] text-[var(--km-info-text)]',
+    bannerIcon: CircleDot,
+    label: 'Recibido',
+  },
+  preparacion: {
+    estado: 'preparando',
+    icon: Flame,
+    borderClass: 'border-l-[3px] border-l-[var(--km-preparando-text)]',
+    bannerClass: 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]',
+    bannerIcon: Flame,
+    label: 'En preparación',
+  },
+  listo: {
+    estado: 'listo',
+    icon: Bell,
+    borderClass: 'border-l-[3px] border-l-[var(--km-listo-text)]',
+    bannerClass: 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]',
+    bannerIcon: Bell,
+    label: 'Listo',
+  },
+  entregado: {
+    estado: 'entregado',
+    icon: CircleCheck,
+    borderClass: 'border-l-[3px] border-l-[var(--km-entregado-text)]',
+    bannerClass: 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]',
+    bannerIcon: CircleCheck,
+    label: 'Entregado',
+  },
+  cancelado: {
+    estado: 'cancelado',
+    icon: CircleX,
+    borderClass: 'border-l-[3px] border-l-[var(--km-peligro-text)]',
+    bannerClass: 'bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]',
+    bannerIcon: CircleX,
+    label: 'Cancelado',
+  },
+}
 
 export function CocinaScreen() {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS)
   const [tab, setTab] = useState<TabId>('recibido')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actingId, setActingId] = useState<string | null>(null)
+  const [cancelMenuOpenId, setCancelMenuOpenId] = useState<string | null>(null)
 
-  function setStatus(id: string, status: OrderStatus) {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, status } : o)),
+  const isMutatingRef = useRef(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [lastSync, setLastSync] = useState<Date | null>(null)
+
+  const {
+    data: orders,
+    loading,
+    refreshing,
+    error: loadError,
+    refetch,
+    setData: setOrders,
+  } = useApiResource<CocinaPedido[]>(async () => {
+    const headers = await apiGet<ApiCocinaPedido[]>('/api/admin/cocina/pedidos')
+    const ordersWithItems = await Promise.all(
+      headers.map(async (h) => {
+        try {
+          const full = await apiGet<ApiPedido>(`/api/admin/cocina/pedidos/${h.id}`)
+          return apiToCocinaOrder(h, full.items)
+        } catch {
+          return apiToCocinaOrder(h, [])
+        }
+      }),
     )
-  }
+    setLastSync(new Date())
+    return ordersWithItems
+  })
+
+  /** Safe refetch: skips the network call while a mutation is in-flight,
+   *  so `useApiResource` never persists an empty-array placeholder. */
+  const safeRefetch = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (isMutatingRef.current) return
+      return refetch(opts)
+    },
+    [refetch],
+  )
+
+  // Polling lifecycle (unchanged)
+  useEffect(() => {
+    const start = () => {
+      if (intervalRef.current) return
+      intervalRef.current = setInterval(() => {
+        safeRefetch({ silent: true })
+      }, POLL_INTERVAL_MS)
+    }
+    const stop = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        safeRefetch({ silent: true })
+        start()
+      } else {
+        stop()
+      }
+    }
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Close cancel menu when clicking outside
+  useEffect(() => {
+    if (!cancelMenuOpenId) return
+    const handler = () => setCancelMenuOpenId(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [cancelMenuOpenId])
 
   const counts = useMemo(() => {
     const c: Record<TabId, number> = {
@@ -166,28 +236,48 @@ export function CocinaScreen() {
       preparacion: 0,
       listo: 0,
       entregado: 0,
-      cancelado: 0,
-      todos: orders.length,
     }
-    orders.forEach((o) => {
-      c[o.status] += 1
+    orders?.forEach((o) => {
+      if (o.status === 'recibido' || o.status === 'preparacion' || o.status === 'listo' || o.status === 'entregado') {
+        c[o.status] += 1
+      }
     })
     return c
   }, [orders])
 
+  const columnOrders = useMemo(() => {
+    const map: Record<KdsColumn, CocinaPedido[]> = {
+      recibido: [],
+      preparacion: [],
+      listo: [],
+    }
+    ;(orders ?? []).forEach((o) => {
+      if (o.status === 'recibido') map.recibido.push(o)
+      else if (o.status === 'preparacion') map.preparacion.push(o)
+      else if (o.status === 'listo') map.listo.push(o)
+    })
+    return map
+  }, [orders])
+
   const visibleOrders = useMemo(() => {
-    if (tab === 'todos') return orders
+    if (!orders) return []
+    if (tab === 'entregado') return orders.filter((o) => o.status === 'entregado' || o.status === 'cancelado')
     return orders.filter((o) => o.status === tab)
   }, [orders, tab])
 
-  // Productos pendientes: agrupar líneas de pedidos en cocina (recibidos + en preparación).
+  // Productos pendientes: líneas de pedidos activos (recibidos + en preparación)
   const pending = useMemo(() => {
-    const active = orders.filter(
+    const active = (orders ?? []).filter(
       (o) => o.status === 'recibido' || o.status === 'preparacion',
     )
     const map = new Map<
       string,
-      { name: string; icon: ProductIcon; qty: number; orders: string[] }
+      {
+        name: string
+        icon: NonNullable<typeof orders>[number]['lines'][number]['icon']
+        qty: number
+        orders: string[]
+      }
     >()
     active.forEach((o) => {
       o.lines.forEach((l) => {
@@ -208,265 +298,513 @@ export function CocinaScreen() {
     return Array.from(map.values()).sort((a, b) => b.qty - a.qty)
   }, [orders])
 
-  return (
-    <div className="min-h-screen bg-[#EEF5FF]">
-      <AdminHeader
-        section="Cocina / Entrega"
-        backHref="/admin/dashboard"
-        backLabel="Volver al panel"
-        status={{ label: 'En vivo', tone: 'success' }}
-      />
+  async function advance(id: string, next: 'preparacion' | 'listo' | 'entregado') {
+    if (isMutatingRef.current) return
+    isMutatingRef.current = true
+    setActingId(id)
+    setActionError(null)
+    const apiStatus = orderStatusToApi(next)
+    try {
+      await apiPatch(`/api/admin/cocina/pedidos/${id}/estado`, {
+        estado_pedido: apiStatus,
+      })
+      setOrders((prev) =>
+        (prev ?? []).map((o) =>
+          o.id === id ? { ...o, status: mapOrderStatus(apiStatus) } : o,
+        ),
+      )
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError ? err.message : 'No se pudo actualizar el estado',
+      )
+    } finally {
+      isMutatingRef.current = false
+      setActingId(null)
+    }
+  }
 
-      {/* Aviso de actualización */}
+  async function cancelOrder(id: string) {
+    if (!window.confirm('¿Cancelar el pedido? Se repondrá el stock.')) return
+    if (isMutatingRef.current) return
+    isMutatingRef.current = true
+    setActingId(id)
+    setActionError(null)
+    setCancelMenuOpenId(null)
+    try {
+      await apiPatch(`/api/admin/pedidos/${id}/cancelar`, {})
+      setOrders((prev) => (prev ?? []).filter((o) => o.id !== id))
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError ? err.message : 'No se pudo cancelar el pedido',
+      )
+    } finally {
+      isMutatingRef.current = false
+      setActingId(null)
+    }
+  }
+
+  const hasActiveOrders = (orders ?? []).some(
+    (o) => o.status === 'recibido' || o.status === 'preparacion' || o.status === 'listo',
+  )
+
+  return (
+    <AdminShell
+      section="Cocina / Entrega"
+      status={{ label: liveLabel(lastSync, refreshing), tone: 'success' }}
+    >
+
+      {/* Sync bar */}
       <div className="border-b border-[#75AADB]/20 bg-white/70">
-        <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 text-xs font-medium text-[#003B73]/60">
-          <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.4} />
-          Se actualiza cada 10 segundos
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-2 text-xs font-medium text-[#003B73]/60">
+          <span className="flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5" strokeWidth={2.4} />
+            {refreshing ? 'Sincronizando…' : 'Se actualiza cada 10 segundos'}
+          </span>
+          <button
+            onClick={() => safeRefetch({ silent: true })}
+            disabled={refreshing}
+            title="Refrescar ahora"
+            aria-label="Refrescar"
+            className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[#75AADB]/30 bg-white text-[#003B73] transition-colors hover:bg-[#EEF5FF] disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} strokeWidth={2.4} />
+          </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="sticky top-[57px] z-30 border-b border-[#75AADB]/20 bg-[#EEF5FF]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-3">
-          {TABS.map((t) => {
-            const active = tab === t.id
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-colors ${
-                  active
-                    ? 'bg-[#003B73] text-white shadow-sm'
-                    : 'border border-[#75AADB]/40 bg-white text-[#003B73] hover:bg-white'
-                }`}
-              >
-                {t.label}
+      {/* Error banners — use Kermingo tokens instead of red-50/red-700 */}
+      {actionError && (
+        <div className="mx-auto mt-3 max-w-7xl px-4">
+          <div className="flex items-start gap-2.5 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-4 py-3 text-sm text-[var(--km-peligro-text)]">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+            <span className="flex-1 font-medium">{actionError}</span>
+            <button
+              onClick={() => setActionError(null)}
+              className="km-focus rounded-lg border border-[var(--km-peligro-text)]/20 bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="mx-auto mt-3 max-w-7xl px-4">
+          <div className="flex items-start gap-2.5 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-4 py-3 text-sm text-[var(--km-peligro-text)]">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+            <span className="flex-1 font-medium">{loadError}</span>
+            <button
+              onClick={() => refetch()}
+              className="km-focus rounded-lg border border-[var(--km-peligro-text)]/20 bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Productos pendientes strip — above everything, more useful ── */}
+      {pending.length > 0 && (
+        <div className="border-b border-[var(--km-preparando-bg)] bg-[var(--km-preparando-bg)]/60">
+          <div className="mx-auto max-w-7xl px-4 py-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-[var(--km-preparando-text)]">
+              <Flame className="h-4 w-4" strokeWidth={2.4} />
+              <span>Para preparar</span>
+              <span className="km-tabular">{pending.reduce((s, p) => s + p.qty, 0)} ítems en {pending.length} productos</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pending.slice(0, 12).map((p) => (
                 <span
-                  className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-extrabold ${
-                    active ? 'bg-[#F6B21A] text-[#003B73]' : 'bg-[#EEF5FF] text-[#003B73]'
+                  key={p.name}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--km-preparando-text)]/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73]"
+                >
+                  <span className="km-tabular font-extrabold text-[var(--km-preparando-text)]">{p.qty}×</span>
+                  <span className="max-w-[140px] truncate">{p.name}</span>
+                </span>
+              ))}
+              {pending.length > 12 && (
+                <span className="inline-flex items-center rounded-lg border border-[#75AADB]/20 bg-white px-2.5 py-1.5 text-xs font-medium text-[#003B73]/60">
+                  +{pending.length - 12} más
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DESKTOP: KDS board — columns by state ── */}
+      <div className="hidden lg:block">
+        <div className="mx-auto max-w-7xl px-4 py-5">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
+              <p className="text-sm font-semibold text-[#003B73]/60">Cargando pedidos…</p>
+            </div>
+          ) : !hasActiveOrders && (orders ?? []).every((o) => o.status === 'entregado' || o.status === 'cancelado') ? (
+            <EmptyState />
+          ) : (
+            <div className="grid grid-cols-3 gap-4">
+              {KDS_COLUMNS.map((col) => {
+                const colOrders = columnOrders[col.id]
+                return (
+                  <div key={col.id} className="flex flex-col">
+                    {/* Column header with state icon + count */}
+                    <div className={`flex items-center gap-2 rounded-t-lg px-4 py-2.5 font-bold text-sm ${col.headerClass}`}>
+                      <col.icon className="h-4 w-4" strokeWidth={2.4} />
+                      <span>{col.label}</span>
+                      <span className="km-tabular ml-auto rounded-full bg-white/50 px-2 py-0.5 text-xs font-extrabold">
+                        {colOrders.length}
+                      </span>
+                    </div>
+
+                    {/* Column body */}
+                    <div className="min-h-[200px] flex-1 rounded-b-lg border border-t-0 border-[#75AADB]/15 bg-white/80">
+                      {colOrders.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+                          <col.icon className="h-6 w-6 text-[#75AADB]/40" strokeWidth={1.8} />
+                          <p className="text-xs font-medium text-[#003B73]/40">
+                            Sin pedidos
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 p-3">
+                          {colOrders.map((order) => (
+                            <KdsOrderCard
+                              key={order.id}
+                              order={order}
+                              acting={actingId === order.id}
+                              onAdvance={(s) => advance(order.id, s)}
+                              onCancel={() => cancelOrder(order.id)}
+                              cancelMenuOpen={cancelMenuOpenId === order.id}
+                              onCancelMenuToggle={() =>
+                                setCancelMenuOpenId(cancelMenuOpenId === order.id ? null : order.id)
+                              }
+                              onCancelMenuClose={() => setCancelMenuOpenId(null)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Entregados/Cancelados collapsed at bottom on desktop */}
+          {(orders ?? []).some((o) => o.status === 'entregado' || o.status === 'cancelado') && (
+            <details className="mt-4">
+              <summary className="km-focus cursor-pointer select-none rounded-lg border border-[#75AADB]/15 bg-white/60 px-4 py-2.5 text-xs font-bold text-[#003B73]/50 hover:bg-white">
+                <span className="flex items-center gap-2">
+                  <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Pedidos cerrados ({(orders ?? []).filter((o) => o.status === 'entregado' || o.status === 'cancelado').length})
+                </span>
+              </summary>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {(orders ?? [])
+                  .filter((o) => o.status === 'entregado' || o.status === 'cancelado')
+                  .map((order) => (
+                    <KdsOrderCard
+                      key={order.id}
+                      order={order}
+                      acting={false}
+                      onAdvance={() => {}}
+                      onCancel={() => {}}
+                      cancelMenuOpen={false}
+                      onCancelMenuToggle={() => {}}
+                      onCancelMenuClose={() => {}}
+                    />
+                  ))}
+              </div>
+            </details>
+          )}
+        </div>
+      </div>
+
+      {/* ── MOBILE: tabs with improved state cards ── */}
+      <div className="lg:hidden">
+        {/* Tabs */}
+        <div className="sticky top-[57px] z-30 border-b border-[#75AADB]/20 bg-[#EEF5FF]/95 backdrop-blur">
+          <div className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto px-3 py-2.5">
+            {TABS.map((t) => {
+              const active = tab === t.id
+              const col = KDS_COLUMNS.find((c) => c.id === t.id)
+              const headerClass = col?.headerClass ?? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  aria-label={`${t.label}: ${counts[t.id]}`}
+                  className={`km-focus flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+                    active
+                      ? `${headerClass} shadow-sm`
+                      : 'border border-[#75AADB]/30 bg-white text-[#003B73]/70 hover:bg-[#EEF5FF]'
                   }`}
                 >
-                  {counts[t.id]}
-                </span>
-              </button>
-            )
-          })}
+                  <t.icon className="h-3.5 w-3.5" strokeWidth={2.4} />
+                  {t.label}
+                  <span
+                    className={`km-tabular ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-extrabold ${
+                      active ? 'bg-white/40' : 'bg-[#EEF5FF] text-[#003B73]/50'
+                    }`}
+                  >
+                    {counts[t.id]}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
-      <div className="mx-auto max-w-6xl px-4 py-5 lg:grid lg:grid-cols-[1fr_320px] lg:gap-6">
-        {/* Columna de pedidos */}
-        <main>
-          {visibleOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EEF5FF]">
-                <ChefHat className="h-7 w-7 text-[#75AADB]" strokeWidth={2} />
-              </div>
-              <p className="text-sm font-semibold text-[#003B73]/60">
-                No hay pedidos en este estado.
-              </p>
+        {/* Mobile: pending products strip (always visible if active) */}
+        {pending.length > 0 && (
+          <div className="border-b border-[var(--km-preparando-bg)]/40 bg-white/60 px-3 py-2">
+            <SectionTitle>Para preparar ahora</SectionTitle>
+            <div className="flex flex-wrap gap-1.5">
+              {pending.slice(0, 8).map((p) => (
+                <span
+                  key={p.name}
+                  className="inline-flex items-center gap-1 rounded-md border border-[#75AADB]/20 bg-white px-2 py-1 text-[11px] font-semibold text-[#003B73]"
+                >
+                  <span className="km-tabular font-extrabold text-[var(--km-preparando-text)]">{p.qty}×</span>
+                  <span className="max-w-[100px] truncate">{p.name}</span>
+                </span>
+              ))}
+              {pending.length > 8 && (
+                <span className="inline-flex items-center rounded-md border border-[#75AADB]/15 bg-white px-2 py-1 text-[11px] font-medium text-[#003B73]/50">
+                  +{pending.length - 8}
+                </span>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* Mobile: order list */}
+        <div className="mx-auto max-w-6xl px-3 py-4">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
+              <p className="text-sm font-semibold text-[#003B73]/60">Cargando pedidos…</p>
+            </div>
+          ) : visibleOrders.length === 0 ? (
+            <EmptyState />
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-3">
               {visibleOrders.map((order) => (
-                <OrderCard key={order.id} order={order} onSetStatus={setStatus} />
+                <KdsOrderCard
+                  key={order.id}
+                  order={order}
+                  acting={actingId === order.id}
+                  onAdvance={(s) => advance(order.id, s)}
+                  onCancel={() => cancelOrder(order.id)}
+                  cancelMenuOpen={cancelMenuOpenId === order.id}
+                  onCancelMenuToggle={() =>
+                    setCancelMenuOpenId(cancelMenuOpenId === order.id ? null : order.id)
+                  }
+                  onCancelMenuClose={() => setCancelMenuOpenId(null)}
+                />
               ))}
             </div>
           )}
-        </main>
-
-        {/* Productos pendientes */}
-        <aside className="mt-8 lg:mt-0">
-          <div className="lg:sticky lg:top-40">
-            <SectionTitle>Productos pendientes</SectionTitle>
-            <div className="overflow-hidden rounded-2xl border border-[#75AADB]/20 bg-white shadow-sm">
-              {pending.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                  <PackageCheck className="h-7 w-7 text-emerald-500" strokeWidth={2} />
-                  <p className="text-sm font-medium text-[#003B73]/60">
-                    Nada pendiente de preparar.
-                  </p>
-                </div>
-              ) : (
-                <ul className="divide-y divide-[#75AADB]/10">
-                  {pending.map((p) => (
-                    <li key={p.name} className="flex items-center gap-3 px-4 py-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF5FF] text-[#003B73]">
-                        <ProductIconGlyph icon={p.icon} className="h-5 w-5" strokeWidth={2} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-[#003B73]">
-                          {p.name}
-                        </p>
-                        <p className="truncate text-xs font-medium text-[#003B73]/50">
-                          {p.orders.join(' · ')}
-                        </p>
-                      </div>
-                      <span className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-[#003B73] px-2 text-base font-extrabold text-[#F6B21A]">
-                        {p.qty}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </aside>
+        </div>
       </div>
-
-      <AdminFooter />
-    </div>
+    </AdminShell>
   )
 }
 
-// --- Card individual de pedido ---
-
-function OrderCard({
+/* ── KDS Order Card ──
+ * Each card has:
+ * 1. Left border colored by state (not just a badge)
+ * 2. State banner with icon + text (not color-only)
+ * 3. Cancel hidden in a "more" menu (doesn't compete with advance actions)
+ */
+function KdsOrderCard({
   order,
-  onSetStatus,
+  acting,
+  onAdvance,
+  onCancel,
+  cancelMenuOpen,
+  onCancelMenuToggle,
+  onCancelMenuClose: _onCancelMenuClose,
 }: {
-  order: Order
-  onSetStatus: (id: string, status: OrderStatus) => void
+  order: CocinaPedido
+  acting: boolean
+  onAdvance: (s: 'preparacion' | 'listo' | 'entregado') => void
+  onCancel: () => void
+  cancelMenuOpen: boolean
+  onCancelMenuToggle: () => void
+  onCancelMenuClose: () => void
 }) {
-  const statusMeta = STATUS_META[order.status]
+  const sv = CARD_STATUS_VISUAL[order.status]
   const isClosed = order.status === 'entregado' || order.status === 'cancelado'
+  const canCancel = order.status === 'recibido' || order.status === 'preparacion'
+
+  // Determine next action based on current status
+  const nextAction =
+    order.status === 'recibido'
+      ? { label: 'Empezar', next: 'preparacion' as const, icon: Flame }
+      : order.status === 'preparacion'
+        ? { label: 'Marcar listo', next: 'listo' as const, icon: Bell }
+        : order.status === 'listo'
+          ? { label: 'Entregado', next: 'entregado' as const, icon: CheckCircle2 }
+          : null
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border-2 border-[#75AADB]/20 bg-white shadow-sm">
-      {/* Encabezado */}
-      <div className="flex items-start justify-between gap-2 border-b border-[#75AADB]/15 px-4 py-3">
-        <div>
-          <div className="flex items-center gap-1.5 text-lg font-extrabold leading-none text-[#003B73]">
-            <Hash className="h-4 w-4 text-[#75AADB]" strokeWidth={2.6} />
-            {order.code.replace('KMG-', '')}
+    <div className={`km-panel overflow-hidden ${sv.borderClass}`}>
+      {/* State banner — icon + label + payment, not color-only */}
+      <div className={`flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-bold ${sv.bannerClass}`}>
+        <span className="flex items-center gap-1.5">
+          <sv.bannerIcon className="h-3.5 w-3.5" strokeWidth={2.4} />
+          {sv.label}
+        </span>
+        <span className="flex items-center gap-1.5">
+          {order.payStatus === 'pendiente' && (
+            <EstadoBadge estado="pagoPendiente">Pago pendiente</EstadoBadge>
+          )}
+          {order.payStatus === 'pagado' && (
+            <EstadoBadge estado="listo">Pagado</EstadoBadge>
+          )}
+        </span>
+      </div>
+
+      {/* Order header: code, customer, time */}
+      <div className="px-3 pt-2.5 pb-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 font-mono text-base font-extrabold leading-none text-[#003B73] km-tabular">
+              <Hash className="h-3.5 w-3.5 text-[#75AADB]" strokeWidth={2.6} />
+              {order.code.replace('KMG-', '')}
+            </div>
+            <p className="mt-1 truncate text-sm font-bold text-[#003B73]">{order.customer}</p>
           </div>
-          <p className="mt-1 text-sm font-bold text-[#003B73]">{order.customer}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-[#003B73]/55">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" strokeWidth={2.4} />
-              {order.time}
-            </span>
-            {order.table && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" strokeWidth={2.4} />
-                Mesa {order.table}
-              </span>
-            )}
-            <span className="flex items-center gap-1">
-              {order.method === 'efectivo' ? (
-                <Banknote className="h-3.5 w-3.5" strokeWidth={2.4} />
-              ) : (
-                <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={2.4} />
+          {/* Cancel menu — subtle, doesn't compete */}
+          {canCancel && !isClosed && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCancelMenuToggle()
+                }}
+                aria-label="Más acciones"
+                className="km-focus flex h-7 w-7 items-center justify-center rounded-md border border-[#75AADB]/20 text-[#003B73]/40 hover:bg-[#EEF5FF] hover:text-[#003B73]/70"
+              >
+                <MoreHorizontal className="h-4 w-4" strokeWidth={2.2} />
+              </button>
+              {cancelMenuOpen && (
+                <div className="absolute right-0 top-8 z-20 w-36 rounded-lg border border-[var(--km-peligro-bg)] bg-white shadow-lg">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCancel()
+                    }}
+                    className="km-focus flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+                  >
+                    <CircleX className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    Cancelar pedido
+                  </button>
+                </div>
               )}
-              {order.method === 'efectivo' ? 'Efectivo' : 'Transfer.'}
-            </span>
-          </div>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <Badge tone={statusMeta.tone} uppercase dot>
-            {statusMeta.label}
-          </Badge>
-          <Badge tone={order.payStatus === 'pagado' ? 'success' : 'danger'}>
-            {order.payStatus === 'pagado' ? 'Pagado' : 'Pago pendiente'}
-          </Badge>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-medium text-[#003B73]/50">
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" strokeWidth={2.4} />
+            <span className="km-tabular">{order.time}</span>
+          </span>
+          {order.table && (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3 w-3" strokeWidth={2.4} />
+              Mesa {order.table}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Productos */}
-      <ul className="flex-1 space-y-1.5 px-4 py-3">
-        {order.lines.map((l) => (
-          <li key={l.name} className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#EEF5FF] text-[#003B73]">
-              <ProductIconGlyph icon={l.icon} className="h-4 w-4" strokeWidth={2.2} />
-            </span>
-            <span className="flex h-6 min-w-6 items-center justify-center rounded-md bg-[#003B73] px-1.5 text-sm font-extrabold text-white">
-              {l.qty}
-            </span>
-            <span className="flex-1 text-sm font-semibold text-[#003B73]">
-              {l.name}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {/* Observations — uses Kermingo tokens, not amber-50/amber-700 */}
+      {order.observations && (
+        <div className="mx-3 mt-1.5 flex items-start gap-2 rounded-lg bg-[var(--km-preparando-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-preparando-text)]">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
+          <span>Nota: {order.observations}</span>
+        </div>
+      )}
 
-      {/* Botones de acción */}
-      <div className="border-t border-[#75AADB]/15 bg-[#EEF5FF]/40 p-3">
+      {/* Product lines */}
+      <div className="px-3 py-2">
+        {order.lines.length === 0 ? (
+          <p className="text-xs font-medium text-[#003B73]/35">Sin productos</p>
+        ) : (
+          <ul className="space-y-1">
+            {order.lines.map((l) => (
+              <li key={`${l.name}-${l.qty}`} className="flex items-center gap-2">
+                <span className="km-tabular flex h-5 min-w-5 items-center justify-center rounded bg-[#003B73]/10 px-1 text-[11px] font-extrabold text-[#003B73]">
+                  {l.qty}
+                </span>
+                <span className="flex-1 truncate text-xs font-semibold text-[#003B73]">
+                  {l.name}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Action area */}
+      <div className="border-t border-[#75AADB]/10 px-3 py-2">
         {isClosed ? (
-          <div className="flex items-center justify-center gap-2 py-1 text-sm font-bold text-[#003B73]/55">
+          <div className="flex items-center justify-center gap-1.5 py-0.5 text-[11px] font-bold text-[#003B73]/40">
             {order.status === 'entregado' ? (
               <>
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" strokeWidth={2.4} />
-                Pedido entregado
+                <CircleCheck className="h-3.5 w-3.5 text-[var(--km-entregado-text)]" strokeWidth={2.4} />
+                Entregado
               </>
             ) : (
               <>
-                <XCircle className="h-4 w-4 text-red-500" strokeWidth={2.4} />
-                Pedido cancelado
+                <CircleX className="h-3.5 w-3.5 text-[var(--km-peligro-text)]" strokeWidth={2.4} />
+                Cancelado
               </>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            <ActionButton
-              active={order.status === 'preparacion'}
-              icon={Utensils}
-              label="En preparación"
-              onClick={() => onSetStatus(order.id, 'preparacion')}
-            />
-            <ActionButton
-              active={order.status === 'listo'}
-              icon={PackageCheck}
-              label="Listo"
-              onClick={() => onSetStatus(order.id, 'listo')}
-            />
-            <ActionButton
-              icon={CheckCircle2}
-              label="Entregado"
-              tone="primary"
-              onClick={() => onSetStatus(order.id, 'entregado')}
-            />
-            <ActionButton
-              icon={XCircle}
-              label="Cancelar"
-              tone="danger"
-              onClick={() => onSetStatus(order.id, 'cancelado')}
-            />
-          </div>
-        )}
+        ) : nextAction ? (
+          <button
+            type="button"
+            onClick={() => onAdvance(nextAction.next)}
+            disabled={acting}
+            className="km-focus flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#003B73] py-2 text-xs font-bold text-white transition-colors hover:bg-[#003B73]/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <nextAction.icon className="h-3.5 w-3.5" strokeWidth={2.4} />
+            {nextAction.label}
+            <ArrowRight className="h-3 w-3" strokeWidth={2.4} />
+          </button>
+        ) : null}
       </div>
     </div>
   )
 }
 
-function ActionButton({
-  icon: Icon,
-  label,
-  onClick,
-  active = false,
-  tone = 'default',
-}: {
-  icon: typeof Utensils
-  label: string
-  onClick: () => void
-  active?: boolean
-  tone?: 'default' | 'primary' | 'danger'
-}) {
-  const base =
-    'flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-colors'
-  const styles =
-    tone === 'primary'
-      ? 'bg-[#F6B21A] text-[#003B73] hover:bg-[#ffbe2e]'
-      : tone === 'danger'
-        ? 'border border-red-200 bg-white text-red-600 hover:bg-red-50'
-        : active
-          ? 'border-2 border-[#003B73] bg-[#003B73] text-white'
-          : 'border border-[#75AADB]/40 bg-white text-[#003B73] hover:bg-[#EEF5FF]'
-
+/* ── Empty state ── */
+function EmptyState() {
   return (
-    <button type="button" onClick={onClick} className={`${base} ${styles}`}>
-      <Icon className="h-4 w-4" strokeWidth={2.4} />
-      {label}
-    </button>
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#75AADB]/40 bg-white/60 py-16 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--km-entregado-bg)]">
+        <ChefHat className="h-7 w-7 text-[var(--km-entregado-text)]" strokeWidth={1.8} />
+      </div>
+      <p className="text-sm font-semibold text-[#003B73]/50">
+        Sin pedidos en este estado.
+      </p>
+      <p className="text-xs font-medium text-[#003B73]/35">
+        Los pedidos nuevos aparecerán automáticamente.
+      </p>
+    </div>
   )
+}
+
+/* ── Live label helper (unchanged logic) ── */
+function liveLabel(lastSync: Date | null, refreshing: boolean): string {
+  if (refreshing) return 'Sincronizando…'
+  if (!lastSync) return 'En vivo'
+  const hh = String(lastSync.getHours()).padStart(2, '0')
+  const mm = String(lastSync.getMinutes()).padStart(2, '0')
+  return `En vivo · ${hh}:${mm}`
 }

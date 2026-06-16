@@ -10,18 +10,14 @@ export class ApiError extends Error {
   }
 }
 
-const STORAGE_KEY = 'kermingo:auth'
+/**
+ * Called by admin session provider when a 401 is detected.
+ * Modules can register a callback to clear local state and redirect.
+ */
+let onUnauthorizedCallback: (() => void) | null = null
 
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { token?: string }
-    return parsed?.token ?? null
-  } catch {
-    return null
-  }
+export function setOnUnauthorized(cb: (() => void) | null) {
+  onUnauthorizedCallback = cb
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -56,12 +52,14 @@ function buildUrl(path: string, query?: Record<string, string | number | undefin
   return qs ? `${base}${cleanPath}?${qs}` : `${base}${cleanPath}`
 }
 
-function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = getAuthToken()
-  if (token && token !== 'cookie') {
-    return { ...extra, Authorization: `Bearer ${token}` }
+/**
+ * Handle 401 responses by triggering the unauthorized callback.
+ * This clears local session state and redirects to login.
+ */
+function handle401(status: number) {
+  if (status === 401 && onUnauthorizedCallback) {
+    onUnauthorizedCallback()
   }
-  return extra
 }
 
 export async function apiGet<T>(
@@ -71,8 +69,9 @@ export async function apiGet<T>(
   const res = await fetch(buildUrl(path, query), {
     method: 'GET',
     credentials: 'include',
-    headers: authHeaders({ Accept: 'application/json' }),
+    headers: { Accept: 'application/json' },
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }
 
@@ -80,12 +79,13 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method: 'POST',
     credentials: 'include',
-    headers: authHeaders({
+    headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-    }),
+    },
     body: JSON.stringify(body),
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }
 
@@ -93,9 +93,10 @@ export async function apiPostForm<T>(path: string, formData: FormData): Promise<
   const res = await fetch(buildUrl(path), {
     method: 'POST',
     credentials: 'include',
-    headers: authHeaders({ Accept: 'application/json' }),
+    headers: { Accept: 'application/json' },
     body: formData,
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }
 
@@ -103,12 +104,13 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method: 'PUT',
     credentials: 'include',
-    headers: authHeaders({
+    headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-    }),
+    },
     body: JSON.stringify(body),
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }
 
@@ -116,12 +118,13 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method: 'PATCH',
     credentials: 'include',
-    headers: authHeaders({
+    headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-    }),
+    },
     body: JSON.stringify(body),
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }
 
@@ -129,7 +132,8 @@ export async function apiDelete<T>(path: string): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method: 'DELETE',
     credentials: 'include',
-    headers: authHeaders({ Accept: 'application/json' }),
+    headers: { Accept: 'application/json' },
   })
+  handle401(res.status)
   return parseJson<T>(res)
 }

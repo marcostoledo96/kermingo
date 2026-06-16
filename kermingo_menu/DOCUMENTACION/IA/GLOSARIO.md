@@ -33,7 +33,7 @@
 | **estado_pedido** | ENUM de MySQL con valores: `recibido`, `en_preparacion`, `listo`, `entregado`, `cancelado`. Ver `CORE.md` sección 1. |
 | **estado_pago** | ENUM de MySQL con valores: `pendiente`, `comprobante_subido`, `pagado`, `rechazado`. Ver `CORE.md` sección 2. |
 | **origen** | ENUM de MySQL en `pedido`: `'online'` (pedido del visitante) o `'caja'` (pedido creado por admin). Determina permisos de edición. |
-| **metodo_pago** | ENUM de MySQL: `'transferencia'` o `'efectivo'`. Online permite ambos: efectivo (JSON) o transferencia (multipart con comprobante). Caja permite ambos. |
+| **metodo_pago** | ENUM de MySQL: `'transferencia'` o `'efectivo'`. Online permite solo transferencia con comprobante; caja permite ambos. |
 | **respuestaExitosa** | Utilidad en `respuesta.utils.js` que formatea respuestas como `{ ok: true, data, message }`. |
 | **respuestaError** | Utilidad en `respuesta.utils.js` que formatea errores como `{ ok: false, error }`. En dev incluye `stack`. |
 | **AppError** | Clase base de errores personalizados en `errors.js`. Tiene `statusCode` y `esOperacional`. |

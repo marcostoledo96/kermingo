@@ -85,7 +85,7 @@ transferencia:
 
 **Reglas:**
 - Pedidos online con `metodo_pago: 'transferencia'` requieren archivo comprobante (multipart/form-data).
-- Pedidos online con `metodo_pago: 'efectivo'` no deben incluir comprobante.
+- Cualquier intento de usar efectivo en el endpoint online se rechaza con 400. Efectivo solo está disponible desde caja rápida (admin).
 - El archivo se sube a Google Drive ANTES de la transacción DB. Si Drive falla → 503, no se crea pedido.
 - Si la transacción DB falla después del upload exitoso, el archivo queda huérfano en Drive (aceptable para MVP).
 - Caja rápida puede crear pedido con `estado_pago: 'pagado'` directamente, sin comprobante.
@@ -199,8 +199,8 @@ La función `normalizarTelefono(raw)` en `pedido.model.js`:
 |---|---|---|
 | Endpoint | `POST /api/pedidos` | `POST /api/admin/pedidos/caja` |
 | Auth | No | `requireAdmin` |
-| `metodo_pago` | Solo `'efectivo'` | `'efectivo'` o `'transferencia'` |
-| `estado_pago` inicial | Siempre `'pendiente'` | Puede ser `'pendiente'` o `'pagado'` |
+| `metodo_pago` | Solo `'transferencia'` | `'efectivo'` o `'transferencia'` |
+| `estado_pago` inicial | Siempre `'comprobante_subido'` tras upload válido | Puede ser `'pendiente'` o `'pagado'` |
 | `estado_pedido` inicial | Siempre `'recibido'` | Puede ser `'recibido'`, `'en_preparacion'`, `'listo'` o `'entregado'` |
 | Editable | No (solo seguimiento) | Sí (admin puede editar) |
 

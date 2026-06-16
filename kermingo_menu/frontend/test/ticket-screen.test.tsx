@@ -112,13 +112,13 @@ describe('TicketScreen QR encoding (S1, S2)', () => {
     expect(qr.getAttribute('data-fg-color')).toBe('#003B73')
   })
 
-  it('renders QR at 168px minimum size per spec (S4)', () => {
+  it('renders QR at 176px for better scannability (S4)', () => {
     mockOrderValue = MOCK_ORDER
 
     render(<TicketScreen />)
 
     const qr = screen.getByTestId('qr-code-svg')
-    expect(qr.getAttribute('data-size')).toBe('168')
+    expect(qr.getAttribute('data-size')).toBe('176')
   })
 
   it('renders empty state when no order exists', () => {

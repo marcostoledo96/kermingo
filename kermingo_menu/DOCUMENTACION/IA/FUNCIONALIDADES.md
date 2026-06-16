@@ -29,7 +29,7 @@
 | Ver carta de productos | ✅ | ✅ | `GET /api/productos` |
 | Ver producto individual | ✅ | ✅ | `GET /api/productos/:id` |
 | Ver estado de la tienda | ✅ | ✅ | `GET /api/configuracion-tienda` |
-| Crear pedido online (efectivo o transferencia) | ✅ | — | `POST /api/pedidos` (JSON o multipart) |
+| Crear pedido online (solo transferencia con comprobante) | ✅ | — | `POST /api/pedidos` (multipart) |
 | Seguir pedido por token | ✅ | — | `GET /api/pedidos/seguimiento/:token` |
 | Login | — | ✅ | `POST /api/auth/login` |
 | Logout | — | ✅ | `POST /api/auth/logout` |
@@ -61,9 +61,10 @@
 
 - El visitante ve la carta (`GET /api/productos`) filtrada por categoría y tipo.
 - Agrega items al carrito (localStorage).
-- En checkout, envía `POST /api/pedidos` con `metodo_pago: 'efectivo'`.
+- En checkout, el único método de pago disponible es **transferencia con comprobante**. El cliente debe subir un archivo comprobante (imagen o PDF). El envío usa `apiPostForm` (multipart/form-data) a `POST /api/pedidos`.
 - Recibe un número KMG y un token de seguimiento.
 - Puede seguir su pedido en `/seguimiento` ingresando el token.
+- **Efectivo no está disponible en checkout público.** Solo se usa en caja rápida (admin).
 
 ### Seguimiento de pedido (público)
 
@@ -88,7 +89,7 @@
 
 - Marca pedidos como `pagado` o `rechazado`.
 - Si un pedido online eligió transferencia con comprobante, se crea con `estado_pago=comprobante_subido`. El admin puede aprobar (`comprobante_subido → pagado`) o rechazar (`comprobante_subido → rechazado`) el comprobante.
-- Si un pedido online eligió efectivo, se crea con `estado_pago=pendiente`.
+- Efectivo no existe en el flujo online; si se intenta enviar, el backend responde 400. Las ventas en efectivo se cargan desde caja rápida.
 - Caja rápida puede crear pedidos con `estado_pago='pagado'` directamente.
 - Cambiar `estado_pago` no afecta el stock.
 
@@ -117,4 +118,4 @@
 
 - CRUD completo con activación/desactivación (soft-delete).
 - Ajuste manual de stock.
-- No hay subida de imágenes implementada todavía (campo `imagen_archivo_id` existe pero no se usa).
+- Subida, reemplazo y eliminación de imagen de producto desde admin. El frontend envía `FormData` con campo `imagen` a `POST /api/admin/productos/:id/imagen`; quitar imagen usa `DELETE /api/admin/productos/:id/imagen`.

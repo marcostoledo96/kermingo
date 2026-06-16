@@ -65,7 +65,15 @@
 
 ## 4. Variables de entorno
 
-### Backend (`.env` en `backend/`)
+### Frontend (Vercel)
+
+| Variable | Valor dev | Valor prod | Descripción |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | URL pública del backend en Railway | URL base del backend que consume el frontend (ver `frontend/lib/config.ts`) |
+
+**Template:** `frontend/.env.local.example`.
+
+### Backend (`.env` en `backend/` o vars en Railway)
 
 | Variable | Ambiente | Producción | Descripción |
 |---|---|---|---|---|

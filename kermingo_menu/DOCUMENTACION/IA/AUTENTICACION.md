@@ -144,3 +144,20 @@ La tabla `usuario` tiene campo `activo` (TINYINT) para desactivar cuentas, pero 
 | Origen no permitido | 403 | CSRF failure (origin/referer no coincide) |
 
 Los errores 401 usan `AuthError`; el error 403 de CSRF usa `ForbiddenError`. El frontend trata 401 como "no autenticado" y redirige al login. El 403 indica "prohibido" (origen no confiable).
+
+---
+
+## 9. AdminSessionProvider — Guard de sesión en frontend
+
+**Archivo:** `frontend/components/admin/admin-session.tsx`
+
+El `AdminSessionProvider` envuelve todas las rutas `/admin` y controla qué se renderiza según el estado de la sesión:
+
+| Estado | UI renderizada | Cuándo |
+|---|---|---|
+| `loading` | Spinner "Verificando sesión…" | Inicial, mientras `/api/auth/me` responde |
+| `authenticated` | Children (panel admin completo) | `/api/auth/me` devuelve 200 con usuario válido |
+| `unauthenticated` | Children (login page) | `/api/auth/me` devuelve 401, o cookie ausente |
+| `error` | Pantalla de retry "No se pudo verificar la sesión" | Error de red, 5xx, o respuesta sin usuario |
+
+**Regla crítica:** Los estados `error` y `loading` NO renderizan la UI protegida. Solo `authenticated` la habilita. El usuario en localStorage se muestra como placeholder durante `loading` para evitar parpadeo, pero nunca como prueba de autenticación.
