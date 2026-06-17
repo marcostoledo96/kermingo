@@ -72,13 +72,17 @@ export function MenuScreen() {
 
   const {
     data: storeConfig,
+    loading: storeConfigLoading,
+    error: storeConfigError,
+    refetch: refetchConfig,
   } = useApiResource<ApiConfiguracion>(async () => {
     return apiGet<ApiConfiguracion>('/api/configuracion-tienda')
   })
 
+  const isStoreConfigPending = storeConfigLoading || Boolean(storeConfigError)
   const isStoreClosed = storeConfig?.estado === 'cerrada'
   const isStoreDemo = storeConfig?.estado === 'demo'
-  const isStoreDisabled = isStoreClosed || isStoreDemo
+  const isStoreDisabled = isStoreConfigPending || isStoreClosed || isStoreDemo
   const disabledMessage =
     storeConfig?.mensaje_publico?.trim() ??
     (isStoreClosed ? 'La tienda está cerrada. No se aceptan nuevos pedidos por ahora.' : '')
@@ -126,6 +130,29 @@ export function MenuScreen() {
               <p className="mt-1 text-[#3A5675]">
                 {disabledMessage || (isStoreClosed ? 'No se aceptan nuevos pedidos por ahora.' : 'Podés ver el catálogo para practicar o compartir.')}
               </p>
+            </div>
+          )}
+
+          {isStoreConfigPending && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-2 mb-4 flex flex-col items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              <span>
+                {storeConfigError
+                  ? 'No pudimos verificar si la tienda está abierta. Reintentá.'
+                  : 'Verificando si la tienda está abierta…'}
+              </span>
+              {storeConfigError && (
+                <button
+                  type="button"
+                  onClick={() => refetchConfig()}
+                  className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+                >
+                  Reintentar
+                </button>
+              )}
             </div>
           )}
         </section>

@@ -47,6 +47,14 @@ const ALLOWED_RECEIPT_MIME_TYPES = [
 ]
 const ALLOWED_RECEIPT_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'pdf'])
 
+const RECEIPT_EXTENSION_TO_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+}
+
 export function CheckoutScreen() {
   const router = useRouter()
   const { items, count, total, clear } = useCart()
@@ -101,6 +109,11 @@ export function CheckoutScreen() {
 
     if (!isSupportedType) {
       return 'Formato de comprobante no válido. Sólo se aceptan JPG, JPEG, PNG, WEBP o PDF.'
+    }
+
+    const expectedMime = RECEIPT_EXTENSION_TO_MIME[extension]
+    if (expectedMime && file.type && expectedMime !== file.type.toLowerCase()) {
+      return `La extensión del archivo (${extension}) no coincide con el tipo declarado (${file.type}).`
     }
 
     return null

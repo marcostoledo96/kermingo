@@ -188,6 +188,30 @@ describe('upload.middleware receipt validation (unit)', () => {
   it('rejects unsupported extension even when mimetype is empty', () => {
     expect(() => validateReceiptUploadMetadata({ originalname: 'comprobante.txt', mimetype: '' })).toThrow(ValidationError);
   });
+
+  it('rejects file with mismatched extension and MIME (e.g. .png + image/jpeg)', () => {
+    expect(() =>
+      validateReceiptUploadMetadata({ originalname: 'comprobante.png', mimetype: 'image/jpeg' })
+    ).toThrow(ValidationError);
+  });
+
+  it('accepts .jpg with image/jpeg', () => {
+    expect(() =>
+      validateReceiptUploadMetadata({ originalname: 'comprobante.jpg', mimetype: 'image/jpeg' })
+    ).not.toThrow();
+  });
+
+  it('accepts .jpeg with image/jpeg', () => {
+    expect(() =>
+      validateReceiptUploadMetadata({ originalname: 'comprobante.jpeg', mimetype: 'image/jpeg' })
+    ).not.toThrow();
+  });
+
+  it('rejects .pdf with image/jpeg', () => {
+    expect(() =>
+      validateReceiptUploadMetadata({ originalname: 'comprobante.pdf', mimetype: 'image/jpeg' })
+    ).toThrow(ValidationError);
+  });
 });
 
 // ── archivo.model tests ─────────────────────────────────────

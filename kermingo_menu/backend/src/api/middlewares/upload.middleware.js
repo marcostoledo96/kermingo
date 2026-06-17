@@ -46,6 +46,14 @@ export function validateReceiptUploadMetadata(file) {
   if (file.mimetype && !ALLOWED_MIME_TYPES.includes(file.mimetype)) {
     throw new ValidationError(getSupportedReceiptMimeError(file));
   }
+
+  const extension = getReceiptExtension(file);
+  const expectedMime = ALLOWED_RECEIPT_EXTENSIONS[extension];
+  if (file.mimetype && expectedMime !== file.mimetype) {
+    throw new ValidationError(
+      `La extensión del archivo (${extension}) no coincide con el tipo declarado (${file.mimetype}).`
+    );
+  }
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
