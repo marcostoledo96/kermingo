@@ -26,6 +26,7 @@ import { mapPedido } from '@/lib/mappers'
 import type { ApiConfiguracion, ApiPedido } from '@/lib/types'
 import type { LastOrder } from '@/lib/products'
 import { useApiResource } from '@/lib/use-api-resource'
+import { addMyOrder } from '@/lib/my-orders'
 
 const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
   { label: 'Nombre completo', value: 'Guadalupe Sofía Hryb Alvarez' },
@@ -213,6 +214,11 @@ export function CheckoutScreen() {
       try {
         window.localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(lastOrder))
         window.localStorage.setItem(LAST_TOKEN_KEY, pedido.token)
+        addMyOrder({
+          token: pedido.token,
+          numero: pedido.numero,
+          createdAt: pedido.createdAt,
+        })
       } catch {
         // Almacenamiento no disponible.
       }

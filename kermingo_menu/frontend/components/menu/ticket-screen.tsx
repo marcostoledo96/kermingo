@@ -13,7 +13,6 @@ import {
   CircleSlash,
   Store,
 } from 'lucide-react'
-import { QRCodeSVG } from 'qrcode.react'
 import { formatPrice, type LastOrder, type PedidoEstado } from '@/lib/products'
 import { ProductIconGlyph } from './product-visual'
 import { ArgentinaStripe } from '@/components/argentina-stripe'
@@ -193,35 +192,6 @@ export function TicketScreen() {
           </div>
 
           <Perforation />
-
-          {/* QR protagonista — talón de kermesse */}
-          <div className="flex flex-col items-center px-6 pb-2">
-            <div className="rounded-2xl border-2 border-dashed border-[var(--km-celeste)]/30 bg-white p-4">
-              <div className="flex flex-col items-center">
-                <p className="mb-2 text-[11px] font-bold tracking-wide text-[var(--km-tinta-suave)]">
-                  Escaneá para seguir tu pedido
-                </p>
-                {/* White quiet zone around QR for scannability */}
-                <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
-                  {typeof window !== 'undefined' ? (
-                    <QRCodeSVG
-                      value={`${window.location.origin}/seguimiento?token=${order.token}`}
-                      size={176}
-                      fgColor="#003B73"
-                      bgColor="#FFFFFF"
-                      level="M"
-                      includeMargin={false}
-                    />
-                  ) : (
-                    <div className="h-[176px] w-[176px]" />
-                  )}
-                </div>
-                <p className="mt-2 text-sm font-extrabold tracking-widest text-[var(--km-azul)] km-tabular">
-                  {order.token.slice(0, 12).toUpperCase()}
-                </p>
-              </div>
-            </div>
-          </div>
 
           {/* Dirección y retiro */}
           <div className="flex items-start gap-2.5 border-t border-dashed border-[var(--km-linea)] px-6 py-4">

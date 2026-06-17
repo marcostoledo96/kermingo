@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import type React from 'react'
 
 // --- Mock dependencies before importing ---
 
@@ -27,16 +26,16 @@ vi.mock('@/lib/api', () => ({
 
 // Mock mapPedido
 vi.mock('@/lib/mappers', () => ({
-  mapPedido: vi.fn((data: { token_seguimiento: string }) => ({
-    id: data.token_seguimiento === 'url-abc' ? 1 : 2,
-    numero: 'KMG-0001',
+  mapPedido: vi.fn((data: { token_seguimiento: string; numero?: string }) => ({
+    id: 1,
+    numero: data.numero ?? 'KMG-0001',
     token: data.token_seguimiento,
     name: 'Test',
     createdAt: new Date().toISOString(),
     method: 'efectivo' as const,
     total: 5000,
     count: 2,
-    status: 'recibido' as const,
+    status: 'en_preparacion' as const,
     payment: 'pendiente' as const,
     items: [],
   })),
@@ -55,10 +54,10 @@ vi.mock('@/components/menu/product-visual', () => ({
 
 import { TrackingScreen } from '@/components/menu/tracking-screen'
 
-// Helper: standard API response for a tracked order
 const API_PEDIDO = {
   token_seguimiento: 'url-abc',
-  estado_pedido: 'recibido',
+  numero: 'KMG-0001',
+  estado_pedido: 'en_preparacion',
   estado_pago: 'pendiente',
   metodo_pago: 'efectivo',
 }
@@ -69,120 +68,112 @@ beforeEach(() => {
   mockApiGet.mockReset()
 })
 
-describe('TrackingScreen URL token (S5, S6, S7)', () => {
-  it('auto-fetches order when URL contains ?token= (S5)', async () => {
-    // Set URL token
-    mockGet.mockReturnValue('url-abc')
+/** Helper: persiste un pedido en la lista de este dispositivo */
+function setMyOrders(orders: Array<{ token: string; numero: string; createdAt: string }>) {
+  window.localStorage.setItem('kermingo:myOrders', JSON.stringify(orders))
+}
 
-    // Also store a different token in localStorage to test precedence
-    window.localStorage.setItem('kermingo:lastToken', JSON.stringify('stored-xyz'))
+describe('TrackingScreen — auto-carga desde este celular (S5, S6, S7)', () => {
+  it('muestra loading inicial y luego lista los pedidos del celular sin pedir código (S5)', async () => {
+    // El usuario tiene 2 pedidos guardados en su celular
+    setMyOrders([
+      { token: 'token-1', numero: 'KMG-0001', createdAt: '2026-06-17T18:00:00.000Z' },
+      { token: 'token-2', numero: 'KMG-0002', createdAt: '2026-06-17T19:00:00.000Z' },
+    ])
 
-    mockApiGet.mockResolvedValue(API_PEDIDO)
+    mockApiGet.mockImplementation(async (url: string) => ({
+      ...API_PEDIDO,
+      token_seguimiento: url.split('/').pop(),
+      numero: url.includes('token-1') ? 'KMG-0001' : 'KMG-0002',
+    }))
 
     render(<TrackingScreen />)
 
+    // NO debe mostrar el form de "código de seguimiento" — la queja original del usuario
     await waitFor(() => {
-      // apiGet should have been called with the URL token
-      expect(mockApiGet).toHaveBeenCalledWith(
-        expect.stringContaining('url-abc'),
-      )
+      expect(screen.queryByPlaceholderText(/pegá el código que te llegó al confirmar/i)).toBeNull()
     })
+
+    // Sí debe mostrar la lista de pedidos del dispositivo
+    expect(screen.getByText(/Tus pedidos/i)).toBeTruthy()
+    expect(screen.getAllByText(/KMG-000/).length).toBeGreaterThanOrEqual(2)
+
+    // Las llamadas a la API deben hacerse para cada token
+    expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('token-1'))
+    expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('token-2'))
   })
 
-  it('shows manual input form when no token in URL or localStorage (S6)', () => {
-    mockGet.mockReturnValue(null) // no URL token
-    // No localStorage token either
+  it('muestra form manual cuando el celular no tiene pedidos guardados (S6)', async () => {
+    // No hay pedidos guardados ni URL token
+    mockGet.mockReturnValue(null)
 
     render(<TrackingScreen />)
 
-    // Should show the input form, not order details
-    expect(screen.getByText('Seguí tu pedido')).toBeTruthy()
+    // Debe mostrar el form con placeholder del input
     expect(screen.getByPlaceholderText('Pegá el código que te llegó al confirmar')).toBeTruthy()
-    // Should NOT auto-fetch
+    // No debe llamar a la API
     expect(mockApiGet).not.toHaveBeenCalled()
   })
 
-  it('URL token takes precedence over localStorage token (S7)', async () => {
-    const urlToken = 'url-abc'
-    const storedToken = 'stored-xyz'
-
-    mockGet.mockReturnValue(urlToken)
-    window.localStorage.setItem('kermingo:lastToken', JSON.stringify(storedToken))
+  it('acepta un ?token= en la URL y lo agrega a la lista automáticamente (S7)', async () => {
+    mockGet.mockImplementation((key: string) => (key === 'token' ? 'url-abc' : null))
     mockApiGet.mockResolvedValue(API_PEDIDO)
 
     render(<TrackingScreen />)
 
     await waitFor(() => {
-      // The API should be called with the URL token, NOT the stored one
-      expect(mockApiGet).toHaveBeenCalledWith(
-        expect.stringContaining(urlToken),
-      )
-      expect(mockApiGet).not.toHaveBeenCalledWith(
-        expect.stringContaining(storedToken),
-      )
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('url-abc'))
     })
+
+    // El token de la URL debe quedar persistido para próximas visitas
+    const persisted = window.localStorage.getItem('kermingo:myOrders')
+    expect(persisted).toBeTruthy()
+    expect(persisted).toContain('url-abc')
   })
 
-  it('persists URL token to localStorage for future visits', async () => {
-    const urlToken = 'url-abc'
-    mockGet.mockReturnValue(urlToken)
+  it('puede buscar otro pedido con código manual cuando ya hay pedidos en la lista', async () => {
+    setMyOrders([
+      { token: 'token-1', numero: 'KMG-0001', createdAt: '2026-06-17T18:00:00.000Z' },
+    ])
+    mockApiGet.mockResolvedValue(API_PEDIDO)
+
+    render(<TrackingScreen />)
+
+    // Aparece la lista, no el form automático
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Pegá el código que te llegó al confirmar')).toBeNull()
+    })
+
+    // El botón "Buscar otro pedido" sí está disponible
+    const searchBtn = screen.getByRole('button', { name: /buscar otro pedido con un código/i })
+    expect(searchBtn).toBeTruthy()
+  })
+
+  it('mantiene compatibilidad con kermingo:lastToken (legacy)', async () => {
+    // Alguien con la versión vieja que solo tiene lastToken
+    window.localStorage.setItem('kermingo:lastToken', JSON.stringify('legacy-token'))
+
     mockApiGet.mockResolvedValue(API_PEDIDO)
 
     render(<TrackingScreen />)
 
     await waitFor(() => {
-      expect(mockApiGet).toHaveBeenCalled()
-    })
-
-    // After the URL token is used, it should be persisted to localStorage
-    // Note: fetchByToken writes the raw string via window.localStorage.setItem,
-    // while useLocalStorageState's setToken writes JSON.stringify.
-    // Either way, the stored value should contain the URL token.
-    const stored = window.localStorage.getItem('kermingo:lastToken')
-    expect(stored).toBeTruthy()
-    // The token value should be present in the stored string
-    // (either as raw "url-abc" or as JSON '"url-abc"')
-    expect(stored).toContain(urlToken)
-  })
-
-  it('falls back to localStorage token when no URL token', async () => {
-    mockGet.mockReturnValue(null) // no URL token
-    const storedToken = 'stored-xyz'
-    window.localStorage.setItem('kermingo:lastToken', JSON.stringify(storedToken))
-    mockApiGet.mockResolvedValue({
-      ...API_PEDIDO,
-      token_seguimiento: storedToken,
-    })
-
-    render(<TrackingScreen />)
-
-    await waitFor(() => {
-      expect(mockApiGet).toHaveBeenCalledWith(
-        expect.stringContaining(storedToken),
-      )
+      expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining('legacy-token'))
     })
   })
-})
 
-describe('QR ↔ Tracking contract (S1 ↔ S5)', () => {
-  it('QR query key "token" matches useSearchParams key "token"', async () => {
-    // This test verifies the contract between:
-    // - TicketScreen QR: encodes ?token=<value>
-    // - TrackingScreen: reads useSearchParams().get('token')
-    // If either side changes the key, this test should fail.
-    const urlToken = 'contract-test-token'
-    mockGet.mockReturnValue(urlToken)
+  it('no muestra el form para "código de seguimiento" si el celular tiene al menos un pedido', async () => {
+    setMyOrders([
+      { token: 'token-1', numero: 'KMG-0001', createdAt: '2026-06-17T18:00:00.000Z' },
+    ])
     mockApiGet.mockResolvedValue(API_PEDIDO)
 
     render(<TrackingScreen />)
 
     await waitFor(() => {
-      // useSearchParams().get('token') was called with 'token' key
-      expect(mockGet).toHaveBeenCalledWith('token')
-      // And the API was called with that same token
-      expect(mockApiGet).toHaveBeenCalledWith(
-        expect.stringContaining(urlToken),
-      )
+      expect(screen.getByText(/Tus pedidos/i)).toBeTruthy()
     })
+    // Crítico: el form de "tengo que tipear" no debe aparecer
+    expect(screen.queryByText(/^Seguí tu pedido$/)).toBeNull()
   })
 })
