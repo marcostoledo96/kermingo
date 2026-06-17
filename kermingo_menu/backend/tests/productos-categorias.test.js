@@ -105,4 +105,64 @@ describe('Producto categorías en admin (regresión B7)', () => {
     expect(res.statusCode).toBe(400);
     expect(res.body.ok).toBe(false);
   });
+
+  it('POST /api/admin/productos sin categorias devuelve 400', async () => {
+    const res = await crearProducto({}); // sin categorias en el payload
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT /api/admin/productos/:id con solo categorias devuelve 200 y conserva stock/activo', async () => {
+    const creadoRes = await crearProducto({
+      categorias: ['Merienda'],
+      stock_minimo_alerta: 7,
+      activo: 0,
+    });
+    const creado = creadoRes.body.data;
+
+    const res = await request(app)
+      .put(`/api/admin/productos/${creado.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ categorias: ['Cena'] });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.categorias).toBe('Cena');
+    expect(res.body.data.stock_minimo_alerta).toBe(7);
+    expect(res.body.data.activo).toBe(0);
+  });
+
+  it('PUT /api/admin/productos/:id con categorias vacias devuelve 400', async () => {
+    const creadoRes = await crearProducto({
+      categorias: ['Merienda'],
+    });
+    const creado = creadoRes.body.data;
+
+    const res = await request(app)
+      .put(`/api/admin/productos/${creado.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ categorias: [] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT /api/admin/productos/:id sin categorias conserva categorias existentes', async () => {
+    const creadoRes = await crearProducto({
+      categorias: ['Merienda'],
+    });
+    const creado = creadoRes.body.data;
+
+    const res = await request(app)
+      .put(`/api/admin/productos/${creado.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ descripcion: 'actualizado', precio: 1500 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.categorias).toContain('Merienda');
+  });
 });

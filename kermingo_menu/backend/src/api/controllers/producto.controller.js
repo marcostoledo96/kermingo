@@ -123,9 +123,18 @@ export async function actualizar(req, res, next) {
     try {
       await conn.beginTransaction();
 
-      const affectedRows = await update(conn, id, productoData);
-      if (affectedRows === 0) {
-        throw new NotFoundError('Producto no encontrado');
+      const hasProductoData = Object.keys(productoData).length > 0;
+
+      if (hasProductoData) {
+        const affectedRows = await update(conn, id, productoData);
+        if (affectedRows === 0) {
+          throw new NotFoundError('Producto no encontrado');
+        }
+      } else {
+        const existente = await findByIdAdmin(pool, id);
+        if (!existente) {
+          throw new NotFoundError('Producto no encontrado');
+        }
       }
 
       if (Object.prototype.hasOwnProperty.call(req.body, 'categorias')) {

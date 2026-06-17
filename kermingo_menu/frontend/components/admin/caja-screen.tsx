@@ -29,6 +29,7 @@ import {
   isCajaLowStock,
   isCajaSoldOut,
 } from '@/lib/admin'
+import type { MealCategory } from '@/lib/products'
 import type { ApiProducto } from '@/lib/types'
 
 type PayMethod = 'efectivo' | 'transferencia'
@@ -78,7 +79,7 @@ export function CajaScreen() {
             ? p.type === 'bebida'
             : filter === 'promo'
               ? p.type === 'promo'
-              : p.type !== 'bebida' && p.type !== 'promo' && p.name.toLowerCase().includes(filter)
+              : p.type !== 'bebida' && p.type !== 'promo' && p.meals.includes(filter as MealCategory)
       const matchesQuery =
         query.trim() === '' ||
         p.name.toLowerCase().includes(query.trim().toLowerCase())

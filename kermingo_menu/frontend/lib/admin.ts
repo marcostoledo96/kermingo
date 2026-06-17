@@ -233,6 +233,7 @@ export type CajaProduct = {
   name: string
   price: number
   type: ProductType
+  meals: MealCategory[]
   icon: ProductIcon
   image?: string
   stockLimited: boolean
@@ -248,6 +249,7 @@ export function apiToCajaProduct(p: ApiProducto): CajaProduct {
     name: p.nombre,
     price: typeof p.precio === 'string' ? parseFloat(p.precio) : p.precio,
     type: p.tipo,
+    meals: parseCategorias(p.categorias),
     icon: inferIcon(p.nombre, p.tipo),
     image: ABSOLUTE_IMAGE_URL(p.imagen_url),
     stockLimited: p.stock_limitado === 1,

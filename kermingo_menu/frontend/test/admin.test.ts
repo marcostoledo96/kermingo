@@ -610,6 +610,7 @@ describe('apiToCajaProduct', () => {
     expect(p.name).toBe('Pizza')
     expect(p.price).toBe(100)
     expect(p.type).toBe('comida')
+    expect(p.meals).toEqual(['cena'])
     expect(p.image).toBe('http://localhost:3001/api/productos/1/imagen?v=42')
     expect(p.stockLimited).toBe(true)
     expect(p.stockActual).toBe(5)
@@ -637,6 +638,73 @@ describe('apiToCajaProduct', () => {
     expect(p.image).toBeUndefined()
     expect(p.stockLimited).toBe(false)
     expect(p.stockActual).toBe(null)
+    expect(p.meals).toEqual(['merienda'])
+  })
+
+  it('parses "Merienda, Cena" to meals ["merienda", "cena"]', () => {
+    const api: ApiProducto = {
+      id: 3,
+      nombre: 'Helados palito',
+      descripcion: 'x',
+      precio: '500',
+      tipo: 'comida',
+      stock_limitado: 1,
+      stock_actual: 10,
+      stock_minimo_alerta: 2,
+      activo: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+      categorias: 'Merienda, Cena',
+    }
+    const p = apiToCajaProduct(api)
+    expect(p.meals).toEqual(['merienda', 'cena'])
+  })
+
+  it('parses null categorias to meals []', () => {
+    const api: ApiProducto = {
+      id: 4,
+      nombre: 'Agua',
+      descripcion: null,
+      precio: '1000',
+      tipo: 'bebida',
+      stock_limitado: 0,
+      stock_actual: null,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+      categorias: null,
+    }
+    const p = apiToCajaProduct(api)
+    expect(p.meals).toEqual([])
+  })
+
+  it('parses empty string categorias to meals []', () => {
+    const api: ApiProducto = {
+      id: 5,
+      nombre: 'Gaseosa',
+      descripcion: null,
+      precio: '1500',
+      tipo: 'bebida',
+      stock_limitado: 0,
+      stock_actual: null,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+      categorias: '',
+    }
+    const p = apiToCajaProduct(api)
+    expect(p.meals).toEqual([])
   })
 })
 

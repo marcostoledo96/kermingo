@@ -71,6 +71,21 @@ async function limpiarPedidosDeTest() {
   }
 }
 
+/**
+ * P1-4 — Deuda documentada: edición de pedidos de caja.
+ *
+ * La UI de caja (/admin/caja) NO ofrece edición de pedidos existentes.
+ * Por lo tanto, este suite NO cubre los 3 flujos PR2 edit que se
+ * conocen como faltantes:
+ *   - PUT replaces items and total, stock reflects delta
+ *   - PUT works with promo combo and reconciles component stock
+ *   - PUT reconciles empty-to items correctly
+ *
+ * Decisión: cancelar + recrear pedido es el workaround soportado
+ * para el evento. La UI de edición queda como trabajo post-evento.
+ * Ver docs/planificacion/59-AUDITORIA_DB0806C_B7_E2E_FLOWS.md (P1-4).
+ */
+
 // Unit tests
 
 describe('Caja payment-state machine (unit)', () => {
