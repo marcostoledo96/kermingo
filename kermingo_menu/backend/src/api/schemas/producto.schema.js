@@ -18,6 +18,7 @@ export const createProductoSchema = z.object({
   descripcion: z.string().max(500).optional(),
   precio: z.coerce.number().min(0),
   tipo: z.enum(['comida', 'bebida', 'promo']),
+  categorias: z.array(z.enum(['Merienda', 'Cena'])).min(1).optional(),
   stock_limitado: z.coerce.number().int().refine((v) => v === 0 || v === 1, {
     message: 'stock_limitado debe ser 0 o 1',
   }),

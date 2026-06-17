@@ -38,7 +38,7 @@ cd frontend
 pnpm install
 pnpm dev      # Desarrollo
 pnpm lint      # Lint
-pnpm build     # Build de producción
+pnpm build     # Build de producción (ejecuta prebuild check de NEXT_PUBLIC_API_URL)
 ```
 
 **Vercel:** Root directory debe ser `frontend`.
@@ -123,7 +123,8 @@ interface CartItem {
 **Comportamiento:**
 - Se agrega/quita/items desde la página de menú.
 - Al confirmar el pedido se envía al backend y se vacía.
-- Si la tienda está cerrada (`estado !== 'abierta'`), se muestra mensaje y no se puede avanzar.
+- **Tienda cerrada/demo:** `MenuScreen` y `CheckoutScreen` leen `GET /api/configuracion-tienda` en paralelo. Si `estado !== 'abierta'`, se muestra `mensaje_publico`, se deshabilitan botones de agregar/confirmar y se oculta el carrito. El estado `loading` y errores de red también se manejan con skeletons/retry.
+- **Comprobante validado en frontend:** `CheckoutScreen` rechaza HEIC y archivos >5 MB antes de setear el receipt. El `accept` del file picker es `image/jpeg,image/png,image/webp,application/pdf`. Backend también valida magic bytes como autoridad final.
 - **Checkout público solo acepta transferencia con comprobante** (`CheckoutScreen`). El cliente debe subir un archivo comprobante. El envío usa `apiPostForm` (multipart/form-data) a `POST /api/pedidos`. Efectivo solo está disponible en caja rápida (admin).
 
 ---
@@ -179,7 +180,7 @@ Componentes esperados (alineados con la referencia v0):
 | `AdminHeader` | Header del panel admin. Usa `useAdminSession()` para mostrar usuario activo y botón de logout. Muestra skeleton durante loading, alerta en error, y nombre real en authenticated |
 | `AdminSessionProvider` | Guard de sesión: protege rutas admin, solo renderiza contenido cuando `status === 'authenticated'` o `'unauthenticated'` (login). Estado `'error'` muestra retry, `'loading'` muestra spinner. |
 | `AdminShell` | Shell con sidebar, topbar y footer para secciones admin |
-| `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado. Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
+| `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado, campo `cena_habilitada_desde` (input type=time). Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
 | `ReportesScreen` | Placeholder honesto: hero con `Construction` + 3 cards de preview con `IconBox`. Sin endpoints backend todavía |
 | `ComprobantesScreen` | Revisión de comprobantes de transferencia. Fetch metadata de `GET /api/admin/pedidos/:id/comprobante` y abre `url_publica` de Drive |
 | `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |

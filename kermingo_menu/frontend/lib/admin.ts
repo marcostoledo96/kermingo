@@ -43,11 +43,16 @@ export function apiToAdminProduct(p: ApiProducto): AdminProduct {
 }
 
 export function adminToApiPayload(p: AdminProduct) {
+  const categorias: Array<'Merienda' | 'Cena'> = []
+  if (p.meals.includes('merienda')) categorias.push('Merienda')
+  if (p.meals.includes('cena')) categorias.push('Cena')
+
   return {
     nombre: p.name.trim(),
     descripcion: p.description.trim() || undefined,
     precio: p.price,
     tipo: p.type,
+    categorias,
     stock_limitado: p.stockLimited ? 1 : 0,
     stock_actual: p.stockLimited ? p.stockCurrent : undefined,
     stock_minimo_alerta: p.stockMin,

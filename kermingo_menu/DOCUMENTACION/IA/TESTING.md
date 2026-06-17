@@ -66,6 +66,8 @@ RUN_REAL_DRIVE_TESTS=true npm test -- --testPathPattern=comprobantes.test
 
 **Nota sobre `--runInBand`:** Se introdujo en B6.3.1 para eliminar interferencias concurrentes del pool de MySQL. Todas las suites corren secuencialmente. Si se agregan más tests, mantener `--runInBand` en los scripts de integración.
 
+**Nota:** Backend tiene 3 fallas conocidas en caja PR2 (edición de caja con items) que no son responsabilidad de B7. La suite de caja completa reporta algunos tests fallando pero son preexistentes y no relacionados con las correcciones de este plan.
+
 ---
 
 ## 3. Convenciones
@@ -159,11 +161,11 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 ## 7. Cobertura actual
 
 | Suite | Archivo | Descripción |
-|---|---|---|---|
+|---|---|---|---|---|
 | Comprobantes (unit) | `comprobantes.unit.test.js` | Schema preprocess, archivo.model, drive.service, MIME validation, magic bytes, DriveUploadError |
 | Comprobantes (drive-mock) | `comprobantes.drive-mock.test.js` | Drive mock tests con `_resetDriveForTest`, safe internal filename format |
 | Comprobantes (integration) | `comprobantes.test.js` | Multipart upload, MIME/size validation, magic bytes rejection, comprobante access, payment transitions, Drive failure, preflight store closed |
-| Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup |
+| Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup, caja payment defaults |
 | Cocina (integration) | `cocina.test.js` | Endpoints HTTP de cocina con DB real |
 | Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller (mocks del modelo): forward, backward, direct ready, delivered rollback invalid |
 | Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model: `transicionEstadoValida` (forward, backward, direct ready, delivered rollback, same-state) |
@@ -172,8 +174,9 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
 | Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests (incluye partial update validation FIX B7) |
 | Producto imagen | `producto-imagen.test.js` | Product image upload/remove/query |
+| Producto categorías | `productos-categorias.test.js` | Crear/editar producto con categorías Merienda/Cena, validación vacío |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 13 suites | Contar con `npm test` para verificación exacta. Pendiente conteo completo por fallas conocidas de caja PR2 no relacionadas. |
+| **Total** | 14 suites | ~60+ tests backend. 3 fallas conocidas de caja PR2 (edición) no relacionadas con B7. |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 
@@ -209,7 +212,7 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | AdminSession | `frontend/test/admin-session.test.ts` | 13 | Login/logout/me usan credentials include, 401 limpia sesión, refresh restaura usuario |
 | AdminHeader | `frontend/test/admin-header.test.tsx` | 14 | Header usa `useAdminSession`, muestra usuario/logout, maneja loading/error |
 | Admin API | `frontend/test/admin.test.ts` | 36 | ConfigScreen endpoints correctos, ComprobantesScreen metadata/url_publica, sesión vencida |
-| Mappers | `frontend/test/mappers.test.ts` | 27 | Traducción ApiProducto/ApiPedido a tipos UI, normalización teléfono |
+| Mappers | `frontend/test/mappers.test.ts` | 30 | Traducción ApiProducto/ApiPedido a tipos UI, normalización teléfono, adminToApiPayload incluye categorías |
 | TicketScreen QR | `frontend/test/ticket-screen.test.tsx` | 6 | QR codifica URL correcta, no expone datos privados, tamaño 168px |
 | TrackingScreen token | `frontend/test/tracking-screen-token.test.tsx` | 6 | Auto-fetch por `?token=`, missing token muestra form, URL token sobreescribe localStorage |
 | useLocalStorageState | `frontend/test/use-local-storage.test.ts` | 10 | Estabilidad referencial, cache invalidation, evita React #185 |
@@ -217,14 +220,14 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | Cocina actions | `frontend/test/cocina-actions.test.ts` | 7 | Acciones ágiles por estado: recibido→preparacion|listo, preparacion→recibido|listo, listo→preparacion|entregado, terminal sin acciones |
 | AdminSession provider | `frontend/test/admin-session-provider.test.tsx` | - | Provider renderiza redirect en unauthenticated, no muestra children |
 | Comprobantes query | `frontend/test/comprobantes-screen-query.test.ts` | - | Filtro default pide `estado_pago=comprobante_subido`, rechazados pide `estado_pago=rechazado` |
-| Config screen | `frontend/test/config.test.ts` | - | PUT configuración con campos parciales |
-| Login screen | `frontend/test/login-screen.test.tsx` | - | Login exitoso redirige a dashboard, credenciales demo condicionales |
-| Product form dialog | `frontend/test/product-form-dialog.test.tsx` | - | Crear producto con imagen, error mantiene diálogo abierto |
+| Config screen | `frontend/test/config.test.ts` | 13 | PUT configuración con campos parciales, resolveApiBase production guard, store closed/demo gating |
+| Login screen | `frontend/test/login-screen.test.tsx` | 8 | Login exitoso redirige a dashboard, credenciales demo condicionales |
+| Product form dialog | `frontend/test/product-form-dialog.test.tsx` | 30 | Crear producto con imagen exitosa, error mantiene diálogo abierto, ProductsScreen no cierra antes de upload |
 
 **Comandos:**
 ```bash
 cd frontend
-pnpm test        # Todos los tests (actualmente 14 files, +1 setup.ts utilitario)
+pnpm test        # Todos los tests (actualmente 185 tests en ~16 files + setup.ts)
 pnpm test -- --coverage  # Con cobertura
 ```
 

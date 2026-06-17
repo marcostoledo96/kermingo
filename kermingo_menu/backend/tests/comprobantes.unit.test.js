@@ -9,6 +9,7 @@ import { jest } from '@jest/globals';
 import { createPedidoSchema } from '../src/api/schemas/pedido.schema.js';
 import { AppError, ValidationError, DriveUploadError } from '../src/api/utils/errors.js';
 import { assertAllowedFileSignature } from '../src/api/utils/file-signature.utils.js';
+import { validateReceiptUploadMetadata } from '../src/api/middlewares/upload.middleware.js';
 
 // ── Schema preprocess tests ────────────────────────────────
 
@@ -158,6 +159,34 @@ describe('assertAllowedFileSignature (unit)', () => {
   it('WEBP buffer too short throws ValidationError', () => {
     const buffer = Buffer.from([0x52, 0x49, 0x46, 0x46]); // RIFF but no WEBP
     expect(() => assertAllowedFileSignature(buffer, 'image/webp')).toThrow(ValidationError);
+  });
+});
+
+// ── upload.middleware tests for comprobante validation ───────────────────
+
+describe('upload.middleware receipt validation (unit)', () => {
+  const validReceiptFiles = [
+    { originalname: 'comprobante.jpg', mimetype: 'image/jpeg' },
+    { originalname: 'comprobante.jpeg', mimetype: 'image/jpeg' },
+    { originalname: 'comprobante.png', mimetype: 'image/png' },
+    { originalname: 'comprobante.webp', mimetype: 'image/webp' },
+    { originalname: 'comprobante.pdf', mimetype: 'application/pdf' },
+  ];
+
+  it.each(validReceiptFiles)('accepts valid receipt file combo: %j', ({ originalname, mimetype }) => {
+    expect(() => validateReceiptUploadMetadata({ originalname, mimetype })).not.toThrow();
+  });
+
+  it('rejects .jpg with unsupported mime image/heif', () => {
+    expect(() => validateReceiptUploadMetadata({ originalname: 'comprobante.jpg', mimetype: 'image/heif' })).toThrow(ValidationError);
+  });
+
+  it('accepts valid extension when mimetype is empty', () => {
+    expect(() => validateReceiptUploadMetadata({ originalname: 'comprobante.jpg', mimetype: '' })).not.toThrow();
+  });
+
+  it('rejects unsupported extension even when mimetype is empty', () => {
+    expect(() => validateReceiptUploadMetadata({ originalname: 'comprobante.txt', mimetype: '' })).toThrow(ValidationError);
   });
 });
 

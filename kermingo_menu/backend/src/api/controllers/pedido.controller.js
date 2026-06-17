@@ -89,8 +89,14 @@ export async function crear(req, res, next) {
 export async function crearCaja(req, res, next) {
   try {
     const pool = getPool();
+    const data = { ...req.body };
+
+    if (data.metodo_pago === 'efectivo' && data.estado_pago === undefined) {
+      data.estado_pago = 'pagado';
+    }
+
     const result = await createWithTransaction(pool, {
-      ...req.body,
+      ...data,
       origen: 'caja',
     });
     const pedido = await findById(pool, result.pedidoId);

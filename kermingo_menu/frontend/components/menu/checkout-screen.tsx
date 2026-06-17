@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { ChangeEvent, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -21,10 +21,11 @@ import { formatPrice } from '@/lib/products'
 import { useCart } from './cart-context'
 import { MenuHeader } from './menu-header'
 import { ProductIconGlyph } from './product-visual'
-import { apiPostForm, ApiError } from '@/lib/api'
+import { apiGet, apiPostForm, ApiError } from '@/lib/api'
 import { mapPedido } from '@/lib/mappers'
-import type { ApiPedido } from '@/lib/types'
+import type { ApiConfiguracion, ApiPedido } from '@/lib/types'
 import type { LastOrder } from '@/lib/products'
+import { useApiResource } from '@/lib/use-api-resource'
 
 const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
   { label: 'Nombre completo', value: 'Guadalupe Sofía Hryb Alvarez' },
@@ -37,10 +38,21 @@ const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
 
 const LAST_ORDER_KEY = 'kermingo:lastOrder'
 const LAST_TOKEN_KEY = 'kermingo:lastToken'
+const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024
+const ALLOWED_RECEIPT_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+]
+const ALLOWED_RECEIPT_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'pdf'])
 
 export function CheckoutScreen() {
   const router = useRouter()
   const { items, count, total, clear } = useCart()
+  const { data: storeConfig, loading: storeConfigLoading, error: storeConfigError } = useApiResource<ApiConfiguracion>(async () => {
+    return apiGet<ApiConfiguracion>('/api/configuracion-tienda')
+  })
   const [copied, setCopied] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -52,10 +64,81 @@ export function CheckoutScreen() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [receiptError, setReceiptError] = useState<string | null>(null)
 
   const nameComplete = name.trim().length >= 2
   const receiptComplete = receipt !== null
-  const canConfirm = nameComplete && receiptComplete && !submitting
+  const isStoreClosedOrDemo =
+    storeConfig?.estado === 'cerrada' || storeConfig?.estado === 'demo'
+  const storeClosedMessage =
+    storeConfig?.estado === 'cerrada'
+      ? 'La tienda está cerrada. No se aceptan nuevos pedidos por ahora.'
+      : storeConfig?.estado === 'demo'
+        ? 'La tienda está en modo demo. Esta pantalla no acepta pedidos reales por ahora.'
+        : ''
+  const disabledMessage = storeConfig?.mensaje_publico?.trim() || storeClosedMessage
+  const isStoreReady = storeConfig?.estado === 'abierta'
+  const canConfirm =
+    nameComplete &&
+    receiptComplete &&
+    !receiptError &&
+    !submitting &&
+    isStoreReady &&
+    !storeConfigLoading &&
+    !storeConfigError
+
+  const validateReceiptFile = (file: File): string | null => {
+    if (file.size > MAX_RECEIPT_SIZE_BYTES) {
+      return 'El comprobante debe pesar como máximo 5 MB.'
+    }
+
+    const extension = file.name.includes('.')
+      ? file.name.split('.').pop()?.toLowerCase() ?? ''
+      : ''
+    const hasSupportedExtension = ALLOWED_RECEIPT_EXTENSIONS.has(extension)
+    const hasSupportedMimeType = ALLOWED_RECEIPT_MIME_TYPES.includes(file.type?.toLowerCase() || '')
+    const isSupportedType = hasSupportedExtension && (file.type === '' || hasSupportedMimeType)
+
+    if (!isSupportedType) {
+      return 'Formato de comprobante no válido. Sólo se aceptan JPG, JPEG, PNG, WEBP o PDF.'
+    }
+
+    return null
+  }
+
+  const handleReceiptChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+
+    if (!file) {
+      setReceipt(null)
+      setReceiptError(null)
+      return
+    }
+
+    const error = validateReceiptFile(file)
+    if (error) {
+      setReceipt(null)
+      setReceiptError(error)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    setReceipt(file)
+    setReceiptError(null)
+    setSubmitError(null)
+  }
+
+  const statusMessage = storeConfigLoading
+    ? 'Verificando estado de la tienda…'
+    : storeConfigError
+      ? 'No se pudo verificar el estado de la tienda. Volvé a intentarlo.'
+      : isStoreClosedOrDemo
+        ? disabledMessage || 'La tienda no acepta pedidos por ahora.'
+        : !nameComplete
+          ? 'Completá tu nombre para confirmar'
+          : 'Adjuntá el comprobante de transferencia'
 
   const handleCopy = async (value: string) => {
     try {
@@ -338,14 +421,14 @@ export function CheckoutScreen() {
 
             {/* Upload de comprobante */}
             <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,application/pdf"
-                className="sr-only"
-                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
-                disabled={submitting}
-              />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  onChange={handleReceiptChange}
+                  disabled={submitting}
+                />
               {receipt ? (
                 <div className="km-panel flex items-center gap-3 p-4">
                   <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
@@ -355,13 +438,14 @@ export function CheckoutScreen() {
                     <p className="truncate text-sm font-bold text-[var(--km-azul)]">{receipt.name}</p>
                     <p className="text-xs text-[var(--km-listo-text)]">Comprobante adjuntado ✓</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (submitting) return
-                      setReceipt(null)
-                      if (fileInputRef.current) fileInputRef.current.value = ''
-                    }}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (submitting) return
+                        setReceipt(null)
+                        setReceiptError(null)
+                        if (fileInputRef.current) fileInputRef.current.value = ''
+                      }}
                     aria-label="Quitar comprobante"
                     className="km-focus flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--km-fondo)] text-[var(--km-tinta-suave)] transition-colors hover:bg-[var(--km-peligro-bg)] hover:text-[var(--km-peligro-text)]"
                   >
@@ -399,13 +483,13 @@ export function CheckoutScreen() {
         </section>
 
         {/* Error de envío */}
-        {submitError && (
+        {(submitError || receiptError) && (
           <div
             role="alert"
             className="mt-4 flex items-start gap-2 rounded-xl border border-[var(--km-peligro-text)]/30 bg-[var(--km-peligro-bg)] p-3 text-sm text-[var(--km-peligro-text)]"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-            <p>{submitError}</p>
+            <p>{receiptError || submitError}</p>
           </div>
         )}
 
@@ -419,9 +503,7 @@ export function CheckoutScreen() {
         <div className="mx-auto max-w-xl space-y-2.5 px-4 pb-5 pt-4">
           {!canConfirm && !submitting && (
             <p className="text-center text-xs font-medium text-[var(--km-preparando-text)]">
-              {!nameComplete
-                ? 'Completá tu nombre para confirmar'
-                : 'Adjuntá el comprobante de transferencia'}
+              {statusMessage}
             </p>
           )}
           <button

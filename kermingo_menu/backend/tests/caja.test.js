@@ -299,11 +299,20 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
 
   beforeAll(async () => {
     await limpiarPedidosDeTest();
-    pedidoEfectivo = await crearPedidoCaja({
-      nombre_cliente: `${RUN_ID}-EFECTIVO`,
-      metodo_pago: 'efectivo',
-      items: [{ producto_id: 5, cantidad: 1 }], // Pancho
-    });
+    // Create explicit pending estado_pago to validate pending -> pagado transition for efectivo.
+    const pedidoEfectivoRes = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-EFECTIVO`,
+        metodo_pago: 'efectivo',
+        estado_pago: 'pendiente',
+        items: [{ producto_id: 5, cantidad: 1 }], // Pancho
+      });
+    expect(pedidoEfectivoRes.statusCode).toBe(201);
+    pedidoEfectivo = pedidoEfectivoRes.body.data;
+
     pedidoTransferencia = await crearPedidoCaja({
       nombre_cliente: `${RUN_ID}-TRANSFERENCIA`,
       metodo_pago: 'transferencia',
@@ -911,6 +920,55 @@ describe('B7: Public route rejects efectivo; caja accepts both', () => {
     expect(res.statusCode).toBe(201);
     expect(res.body.ok).toBe(true);
     expect(res.body.data.metodo_pago).toBe('transferencia');
+  });
+
+  it('P1-4: caja efectivo sin estado_pago queda pagado', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-EFECTIVO-DEFAULT-PAGO`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.estado_pago).toBe('pagado');
+  });
+
+  it('P1-4: caja transferencia sin estado_pago queda pendiente', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFERENCIA-DEFAULT-PEND`,
+        metodo_pago: 'transferencia',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.estado_pago).toBe('pendiente');
+  });
+
+  it('P1-4: caja explícita estado_pago se preserva', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-EFECTIVO-EXPLICIT`,
+        metodo_pago: 'efectivo',
+        estado_pago: 'pendiente',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.estado_pago).toBe('pendiente');
   });
 
   afterAll(async () => {

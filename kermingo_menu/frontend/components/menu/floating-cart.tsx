@@ -5,9 +5,22 @@ import { ShoppingCart, ArrowRight } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { useCart } from './cart-context'
 
-export function FloatingCartBar() {
+export function FloatingCartBar({
+  disabled = false,
+  disabledReason,
+}: {
+  disabled?: boolean
+  disabledReason?: string
+}) {
   const { count, total } = useCart()
   if (count === 0) return null
+
+  const disabledClass = disabled
+    ? 'pointer-events-none cursor-not-allowed bg-[#003B73]/70'
+    : ''
+  const ctaClass = disabled
+    ? 'pointer-events-none bg-[#F6B21A]/60'
+    : 'bg-[#F6B21A]'
 
   return (
     <div
@@ -18,7 +31,7 @@ export function FloatingCartBar() {
         <Link
           href="/carrito"
           aria-label={`Ver carrito: ${count} ${count === 1 ? 'ítem' : 'ítems'}, total ${formatPrice(total)}`}
-          className="pointer-events-auto flex w-full items-center gap-3 rounded-3xl bg-[#003B73] p-2 pl-4 text-white shadow-lg shadow-[#003B73]/25 transition-transform active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F6B21A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#EEF5FF]"
+          className={`pointer-events-auto flex w-full items-center gap-3 rounded-3xl bg-[#003B73] p-2 pl-4 text-white shadow-lg shadow-[#003B73]/25 transition-transform active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F6B21A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#EEF5FF] ${disabledClass}`}
         >
           <div className="relative">
             <ShoppingCart className="h-6 w-6" strokeWidth={2.2} />
@@ -33,8 +46,15 @@ export function FloatingCartBar() {
             <span className="block font-display text-lg font-extrabold">
               {formatPrice(total)}
             </span>
+            {disabled && disabledReason ? (
+              <span className="mt-1 block text-[11px] text-[#EAB308]">
+                {disabledReason}
+              </span>
+            ) : null}
           </div>
-          <span className="flex items-center gap-1.5 rounded-2xl bg-[#F6B21A] px-5 py-3 text-sm font-extrabold text-[#003B73]">
+          <span
+            className={`flex items-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-extrabold text-[#003B73] ${ctaClass}`}
+          >
             Ver carrito
             <ArrowRight className="h-4 w-4" strokeWidth={2.6} />
           </span>

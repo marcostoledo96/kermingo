@@ -77,6 +77,7 @@
 
 - El admin crea pedidos directamente desde `/admin/caja`.
 - Puede setear `estado_pago: 'pagado'` y `estado_pedido` inicial distinto a `'recibido'`.
+- **Fix B7:** Backend hace coerción segura: efectivo sin `estado_pago` → `'pagado'`; transferencia sin `estado_pago` → `'pendiente'`.
 - Útil para ventas presenciales con pago inmediato.
 
 ### Cocina (admin)
@@ -116,10 +117,12 @@
 
 - Abrir/cerrar la tienda (`estado: 'abierta'`, `'cerrada'`, `'demo'`).
 - Setear mensaje público para cuando está cerrada.
-- Setear hora de cena (`cena_habilitada_desde`).
+- Setear hora de cena (`cena_habilitada_desde`, input type=time en `ConfigScreen`).
+- **Fix B7:** el campo `cena_habilitada_desde` se expone en la UI admin. Backend ya lo soportaba.
 
 ### Productos (admin)
 
 - CRUD completo con activación/desactivación (soft-delete).
+- **Fix B7:** al crear/editar producto se envían `categorias: ['Merienda' | 'Cena']` al backend, que persiste en `producto_categoria`. Obligatorio al crear; opcional al editar pero no vacío.
 - Ajuste manual de stock.
-- Subida, reemplazo y eliminación de imagen de producto desde admin. El frontend envía `FormData` con campo `imagen` a `POST /api/admin/productos/:id/imagen`; quitar imagen usa `DELETE /api/admin/productos/:id/imagen`.
+- Subida, reemplazo y eliminación de imagen de producto desde admin. El frontend envía `FormData` con campo `imagen` a `POST /api/admin/productos/:id/imagen`; quitar imagen usa `DELETE /api/admin/productos/:id/imagen`. **Fix B7:** ProductFormDialog no cierra hasta que el upload de imagen finalice (create o fallo mantienen diálogo abierto).

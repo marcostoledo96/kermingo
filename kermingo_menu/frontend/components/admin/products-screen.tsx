@@ -110,15 +110,11 @@ export function ProductsScreen() {
           if (idx === -1) return [mapped, ...list]
           return list.map((p, i) => (i === idx ? mapped : p))
         })
-        setEditing(null)
-        setCreating(false)
         return mapped
       } else {
         const created = await apiPost<ApiProducto>('/api/admin/productos', payload)
         const mapped = apiToAdminProduct(created)
         setProducts((prev) => [mapped, ...(prev ?? [])])
-        setEditing(null)
-        setCreating(false)
         return mapped
       }
     } catch (err) {

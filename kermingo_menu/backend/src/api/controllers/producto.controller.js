@@ -5,6 +5,7 @@ import {
   findAllAdmin,
   create,
   update,
+  setProductoCategorias,
   deactivate,
   restore,
   updateStock,
@@ -78,9 +79,31 @@ export async function listarAdmin(req, res, next) {
 export async function crear(req, res, next) {
   try {
     const pool = getPool();
-    const insertId = await create(pool, req.body);
-    const producto = await findByIdAdmin(pool, insertId);
-    return respuestaExitosa(res, producto, 'Producto creado correctamente', 201);
+    const conn = await pool.getConnection();
+    const { categorias, ...productoData } = req.body;
+
+    try {
+      await conn.beginTransaction();
+      const insertId = await create(conn, productoData);
+
+      if (typeof categorias !== 'undefined') {
+        await setProductoCategorias(conn, insertId, categorias);
+      }
+
+      await conn.commit();
+
+      const producto = await findByIdAdmin(pool, insertId);
+      return respuestaExitosa(res, producto, 'Producto creado correctamente', 201);
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        // noop
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }
@@ -93,9 +116,35 @@ export async function crear(req, res, next) {
 export async function actualizar(req, res, next) {
   try {
     const pool = getPool();
-    const affectedRows = await update(pool, req.params.id, req.body);
-    if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
-    const producto = await findByIdAdmin(pool, req.params.id);
+    const conn = await pool.getConnection();
+    const { categorias, ...productoData } = req.body;
+    const { id } = req.params;
+
+    try {
+      await conn.beginTransaction();
+
+      const affectedRows = await update(conn, id, productoData);
+      if (affectedRows === 0) {
+        throw new NotFoundError('Producto no encontrado');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(req.body, 'categorias')) {
+        await setProductoCategorias(conn, id, categorias);
+      }
+
+      await conn.commit();
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        // noop
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    const producto = await findByIdAdmin(pool, id);
     return respuestaExitosa(res, producto, 'Producto actualizado correctamente');
   } catch (err) {
     next(err);

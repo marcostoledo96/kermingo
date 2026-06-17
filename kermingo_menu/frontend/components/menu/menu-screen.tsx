@@ -1,12 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { AlertCircle, RefreshCw, Store } from 'lucide-react'
+import { AlertCircle, RefreshCw, Store, Lock } from 'lucide-react'
 import { apiGet } from '@/lib/api'
 import { API_BASE } from '@/lib/config'
 import { useApiResource } from '@/lib/use-api-resource'
 import { mapProducto } from '@/lib/mappers'
-import type { ApiProducto } from '@/lib/types'
+import type { ApiProducto, ApiConfiguracion } from '@/lib/types'
 import type { MealCategory, Product, StockStatus } from '@/lib/products'
 import type { SecondaryFilter } from '@/components/menu/menu-filters'
 import { MealTabs, SecondaryFilters } from '@/components/menu/menu-filters'
@@ -70,6 +70,19 @@ export function MenuScreen() {
     return data.map(mapProducto)
   })
 
+  const {
+    data: storeConfig,
+  } = useApiResource<ApiConfiguracion>(async () => {
+    return apiGet<ApiConfiguracion>('/api/configuracion-tienda')
+  })
+
+  const isStoreClosed = storeConfig?.estado === 'cerrada'
+  const isStoreDemo = storeConfig?.estado === 'demo'
+  const isStoreDisabled = isStoreClosed || isStoreDemo
+  const disabledMessage =
+    storeConfig?.mensaje_publico?.trim() ??
+    (isStoreClosed ? 'La tienda está cerrada. No se aceptan nuevos pedidos por ahora.' : '')
+
   const state: LoadState = loading ? 'loading' : error ? 'error' : 'ready'
 
   const visible = useMemo(() => {
@@ -100,6 +113,20 @@ export function MenuScreen() {
               {products?.length ?? 0} productos · {summary.disponible} disponibles ·{' '}
               {summary.bajo} con stock bajo · {summary.agotado} agotados
             </p>
+          )}
+
+          {state === 'ready' && storeConfig && (isStoreClosed || isStoreDemo) && (
+            <div className="mt-2 rounded-2xl border border-[#003B73]/25 bg-amber-50 px-4 py-3 text-sm text-[#003B73]">
+              <div className="flex items-center gap-2">
+                <Lock className="h-4 w-4 flex-shrink-0 text-[#003B73]" strokeWidth={2.2} />
+                <p className="font-bold">
+                  {isStoreClosed ? 'La tienda está cerrada' : 'Modo demo activo'}
+                </p>
+              </div>
+              <p className="mt-1 text-[#3A5675]">
+                {disabledMessage || (isStoreClosed ? 'No se aceptan nuevos pedidos por ahora.' : 'Podés ver el catálogo para practicar o compartir.')}
+              </p>
+            </div>
           )}
         </section>
 
@@ -151,7 +178,7 @@ export function MenuScreen() {
         {state === 'ready' && visible.length > 0 && (
           <div className="space-y-3 pt-4">
             {visible.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.id} product={p} disabled={isStoreDisabled} disabledReason={disabledMessage} />
             ))}
           </div>
         )}
@@ -181,7 +208,16 @@ export function MenuScreen() {
         )}
       </main>
 
-      <FloatingCartBar />
+      {state === 'ready' && (
+        <FloatingCartBar
+          disabled={isStoreDisabled}
+          disabledReason={
+            isStoreDisabled
+              ? disabledMessage || 'No se aceptan nuevos pedidos por ahora.'
+              : (storeConfig?.mensaje_publico ?? undefined)
+          }
+        />
+      )}
     </div>
   )
 }

@@ -1,3 +1,5 @@
+import { ValidationError } from '../utils/errors.js';
+
 const SQL_BASE_PUBLIC = `
   SELECT
     p.id,
@@ -147,6 +149,42 @@ export async function findByIdAdmin(pool, id) {
 export async function create(pool, data) {
   const [result] = await pool.query('INSERT INTO producto SET ?', [data]);
   return result.insertId;
+}
+
+function normalizarCategorias(valor) {
+  if (!Array.isArray(valor) || valor.length === 0) {
+    return [];
+  }
+
+  const normalizadas = valor
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+
+  return [...new Set(normalizadas)];
+}
+
+export async function setProductoCategorias(conn, productoId, categorias) {
+  const categoriasNormalized = normalizarCategorias(categorias);
+
+  await conn.query('DELETE FROM producto_categoria WHERE producto_id = ?', [productoId]);
+
+  if (categoriasNormalized.length === 0) {
+    return;
+  }
+
+  const [filas] = await conn.query(
+    `SELECT id, nombre FROM categoria WHERE nombre IN (${categoriasNormalized.map(() => '?').join(',')})`,
+    categoriasNormalized,
+  );
+
+  if (filas.length !== categoriasNormalized.length) {
+    throw new ValidationError('Categoría inválida');
+  }
+
+  const idPorNombre = new Map(filas.map((f) => [f.nombre, f.id]));
+  const inserciones = categoriasNormalized.map((nombre) => [productoId, idPorNombre.get(nombre)]);
+
+  await conn.query('INSERT INTO producto_categoria (producto_id, categoria_id) VALUES ?', [inserciones]);
 }
 
 export async function update(pool, id, data) {

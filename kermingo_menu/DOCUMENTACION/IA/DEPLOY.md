@@ -74,7 +74,7 @@
 
 **Template:** `frontend/.env.local.example`.
 
-**Regla adicional:** en entorno `production`, validar antes del deploy que `NEXT_PUBLIC_API_URL` esté definida.
+**Regla adicional:** en entorno `production`, validar antes del deploy que `NEXT_PUBLIC_API_URL` esté definida. El `prebuild` script (`scripts/check-env.mjs`) falla si `NODE_ENV=production` y `NEXT_PUBLIC_API_URL` no está definida, bloqueando el build.
 
 ### Backend (`.env` en `backend/` o vars en Railway)
 

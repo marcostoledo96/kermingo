@@ -20,7 +20,7 @@ export function ConfigScreen() {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiGet<ApiConfiguracion>('/api/configuracion-tienda')
+      const data = await apiGet<ApiConfiguracion>('/api/admin/configuracion-tienda')
       setConfig(data)
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -64,6 +64,29 @@ export function ConfigScreen() {
       })
       setConfig(updated)
       setSaveMsg('Mensaje actualizado')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) expireSession()
+      setSaveMsg('Error al guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toPayloadHoraCena = (valor: string | null | undefined) => {
+    if (!valor) return null
+    return valor.length === 5 ? `${valor}:00` : valor
+  }
+
+  const handleUpdateCena = async () => {
+    if (!config) return
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      const updated = await apiPut<ApiConfiguracion>('/api/admin/configuracion-tienda', {
+        cena_habilitada_desde: toPayloadHoraCena(config.cena_habilitada_desde),
+      })
+      setConfig(updated)
+      setSaveMsg('Hora de cena actualizada')
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
       setSaveMsg('Error al guardar')
@@ -186,6 +209,53 @@ export function ConfigScreen() {
                   <>
                     <Save className="h-4 w-4" strokeWidth={2.4} />
                     Guardar mensaje
+                  </>
+                )}
+              </button>
+            </AdminCard>
+          </section>
+
+          {/* Dinner start time */}
+          <section>
+            <SectionTitle>Hora de inicio de cena</SectionTitle>
+            <AdminCard className="p-5">
+              <label
+                htmlFor="cena-inicio"
+                className="mb-2 flex items-center gap-2 text-sm font-bold text-[#003B73]"
+              >
+                Hora desde la que se habilita la cena en menú
+              </label>
+              <input
+                id="cena-inicio"
+                type="time"
+                step={1}
+                value={config.cena_habilitada_desde || ''}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    cena_habilitada_desde: e.target.value ? e.target.value : null,
+                  })
+                }
+                className="kermingo-input mt-2"
+                disabled={saving}
+              />
+              <p className="mt-2 text-xs text-[#003B73]/40">
+                Formato esperado: HH:MM:SS
+              </p>
+              <button
+                onClick={handleUpdateCena}
+                disabled={saving}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#003B73] py-3.5 text-sm font-extrabold text-white shadow-lg shadow-[#003B73]/20 transition-all hover:bg-[#00305d] active:scale-[0.99] disabled:opacity-50 km-focus"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Guardando…
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" strokeWidth={2.4} />
+                    Guardar hora de cena
                   </>
                 )}
               </button>

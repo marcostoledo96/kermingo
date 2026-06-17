@@ -1,5 +1,6 @@
 import multer from 'multer';
-import { assertAllowedFileSignature, assertMagicBytes } from '../utils/file-signature.utils.js';
+import path from 'node:path';
+import { assertAllowedFileSignature } from '../utils/file-signature.utils.js';
 import { ValidationError } from '../utils/errors.js';
 
 const ALLOWED_MIME_TYPES = [
@@ -15,15 +16,69 @@ const ALLOWED_PRODUCT_IMAGE_MIME_TYPES = [
   'image/webp',
 ];
 
+const ALLOWED_RECEIPT_EXTENSIONS = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
+};
+
+function getSupportedReceiptMimeError(file) {
+  return `Tipo de archivo no soportado: ${file?.mimetype || 'indefinido'}. Solo se permiten JPG, PNG, WEBP y PDF.`;
+}
+
+function getReceiptExtension(file) {
+  const fileName = file?.originalname || '';
+  return path.extname(fileName).toLowerCase();
+}
+
+function isSupportedReceiptExtension(file) {
+  const extension = getReceiptExtension(file);
+  return !!ALLOWED_RECEIPT_EXTENSIONS[extension];
+}
+
+export function validateReceiptUploadMetadata(file) {
+  if (!isSupportedReceiptExtension(file)) {
+    throw new ValidationError(`Extension de archivo no soportada: ${file?.originalname || 'archivo'}. Solo se permiten JPG, PNG, WEBP y PDF.`);
+  }
+
+  if (file.mimetype && !ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    throw new ValidationError(getSupportedReceiptMimeError(file));
+  }
+}
+
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 const storage = multer.memoryStorage();
 
 function fileFilter(_req, file, cb) {
-  if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+  try {
+    validateReceiptUploadMetadata(file);
     cb(null, true);
-  } else {
-    cb(new Error(`Tipo de archivo no soportado: ${file.mimetype}. Solo se permiten JPG, PNG, WEBP y PDF.`), false);
+  } catch (err) {
+    cb(err, false);
+  }
+}
+
+/**
+ * Validates receipt file by extension and, when present, MIME + magic bytes.
+ */
+export function assertMagicBytes(req, _res, next) {
+  if (!req.file) {
+    return next();
+  }
+
+  try {
+    validateReceiptUploadMetadata(req.file);
+
+    if (req.file.mimetype) {
+      assertAllowedFileSignature(req.file.buffer, req.file.mimetype);
+    }
+
+    next();
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -80,7 +135,7 @@ export function handleMulterError(err, _req, res, next) {
       error: 'El archivo supera el límite de 5 MB',
     });
   }
-  if (err.message?.includes('Tipo de archivo no soportado')) {
+  if (err.message?.includes('no soportado')) {
     return res.status(400).json({
       ok: false,
       error: err.message,
@@ -95,4 +150,4 @@ export function handleMulterError(err, _req, res, next) {
   next(err);
 }
 
-export { assertAllowedFileSignature, assertMagicBytes };
+export { assertAllowedFileSignature };

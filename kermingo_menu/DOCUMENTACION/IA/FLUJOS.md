@@ -22,14 +22,24 @@
 ```
 [Visitante]
     │
-    ├── GET /api/configuracion-tienda
-    │   └── Verifica: ¿estado === 'abierta'? Si no, muestra mensaje.
+    ├── GET /api/configuracion-tienda (en paralelo con productos)
+    │   ├── estado='abierta' → flujo normal
+    │   ├── estado='cerrada' → muestra mensaje_publico, deshabilita compras
+    │   ├── estado='demo' → muestra aviso, deshabilita compras
+    │   ├── loading → skeleton
+    │   └── error → mensaje de retry
     │
     ├── GET /api/productos
     │   └── Carga la carta filtrada por categoría.
     │
     ├── Agrega items al carrito (localStorage)
     │   └── Si es promo, se acumulan las cantidades necesarias.
+    │
+    ├── CheckoutScreen: validación previa al envío
+    │   ├── Vuelve a verificar estado de la tienda (config)
+    │   ├── Si cerrada/demo → bloquea confirmación
+    │   ├── Valida comprobante: solo JPG/PNG/WEBP/PDF, máx 5 MB
+    │   └── HEIC rechazado antes de setear receipt
     │
     ├── POST /api/pedidos
     │   ├── multipart/form-data: { nombre_cliente, items, metodo_pago: 'transferencia', comprobante }
@@ -58,7 +68,10 @@
     ├── POST /api/admin/pedidos/caja
     │   ├── Body: { nombre_cliente, items, metodo_pago, estado_pago?, estado_pedido? }
     │   ├── Requiere: requireAdmin + requireTrustedOrigin
-    │   ├── Puede setear estado_pago='pagado' directamente.
+    │   ├── Default estado_pago según método:
+    │   │   ├── efectivo sin estado_pago → 'pagado' (backend coercion)
+    │   │   └── transferencia sin estado_pago → 'pendiente'
+    │   ├── Puede setear estado_pago='pagado' explícitamente.
     │   ├── Puede setear estado_pedido inicial (recibido, en_preparacion, listo, entregado).
     │   ├── Backend valida stock con transacción.
     │   └── Crea pedido con origen='caja'.
@@ -67,7 +80,7 @@
         └── Marca como pagado si fue efectivo y ya se cobró.
 ```
 
-**Ventaja:** El admin puede crear un pedido ya pagado y con estado avanzado, ideal para ventas presenciales.
+**Ventaja:** El admin puede crear un pedido ya pagado y con estado avanzado, ideal para ventas presenciales. **Fix B7:** efectivo sin `estado_pago` explícito queda `'pagado'` por defecto en el backend; transferencia sin `estado_pago` queda `'pendiente'`.
 
 ---
 

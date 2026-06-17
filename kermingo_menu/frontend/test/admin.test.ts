@@ -188,6 +188,60 @@ describe('apiToAdminProduct', () => {
 })
 
 describe('adminToApiPayload', () => {
+  it('maps merienda meal to categorias', () => {
+    const payload = adminToApiPayload({
+      id: '11',
+      name: 'Item',
+      description: 'x',
+      price: 150,
+      type: 'comida',
+      meals: ['merienda'],
+      icon: 'pizza',
+      active: true,
+      stockLimited: true,
+      stockCurrent: 10,
+      stockMin: 1,
+    })
+
+    expect(payload.categorias).toEqual(['Merienda'])
+  })
+
+  it('maps cena meal to categorias', () => {
+    const payload = adminToApiPayload({
+      id: '12',
+      name: 'Item',
+      description: 'x',
+      price: 150,
+      type: 'comida',
+      meals: ['cena'],
+      icon: 'pizza',
+      active: true,
+      stockLimited: true,
+      stockCurrent: 10,
+      stockMin: 1,
+    })
+
+    expect(payload.categorias).toEqual(['Cena'])
+  })
+
+  it('maps both meals to both categorias', () => {
+    const payload = adminToApiPayload({
+      id: '13',
+      name: 'Item',
+      description: 'x',
+      price: 150,
+      type: 'comida',
+      meals: ['cena', 'merienda'],
+      icon: 'pizza',
+      active: true,
+      stockLimited: true,
+      stockCurrent: 10,
+      stockMin: 1,
+    })
+
+    expect(payload.categorias).toEqual(['Merienda', 'Cena'])
+  })
+
   it('converts stockLimited true to stock_limitado 1', () => {
     const payload = adminToApiPayload({
       id: '1',

@@ -37,7 +37,15 @@ const TYPE_LABEL: Record<Product['type'], string> = {
   promo: 'Promo',
 }
 
-export function ProductCard({ product }: { product: Product }) {
+export function ProductCard({
+  product,
+  disabled = false,
+  disabledReason,
+}: {
+  product: Product
+  disabled?: boolean
+  disabledReason?: string
+}) {
   const { qtyOf, add, increment, decrement } = useCart()
   const qty = qtyOf(product.id)
   const soldOut = product.stock === 'agotado'
@@ -104,15 +112,19 @@ export function ProductCard({ product }: { product: Product }) {
             {formatPrice(product.price)}
           </span>
 
-          {soldOut ? (
-            <span className="inline-flex items-center rounded-2xl bg-[#EEF5FF] px-4 py-2.5 text-sm font-bold text-[#5b6b7d] ring-1 ring-[#75AADB]/30">
-              Sin stock
-            </span>
-          ) : qty === 0 ? (
-            <button
-              onClick={() => add(product)}
-              aria-label={`Agregar ${product.name} al carrito`}
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-[#F6B21A] px-4 py-2.5 text-sm font-extrabold text-[#003B73] shadow-sm transition-transform hover:bg-[#ffbe2e] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003B73] focus-visible:ring-offset-2"
+            {soldOut ? (
+              <span className="inline-flex items-center rounded-2xl bg-[#EEF5FF] px-4 py-2.5 text-sm font-bold text-[#5b6b7d] ring-1 ring-[#75AADB]/30">
+                Sin stock
+              </span>
+            ) : disabled ? (
+              <span className="inline-flex items-center rounded-2xl bg-[#F6B21A]/60 px-4 py-2.5 text-sm font-bold text-[#003B73] text-center">
+                {disabledReason || 'No se puede comprar ahora'}
+              </span>
+            ) : qty === 0 ? (
+              <button
+                onClick={() => add(product)}
+                aria-label={`Agregar ${product.name} al carrito`}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-[#F6B21A] px-4 py-2.5 text-sm font-extrabold text-[#003B73] shadow-sm transition-transform hover:bg-[#ffbe2e] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003B73] focus-visible:ring-offset-2"
             >
               <Plus className="h-4 w-4" strokeWidth={2.6} />
               Agregar

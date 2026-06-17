@@ -20,6 +20,7 @@ export type ApiConfiguracion = {
   id: number
   estado: 'abierta' | 'cerrada' | 'demo'
   mensaje_publico: string | null
+  cena_habilitada_desde?: string | null
 }
 
 export type ApiItem = {
