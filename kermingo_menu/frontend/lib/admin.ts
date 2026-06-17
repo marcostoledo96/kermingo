@@ -198,7 +198,7 @@ export type CocinaPedido = {
   status: OrderStatus
   time: string
   observations?: string
-  lines: { name: string; icon: ProductIcon; qty: number; price: number }[]
+  lines: { name: string; icon: ProductIcon; qty: number; price: number; image?: string }[]
 }
 
 export function apiToCocinaOrder(
@@ -222,6 +222,7 @@ export function apiToCocinaOrder(
         typeof it.precio_unitario === 'string'
           ? parseFloat(it.precio_unitario)
           : it.precio_unitario,
+      image: ABSOLUTE_IMAGE_URL(it.imagen_url),
     })),
   }
 }

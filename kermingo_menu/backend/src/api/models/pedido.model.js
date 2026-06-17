@@ -313,8 +313,13 @@ export async function findById(pool, id) {
 
   const [detalles] = await pool.query(
     `SELECT pd.id, pd.producto_id, pd.nombre_producto, pd.precio_unitario,
-            pd.cantidad, pd.subtotal
-     FROM pedido_detalle pd WHERE pd.pedido_id = ?`,
+            pd.cantidad, pd.subtotal,
+            CASE WHEN p.imagen_archivo_id IS NOT NULL
+                 THEN CONCAT('/api/productos/', p.id, '/imagen?v=', p.imagen_archivo_id)
+                 ELSE NULL END AS imagen_url
+     FROM pedido_detalle pd
+     INNER JOIN producto p ON p.id = pd.producto_id
+     WHERE pd.pedido_id = ?`,
     [id]
   );
   pedido.items = detalles;

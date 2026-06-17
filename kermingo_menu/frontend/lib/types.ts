@@ -29,6 +29,7 @@ export type ApiItem = {
   precio_unitario: string | number
   cantidad: number
   subtotal: string | number
+  imagen_url?: string | null
 }
 
 export type ApiPedido = {

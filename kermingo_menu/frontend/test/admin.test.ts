@@ -584,6 +584,60 @@ describe('apiToCocinaOrder', () => {
     const o = apiToCocinaOrder(header, items)
     expect(o.payStatus).toBe('rechazado')
   })
+
+  it('maps item imagen_url to absolute image URL', () => {
+    const items: ApiItem[] = [
+      {
+        producto_id: 10,
+        nombre_producto: 'Pizza',
+        precio_unitario: '2500.00',
+        cantidad: 2,
+        subtotal: '5000.00',
+        imagen_url: '/api/productos/10/imagen?v=42',
+      },
+    ]
+    const header: ApiCocinaPedido = {
+      id: 4,
+      numero: 'KMG-0004',
+      nombre_cliente: 'Test 4',
+      mesa: null,
+      estado_pedido: 'en_preparacion',
+      estado_pago: 'pagado',
+      observaciones: null,
+      total: '5000.00',
+      created_at: '2024-01-01T00:00:00.000Z',
+      cantidad_items: 1,
+    }
+    const o = apiToCocinaOrder(header, items)
+    expect(o.lines[0].image).toBe('http://localhost:3001/api/productos/10/imagen?v=42')
+  })
+
+  it('leaves image undefined when item has no imagen_url', () => {
+    const items: ApiItem[] = [
+      {
+        producto_id: 11,
+        nombre_producto: 'Sin foto',
+        precio_unitario: '1000',
+        cantidad: 1,
+        subtotal: '1000',
+        imagen_url: null,
+      },
+    ]
+    const header: ApiCocinaPedido = {
+      id: 5,
+      numero: 'KMG-0005',
+      nombre_cliente: 'Test 5',
+      mesa: null,
+      estado_pedido: 'listo',
+      estado_pago: 'pendiente',
+      observaciones: null,
+      total: '1000',
+      created_at: '2024-01-01T00:00:00.000Z',
+      cantidad_items: 1,
+    }
+    const o = apiToCocinaOrder(header, items)
+    expect(o.lines[0].image).toBeUndefined()
+  })
 })
 
 describe('apiToCajaProduct', () => {
