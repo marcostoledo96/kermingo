@@ -149,7 +149,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 **Schemas:**
 
 - `createProductoSchema`: `{ nombre, descripcion?, precio, tipo, stock_limitado, stock_actual?, stock_minimo_alerta?, activo?, categorias }` — `categorias` es array de `('Merienda' | 'Cena')` con mínimo 1 elemento (obligatorio).
-- `updateProductoSchema`: `createProductoSchema.partial()` — `categorias` opcional, si viene no puede estar vacío.
+- `updateProductoSchema`: schema explícito con todos los campos `.optional()` (no `partial()`) — evita que `.default()` sobre `stock_minimo_alerta`/`activo` sobrescriba silenciosamente. `categorias` opcional, si viene no puede estar vacío.
 - `stockAdjustmentSchema`: `{ stock_actual: number }`
 
 ---
