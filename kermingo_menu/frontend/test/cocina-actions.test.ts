@@ -3,32 +3,17 @@ import { getActions } from '../lib/cocina-actions'
 import type { OrderStatus } from '../lib/admin'
 
 describe('getActions (cocina agile transitions)', () => {
-  it('recibido: primary Empezar, secondary Listo directo', () => {
-    const actions = getActions('recibido')
-    expect(actions).toHaveLength(2)
-    expect(actions[0].label).toBe('Empezar')
-    expect(actions[0].next).toBe('preparacion')
-    expect(actions[0].variant).toBe('primary')
-    expect(actions[0].icon).toBeDefined()
-
-    expect(actions[1].label).toBe('Listo directo')
-    expect(actions[1].next).toBe('listo')
-    expect(actions[1].variant).toBe('secondary')
-    expect(actions[1].icon).toBeDefined()
+  it('recibido: no actions (estado eliminado del flujo, legacy display only)', () => {
+    expect(getActions('recibido')).toEqual([])
   })
 
-  it('preparacion: secondary Volver a recibido, primary Marcar listo', () => {
+  it('preparacion: primary Marcar listo (sin botón volver a recibido)', () => {
     const actions = getActions('preparacion')
-    expect(actions).toHaveLength(2)
-    expect(actions[0].label).toBe('Volver a recibido')
-    expect(actions[0].next).toBe('recibido')
-    expect(actions[0].variant).toBe('secondary')
+    expect(actions).toHaveLength(1)
+    expect(actions[0].label).toBe('Marcar listo')
+    expect(actions[0].next).toBe('listo')
+    expect(actions[0].variant).toBe('primary')
     expect(actions[0].icon).toBeDefined()
-
-    expect(actions[1].label).toBe('Marcar listo')
-    expect(actions[1].next).toBe('listo')
-    expect(actions[1].variant).toBe('primary')
-    expect(actions[1].icon).toBeDefined()
   })
 
   it('listo: secondary Volver a preparación, primary Entregado (with confirm)', () => {
@@ -56,9 +41,9 @@ describe('getActions (cocina agile transitions)', () => {
 
   it('all actions have valid next states', () => {
     const validStates: Set<string> = new Set([
-      'recibido', 'preparacion', 'listo', 'entregado',
+      'preparacion', 'listo', 'entregado',
     ])
-    const statuses: OrderStatus[] = ['recibido', 'preparacion', 'listo']
+    const statuses: OrderStatus[] = ['preparacion', 'listo']
     for (const s of statuses) {
       for (const a of getActions(s)) {
         expect(validStates.has(a.next)).toBe(true)
@@ -67,7 +52,7 @@ describe('getActions (cocina agile transitions)', () => {
   })
 
   it('confirm is only set on entregado action', () => {
-    for (const s of ['recibido', 'preparacion'] as OrderStatus[]) {
+    for (const s of ['preparacion'] as OrderStatus[]) {
       for (const a of getActions(s)) {
         expect(a.confirm).toBeUndefined()
       }

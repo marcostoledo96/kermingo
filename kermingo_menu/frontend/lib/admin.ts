@@ -163,6 +163,8 @@ export function mapPayStatus(s: string): PayStatus {
 function mapOrderStatus(s: string): OrderStatus {
   switch (s) {
     case 'recibido':
+      // legacy: orders older than the flujo-directo cambio.
+      // Se conserva el case para que pedidos viejos en DB sigan renderizando.
       return 'recibido'
     case 'en_preparacion':
       return 'preparacion'
@@ -173,7 +175,7 @@ function mapOrderStatus(s: string): OrderStatus {
     case 'cancelado':
       return 'cancelado'
     default:
-      return 'recibido'
+      return 'preparacion'
   }
 }
 

@@ -487,7 +487,7 @@ describe('orderStatusToApi', () => {
     expect(orderStatusToApi('preparacion')).toBe('en_preparacion')
   })
 
-  it('maps recibido to recibido', () => {
+  it('maps recibido to recibido (legacy support)', () => {
     expect(orderStatusToApi('recibido')).toBe('recibido')
   })
 
@@ -818,7 +818,7 @@ describe('isCajaLowStock', () => {
 })
 
 describe('mapOrderStatus', () => {
-  it('maps recibido to recibido', () => {
+  it('maps recibido to recibido (legacy support)', () => {
     expect(mapOrderStatus('recibido')).toBe('recibido')
   })
 
@@ -838,8 +838,8 @@ describe('mapOrderStatus', () => {
     expect(mapOrderStatus('cancelado')).toBe('cancelado')
   })
 
-  it('maps unknown to recibido (default)', () => {
-    expect(mapOrderStatus('unknown-state')).toBe('recibido')
+  it('maps unknown to preparacion (default)', () => {
+    expect(mapOrderStatus('unknown-state')).toBe('preparacion')
   })
 })
 

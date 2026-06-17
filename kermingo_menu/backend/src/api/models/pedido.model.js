@@ -44,9 +44,15 @@ export async function assertStoreOpen(pool) {
   }
 }
 
+/**
+ * Transiciones válidas del state machine de cocina.
+ *
+ * El estado `recibido` se eliminó del flujo: los pedidos nuevos se crean
+ * directamente como `en_preparacion`. Cocina solo maneja dos estados
+ * activos (`en_preparacion`, `listo`) más el terminal `entregado`.
+ */
 export const TRANSICIONES_VALIDAS = {
-  recibido: ['en_preparacion', 'listo'],
-  en_preparacion: ['recibido', 'listo'],
+  en_preparacion: ['listo'],
   listo: ['en_preparacion', 'entregado'],
   entregado: [],
 };
@@ -213,7 +219,7 @@ export async function createWithTransaction(pool, data) {
         data.observaciones || null,
         data.metodo_pago,
         estadoPago,
-        data.estado_pedido || 'recibido',
+        data.estado_pedido || 'en_preparacion',
         total,
         comprobanteArchivoId,
       ]
@@ -268,10 +274,10 @@ export async function findKitchenPedidos(pool) {
             COUNT(pd.id) AS cantidad_items
      FROM pedido p
      LEFT JOIN pedido_detalle pd ON pd.pedido_id = p.id
-     WHERE p.estado_pedido IN ('recibido', 'en_preparacion', 'listo')
+     WHERE p.estado_pedido IN ('en_preparacion', 'listo')
      GROUP BY p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
               p.estado_pago, p.observaciones, p.created_at, p.total
-     ORDER BY FIELD(p.estado_pedido, 'recibido', 'en_preparacion', 'listo'), p.created_at ASC`
+     ORDER BY FIELD(p.estado_pedido, 'en_preparacion', 'listo'), p.created_at ASC`
   );
   return rows;
 }
@@ -467,7 +473,7 @@ export async function cancelWithTransaction(pool, id) {
       await conn.rollback();
       return 0;
     }
-    if (!['recibido', 'en_preparacion'].includes(pedido.estado_pedido)) {
+    if (!['en_preparacion'].includes(pedido.estado_pedido)) {
       await conn.rollback();
       return -1;
     }

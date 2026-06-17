@@ -168,7 +168,7 @@ export async function obtenerAdmin(req, res, next) {
 
 /**
  * PATCH /api/admin/pedidos/:id/estado (admin)
- * Cambia el estado del pedido (recibido → en_preparacion → listo → entregado).
+ * Cambia el estado del pedido (en_preparacion → listo → entregado).
  */
 export async function cambiarEstado(req, res, next) {
   try {
@@ -235,7 +235,7 @@ export async function cancelar(req, res, next) {
     const pool = getPool();
     const result = await cancelWithTransaction(pool, req.params.id);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
-    if (result === -1) throw new ValidationError('Solo se puede cancelar pedidos en estado recibido o en preparación');
+    if (result === -1) throw new ValidationError('Solo se puede cancelar pedidos en estado en preparación');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Pedido cancelado correctamente');
   } catch (err) {

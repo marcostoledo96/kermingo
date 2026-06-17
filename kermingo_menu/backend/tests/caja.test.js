@@ -347,7 +347,7 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
       .send({ estado_pago: 'pagado' });
     expect(res.statusCode).toBe(200);
     expect(res.body.data.estado_pago).toBe('pagado');
-    expect(res.body.data.estado_pedido).toBe('recibido');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
   });
 
   it('PATCH pendiente -> pagado for transferencia returns 200 without comprobante', async () => {

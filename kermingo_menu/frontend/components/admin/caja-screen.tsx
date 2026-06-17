@@ -145,7 +145,7 @@ export function CajaScreen() {
       telefono_cliente: phone.trim() || undefined,
       metodo_pago: method,
       estado_pago: method === 'efectivo' ? ('pagado' as const) : ('pendiente' as const),
-      estado_pedido: 'recibido' as const,
+      estado_pedido: 'en_preparacion' as const,
       items,
     }
 

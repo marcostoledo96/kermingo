@@ -30,7 +30,7 @@ async function prepararProductoBase() {
   PRODUCTO_ID = rows[0].id;
 }
 
-async function crearPedidoEnCocina(estadoInicial = 'recibido') {
+async function crearPedidoEnCocina(estadoInicial = 'en_preparacion') {
   const res = await request(app)
     .post('/api/admin/pedidos/caja')
     .set('Cookie', adminCookie())
@@ -101,22 +101,8 @@ describe('Cocina endpoints autenticados con DB real', () => {
     }
   });
 
-  it('PATCH /api/admin/cocina/pedidos/:id/estado permite recibido → en_preparacion', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
-
-    const res = await request(app)
-      .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'en_preparacion' });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body.ok).toEqual(true);
-    expect(res.body.data.estado_pedido).toEqual('en_preparacion');
-  });
-
-  it('PATCH /api/admin/cocina/pedidos/:id/estado permite recibido → listo', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
+  it('PATCH /api/admin/cocina/pedidos/:id/estado permite en_preparacion → listo (nuevo flujo directo)', async () => {
+    const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     const res = await request(app)
       .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
@@ -129,34 +115,21 @@ describe('Cocina endpoints autenticados con DB real', () => {
     expect(res.body.data.estado_pedido).toEqual('listo');
   });
 
-  it('PATCH /api/admin/cocina/pedidos/:id/estado permite en_preparacion → listo', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
-
-    await request(app)
-      .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'en_preparacion' });
+  it('PATCH /api/admin/cocina/pedidos/:id/estado rechaza en_preparacion → recibido (estado inicial eliminado)', async () => {
+    const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     const res = await request(app)
       .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'listo' });
+      .send({ estado_pedido: 'recibido' });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.ok).toEqual(true);
-    expect(res.body.data.estado_pedido).toEqual('listo');
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toEqual(false);
   });
 
   it('PATCH /api/admin/cocina/pedidos/:id/estado permite listo → en_preparacion', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
-
-    await request(app)
-      .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'en_preparacion' });
+    const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     await request(app)
       .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
@@ -176,13 +149,7 @@ describe('Cocina endpoints autenticados con DB real', () => {
   });
 
   it('PATCH /api/admin/cocina/pedidos/:id/estado permite listo → entregado', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
-
-    await request(app)
-      .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'en_preparacion' });
+    const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     await request(app)
       .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
@@ -202,13 +169,7 @@ describe('Cocina endpoints autenticados con DB real', () => {
   });
 
   it('PATCH /api/admin/cocina/pedidos/:id/estado rechaza entregado → listo', async () => {
-    const pedido = await crearPedidoEnCocina('recibido');
-
-    await request(app)
-      .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pedido: 'en_preparacion' });
+    const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     await request(app)
       .patch(`/api/admin/cocina/pedidos/${pedido.id}/estado`)

@@ -77,10 +77,9 @@ const KDS_COLUMNS: {
 ]
 
 /* Mobile tabs — same data, tab-based */
-type TabId = 'recibido' | 'preparacion' | 'listo' | 'entregado'
+type TabId = 'preparacion' | 'listo' | 'entregado'
 
 const TABS: { id: TabId; label: string; estado: EstadoVisual; icon: typeof Clock }[] = [
-  { id: 'recibido', label: 'En cola', estado: 'informacion', icon: CircleDot },
   { id: 'preparacion', label: 'Preparando', estado: 'preparando', icon: Flame },
   { id: 'listo', label: 'Listos', estado: 'listo', icon: Bell },
   { id: 'entregado', label: 'Entregados', estado: 'entregado', icon: CircleCheck },
@@ -143,7 +142,7 @@ const CARD_STATUS_VISUAL: Record<
 }
 
 export function CocinaScreen() {
-  const [tab, setTab] = useState<TabId>('recibido')
+  const [tab, setTab] = useState<TabId>('preparacion')
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<string | null>(null)
   const [cancelMenuOpenId, setCancelMenuOpenId] = useState<string | null>(null)
@@ -226,13 +225,12 @@ export function CocinaScreen() {
 
   const counts = useMemo(() => {
     const c: Record<TabId, number> = {
-      recibido: 0,
       preparacion: 0,
       listo: 0,
       entregado: 0,
     }
     orders?.forEach((o) => {
-      if (o.status === 'recibido' || o.status === 'preparacion' || o.status === 'listo' || o.status === 'entregado') {
+      if (o.status === 'preparacion' || o.status === 'listo' || o.status === 'entregado') {
         c[o.status] += 1
       }
     })
@@ -251,22 +249,16 @@ export function CocinaScreen() {
     return map
   }, [orders])
 
-  /** Pedidos recién recibidos — mostrados como strip horizontal arriba */
-  const queueOrders = useMemo(
-    () => (orders ?? []).filter((o) => o.status === 'recibido'),
-    [orders],
-  )
-
   const visibleOrders = useMemo(() => {
     if (!orders) return []
     if (tab === 'entregado') return orders.filter((o) => o.status === 'entregado' || o.status === 'cancelado')
     return orders.filter((o) => o.status === tab)
   }, [orders, tab])
 
-  // Productos pendientes: líneas de pedidos activos (recibidos + en preparación)
+  // Productos pendientes: líneas de pedidos activos (en preparación)
   const pending = useMemo(() => {
     const active = (orders ?? []).filter(
-      (o) => o.status === 'recibido' || o.status === 'preparacion',
+      (o) => o.status === 'preparacion',
     )
     const map = new Map<
       string,
@@ -343,7 +335,7 @@ export function CocinaScreen() {
   }
 
   const hasActiveOrders = (orders ?? []).some(
-    (o) => o.status === 'recibido' || o.status === 'preparacion' || o.status === 'listo',
+    (o) => o.status === 'preparacion' || o.status === 'listo',
   )
 
   return (
@@ -427,73 +419,6 @@ export function CocinaScreen() {
                   +{pending.length - 12} más
                 </span>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── En cola strip — Recibidos en fila horizontal arriba (solo desktop) ── */}
-      {queueOrders.length > 0 && (
-        <div className="hidden border-b border-[var(--km-info-bg)] bg-[var(--km-info-bg)]/40 lg:block">
-          <div className="mx-auto max-w-7xl px-4 py-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-[var(--km-info-text)]">
-              <CircleDot className="h-4 w-4" strokeWidth={2.4} />
-              <span>En cola</span>
-              <span className="km-tabular">{queueOrders.length} {queueOrders.length === 1 ? 'pedido' : 'pedidos'} recién recibidos</span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {queueOrders.map((order) => {
-                const firstImage = order.lines.find((l) => l.image)?.image
-                const totalQty = order.lines.reduce((s, l) => s + l.qty, 0)
-                return (
-                  <div
-                    key={order.id}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--km-info-text)]/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] shadow-sm"
-                  >
-                    {firstImage ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={firstImage}
-                        alt={order.customer}
-                        className="h-7 w-7 shrink-0 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#EEF5FF] text-[#003B73]">
-                        <Hash className="h-3.5 w-3.5" strokeWidth={2.2} />
-                      </span>
-                    )}
-                    <div className="flex flex-col leading-tight">
-                      <span className="font-mono text-[10px] font-extrabold text-[#003B73]/50">
-                        {order.code.replace('KMG-', '')}
-                      </span>
-                      <span className="max-w-[120px] truncate text-xs font-bold text-[#003B73]">
-                        {order.customer}
-                      </span>
-                    </div>
-                    <span className="km-tabular ml-0.5 text-[10px] font-extrabold text-[var(--km-info-text)]">
-                      {totalQty} ít.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => advance(order.id, 'preparacion')}
-                      disabled={actingId === order.id}
-                      className="km-focus ml-1 flex items-center gap-1 rounded-lg bg-[var(--km-info-text)] px-2.5 py-1.5 text-[11px] font-extrabold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                    >
-                      <Flame className="h-3 w-3" strokeWidth={2.4} />
-                      Preparar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => advance(order.id, 'listo')}
-                      disabled={actingId === order.id}
-                      className="km-focus flex items-center gap-1 rounded-lg border border-[var(--km-info-text)]/30 bg-white px-2 py-1.5 text-[11px] font-bold text-[var(--km-info-text)] transition-colors hover:bg-[var(--km-info-bg)] disabled:opacity-50"
-                    >
-                      <Bell className="h-3 w-3" strokeWidth={2.4} />
-                      Listo
-                    </button>
-                  </div>
-                )
-              })}
             </div>
           </div>
         </div>
@@ -703,7 +628,7 @@ function KdsOrderCard({
 }) {
   const sv = CARD_STATUS_VISUAL[order.status]
   const isClosed = order.status === 'entregado' || order.status === 'cancelado'
-  const canCancel = order.status === 'recibido' || order.status === 'preparacion'
+  const canCancel = order.status === 'preparacion'
   const actions = getActions(order.status)
 
   return (

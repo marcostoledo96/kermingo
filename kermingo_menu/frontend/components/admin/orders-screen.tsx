@@ -105,7 +105,6 @@ const ORDER_STATUS_VISUAL: Record<
 }
 
 const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
-  recibido: 'preparacion',
   preparacion: 'listo',
   listo: 'entregado',
 }
@@ -115,7 +114,6 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
 const PRIMARY_ACTION: Partial<
   Record<OrderStatus, { label: string; icon: typeof Clock; nextLabel: string }>
 > = {
-  recibido: { label: 'Empezar', icon: Flame, nextLabel: 'En preparación' },
   preparacion: { label: 'Marcar listo', icon: Bell, nextLabel: 'Listo' },
   listo: { label: 'Entregar', icon: CircleCheck, nextLabel: 'Entregado' },
 }

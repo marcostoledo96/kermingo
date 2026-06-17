@@ -53,9 +53,9 @@ type DashOrder = {
 }
 
 const DEMO_ORDERS: DashOrder[] = [
-  { id: '1', code: 'KMG-0042', customer: 'Martín G.', origin: 'online', method: 'transferencia', payment: 'comprobante', paymentLabel: 'Comprobante', paymentTone: 'info', status: 'recibido', statusLabel: 'Recibido', statusTone: 'neutral', total: 6500, time: '20:45', isNew: true },
+  { id: '1', code: 'KMG-0042', customer: 'Martín G.', origin: 'online', method: 'transferencia', payment: 'comprobante', paymentLabel: 'Comprobante', paymentTone: 'info', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 6500, time: '20:45', isNew: true },
   { id: '2', code: 'KMG-0041', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 3500, time: '20:42' },
-  { id: '3', code: 'KMG-0040', customer: 'Federico R.', origin: 'online', method: 'transferencia', payment: 'pendiente', paymentLabel: 'Pago pendiente', paymentTone: 'warning', status: 'recibido', statusLabel: 'Recibido', statusTone: 'neutral', total: 8200, time: '20:38' },
+  { id: '3', code: 'KMG-0040', customer: 'Federico R.', origin: 'online', method: 'transferencia', payment: 'pendiente', paymentLabel: 'Pago pendiente', paymentTone: 'warning', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 8200, time: '20:38' },
   { id: '4', code: 'KMG-0039', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'entregado', statusLabel: 'Entregado', statusTone: 'success', total: 4800, time: '20:31' },
   { id: '5', code: 'KMG-0038', customer: 'Pablo S.', origin: 'online', method: 'transferencia', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'listo', statusLabel: 'Listo', statusTone: 'gold', total: 5200, time: '20:25' },
   { id: '6', code: 'KMG-0037', customer: 'Caja', origin: 'caja', method: 'transferencia', payment: 'rechazado', paymentLabel: 'Rechazado', paymentTone: 'danger', status: 'cancelado', statusLabel: 'Cancelado', statusTone: 'danger', total: 2600, time: '20:18' },
