@@ -160,7 +160,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 |---|---|---|---|---|
 | `GET` | `/configuracion-tienda` | No | `configuracion.obtenerPublico` | Estado público de la tienda |
 | `GET` | `/admin/configuracion-tienda` | Cookie | `configuracion.obtenerAdmin` | Config completa (incluye `cena_habilitada_desde`) |
-| `PUT` | `/admin/configuracion-tienda` | Cookie + Origin | `configuracion.actualizarAdmin` | Actualizar config. Schema: `{ estado, mensaje_publico?, cena_habilitada_desde? }` |
+| `PUT` | `/admin/configuracion-tienda` | Cookie + Origin | `configuracion.actualizarAdmin` | Actualizar config. Schema: `{ estado?, mensaje_publico?, cena_habilitada_desde? }` — todos los campos son opcionales, pero al menos uno debe estar presente. |
 
 ---
 

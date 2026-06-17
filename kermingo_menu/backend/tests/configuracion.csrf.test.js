@@ -49,6 +49,44 @@ const CONFIG_ADMIN_ROW = {
   cena_habilitada_desde: '20:30:00',
 };
 
+const PROD_REQUIRED_ENV = {
+  NODE_ENV: 'production',
+  FRONTEND_URL: 'https://kermingo.vercel.app',
+  DB_HOST: '127.0.0.1',
+  DB_PORT: '3306',
+  DB_USER: 'root',
+  DB_PASSWORD: 'changeme',
+  DB_NAME: 'kermingo',
+  JWT_SECRET: 'prod-test-secret',
+  GOOGLE_DRIVE_FOLDER_ID: 'folder-id',
+  GOOGLE_OAUTH_CLIENT_ID: 'oauth-client-id',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'oauth-client-secret',
+  GOOGLE_OAUTH_REFRESH_TOKEN: 'oauth-refresh-token',
+};
+
+async function withFreshConfigImport(envOverrides, loader) {
+  const previousEnv = { ...process.env };
+
+  try {
+    for (const [key, value] of Object.entries({ ...PROD_REQUIRED_ENV, ...envOverrides })) {
+      process.env[key] = String(value);
+    }
+
+    jest.resetModules();
+    return await loader();
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in previousEnv)) {
+        delete process.env[key];
+      }
+    }
+
+    for (const [key, value] of Object.entries(previousEnv)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 // ─── Tests CSRF ─────────────────────────────────────────────────────
 // `requireTrustedOrigin` lanza `ForbiddenError` (403) para orígenes
 // no confiables. Los tests esperan 403 para reflejar el comportamiento
@@ -150,5 +188,81 @@ describe('Configuración — CSRF con origin middleware real', () => {
       .send({ estado: 'abierta' });
     expect(res.statusCode).toBe(403);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+describe('Configuración — isTrustedOrigin en entorno production', () => {
+  it('rechaza origen LAN (http://192.168.0.34:3000) cuando NODE_ENV=production', async () => {
+    const { default: environments } = await withFreshConfigImport(
+      {
+        FRONTEND_URL: 'https://kermingo.vercel.app',
+      },
+      async () => import('../src/api/config/environments.js')
+    );
+
+    const { isTrustedOrigin } = environments;
+
+    expect(isTrustedOrigin('http://192.168.0.34:3000')).toBe(false);
+  });
+
+  it('acepta FRONTEND_URL configurado cuando NODE_ENV=production', async () => {
+    const frontendUrl = 'https://kermingo.vercel.app';
+    const { default: environments } = await withFreshConfigImport(
+      {
+        FRONTEND_URL: frontendUrl,
+      },
+      async () => import('../src/api/config/environments.js')
+    );
+
+    const { isTrustedOrigin } = environments;
+
+    expect(isTrustedOrigin(frontendUrl)).toBe(true);
+    expect(isTrustedOrigin(`${frontendUrl}/admin/dashboard`)).toBe(true);
+  });
+
+  it('middleware requireTrustedOrigin rechaza LAN y acepta FRONTEND_URL en producción', async () => {
+    const frontendUrl = 'https://kermingo.vercel.app';
+    const { requireTrustedOrigin } = await withFreshConfigImport(
+      {
+        FRONTEND_URL: frontendUrl,
+      },
+      async () => import('../src/api/middlewares/origin.middleware.js')
+    );
+
+    const forbiddenNext = jest.fn();
+    requireTrustedOrigin(
+      {
+        method: 'POST',
+        get: (headerName) => {
+          if (headerName === 'origin') return 'http://192.168.0.34:3000';
+          return null;
+        },
+      },
+      {},
+      forbiddenNext
+    );
+
+    expect(forbiddenNext).toHaveBeenCalledTimes(1);
+    expect(forbiddenNext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Origen no permitido'),
+      })
+    );
+
+    const allowedNext = jest.fn();
+    requireTrustedOrigin(
+      {
+        method: 'POST',
+        get: (headerName) => {
+          if (headerName === 'origin') return frontendUrl;
+          return null;
+        },
+      },
+      {},
+      allowedNext
+    );
+
+    expect(allowedNext).toHaveBeenCalledTimes(1);
+    expect(allowedNext).toHaveBeenCalledWith();
   });
 });

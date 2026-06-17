@@ -9,6 +9,7 @@ import {
   isCajaSoldOut,
   isCajaLowStock,
   mapOrderStatus,
+  mapPayStatus,
 } from '@/lib/admin'
 import type {
   ApiCocinaPedido,
@@ -307,6 +308,51 @@ describe('apiToOrder', () => {
     expect(o.origen).toBe('online')
   })
 
+  it('preserves backend payment states when mapping orders', () => {
+    const base = {
+      id: 99,
+      numero: 'KMG-0099',
+      token_seguimiento: 'xyz',
+      origen: 'online' as const,
+      nombre_cliente: 'Cliente',
+      mesa: null,
+      telefono_cliente: null,
+      telefono_whatsapp: null,
+      estado_pedido: 'recibido',
+      metodo_pago: 'transferencia' as const,
+      total: '100',
+      observaciones: null,
+      comprobante_archivo_id: null,
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+      items: [],
+    } as const
+
+    const withComprobante = apiToOrder({
+      ...base,
+      estado_pago: 'comprobante_subido',
+      comprobante_archivo_id: 42,
+    })
+
+    const withRejected = apiToOrder({
+      ...base,
+      id: 100,
+      numero: 'KMG-0100',
+      estado_pago: 'rechazado',
+    })
+
+    const withPaid = apiToOrder({
+      ...base,
+      id: 101,
+      numero: 'KMG-0101',
+      estado_pago: 'pagado',
+    })
+
+    expect(withComprobante.payStatus).toBe('comprobante_subido')
+    expect(withRejected.payStatus).toBe('rechazado')
+    expect(withPaid.payStatus).toBe('pagado')
+  })
+
   it('maps a pedido without items (empty lines)', () => {
     const api: ApiPedido = {
       id: 2,
@@ -435,6 +481,7 @@ describe('apiToCocinaOrder', () => {
     expect(o.lines[0].name).toBe('Pizza')
     expect(o.lines[0].qty).toBe(2)
     expect(o.lines[0].price).toBe(2500)
+    expect(o.payStatus).toBe('pendiente')
   })
 
   it('maps without items (empty lines)', () => {
@@ -451,8 +498,37 @@ describe('apiToCocinaOrder', () => {
       cantidad_items: 0,
     }
     const o = apiToCocinaOrder(header, undefined)
+    expect(o.payStatus).toBe('pagado')
     expect(o.lines).toEqual([])
     expect(o.table).toBeUndefined()
+  })
+
+  it('preserves payment status in cocina orders', () => {
+    const items: ApiItem[] = [
+      {
+        producto_id: 20,
+        nombre_producto: 'Gomita',
+        precio_unitario: 1200,
+        cantidad: 1,
+        subtotal: 1200,
+      },
+    ]
+
+    const header: ApiCocinaPedido = {
+      id: 3,
+      numero: 'KMG-0103',
+      nombre_cliente: 'Test 3',
+      mesa: null,
+      estado_pedido: 'listo',
+      estado_pago: 'rechazado',
+      observaciones: 'Sin hielo',
+      total: '1200',
+      created_at: '2024-01-01T00:00:00.000Z',
+      cantidad_items: 1,
+    }
+
+    const o = apiToCocinaOrder(header, items)
+    expect(o.payStatus).toBe('rechazado')
   })
 })
 
@@ -588,5 +664,20 @@ describe('mapOrderStatus', () => {
 
   it('maps unknown to recibido (default)', () => {
     expect(mapOrderStatus('unknown-state')).toBe('recibido')
+  })
+})
+
+describe('mapPayStatus', () => {
+  it.each([
+    ['pendiente', 'pendiente'],
+    ['comprobante_subido', 'comprobante_subido'],
+    ['pagado', 'pagado'],
+    ['rechazado', 'rechazado'],
+  ] as const)('maps %s to %s', (source, expected) => {
+    expect(mapPayStatus(source)).toBe(expected)
+  })
+
+  it('falls back unknown payment state to pendiente', () => {
+    expect(mapPayStatus('estado_extrano')).toBe('pendiente')
   })
 })

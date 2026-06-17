@@ -188,7 +188,7 @@ pendiente → comprobante_subido → pagado (o rechazado)
 - **Nombre interno seguro (B6.3.1):** El archivo se sube a Drive con nombre `${timestamp}-${uuid}-${sanitizedOriginal}`. `nombre_original` en DB preserva el nombre original.
 - **Error tipado (B6.3.1):** Cualquier error de Drive → `DriveUploadError` → 503 `"Servicio de upload no disponible"`.
 - El archivo se sube a Google Drive vía `drive.service.js` usando OAuth de usuario con refresh token.
-- **B7 decisión de diseño:** El endpoint devuelve metadatos (`drive_id`, `nombre_original`, `mime_type`, `tamanio_bytes`, `url_publica`). Para B7 inicial, el frontend mostrará metadata + botón "Abrir en Drive" si `url_publica` existe. El acceso depende de los permisos de Drive del usuario OAuth que subió el archivo. Si en el futuro se necesita que cualquier admin vea el archivo sin permisos Drive directos, se implementará un proxy autenticado en el backend.
+- **B7 decisión de diseño:** El endpoint devuelve metadatos (`nombre_original`, `mime_type`, `tamanio_bytes`, `url_publica`). `drive_id` no se expone (B7 fix P2-5). El frontend muestra metadata + botón "Abrir en Drive" si `url_publica` existe. El acceso depende de los permisos de Drive del usuario OAuth que subió el archivo. Si en el futuro se necesita que cualquier admin vea el archivo sin permisos Drive directos, se implementará un proxy autenticado en el backend.
 - `GET /api/admin/pedidos/:id/comprobante` devuelve metadatos seguros del archivo (no proxea bytes).
 - `PATCH /api/admin/pedidos/:id/pago` permite `comprobante_subido → pagado|rechazado`.
 - Caja rápida puede crear transferencias sin comprobante (estado `pagado` directo).

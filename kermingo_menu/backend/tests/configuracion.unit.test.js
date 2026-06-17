@@ -21,9 +21,9 @@ function expectFailure(result) {
 // ─── Tests ────────────────────────────────────────────────────────────
 
 describe('updateConfiguracionSchema (unit)', () => {
-  // ─── estado (requerido) ──────────────────────────────────────────────
+  // ─── estado (opcional, valida valores permitidos) ─────────────────────
 
-  describe('estado (requerido)', () => {
+  describe('estado (opcional)', () => {
     it('acepta estado "abierta"', () => {
       const result = updateConfiguracionSchema.safeParse({ estado: 'abierta' });
       expectSuccess(result);
@@ -49,17 +49,27 @@ describe('updateConfiguracionSchema (unit)', () => {
       expect(estadoIssue).toBeDefined();
     });
 
-    it('rechaza body sin estado', () => {
+    it('rechaza body vacío', () => {
       const result = updateConfiguracionSchema.safeParse({});
       expectFailure(result);
-      const estadoIssue = result.error.issues.find((i) => i.path.includes('estado'));
-      expect(estadoIssue).toBeDefined();
+      const issue = result.error.issues.find((i) =>
+        i.message.toLowerCase().includes('cuerpo')
+      );
+      expect(issue).toBeDefined();
     });
   });
 
   // ─── mensaje_publico (nullable + optional) ───────────────────────────
 
   describe('mensaje_publico (nullable + optional)', () => {
+    it('acepta body solo con mensaje_publico', () => {
+      const result = updateConfiguracionSchema.safeParse({
+        mensaje_publico: 'Mensaje de mantenimiento',
+      });
+      expectSuccess(result);
+      expect(result.data.mensaje_publico).toBe('Mensaje de mantenimiento');
+    });
+
     it('acepta mensaje_publico como string', () => {
       const result = updateConfiguracionSchema.safeParse({
         estado: 'abierta',

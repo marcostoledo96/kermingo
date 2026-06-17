@@ -11,7 +11,7 @@
  * correct path after refresh resolves.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type React from 'react'
 
@@ -57,13 +57,38 @@ vi.mock('@/lib/config', () => ({
 }))
 
 // Import after mocks
-import { AdminLoginScreen } from '@/components/admin/login-screen'
+import { AdminLoginScreen, shouldShowDemoCredentials } from '@/components/admin/login-screen'
 import { cacheAdminUser } from '@/components/admin/admin-session'
 
 describe('AdminLoginScreen — login navigation', () => {
+  const previousDemoCredentialsFlag = process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockRefresh.mockResolvedValue(undefined)
+    process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS = undefined
+  })
+
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS = previousDemoCredentialsFlag
+  })
+
+  it('does not show demo credentials by default', () => {
+    render(<AdminLoginScreen />)
+
+    expect(shouldShowDemoCredentials()).toBe(false)
+    expect(screen.queryByText(/Credenciales de prueba:/)).toBeNull()
+  })
+
+  it('shows demo credentials when feature flag is true', () => {
+    process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS = 'true'
+
+    render(<AdminLoginScreen />)
+
+    expect(shouldShowDemoCredentials()).toBe(true)
+    expect(screen.getByText(/Credenciales de prueba:/)).toBeTruthy()
+    expect(screen.getByText('admin@kermingo.com')).toBeTruthy()
+    expect(screen.getByText('admin123')).toBeTruthy()
   })
 
   it('navigates to /admin/dashboard after successful login', async () => {

@@ -68,10 +68,13 @@
 ### Frontend (Vercel)
 
 | Variable | Valor dev | Valor prod | Descripción |
-|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | URL pública del backend en Railway | URL base del backend que consume el frontend (ver `frontend/lib/config.ts`) |
+|---|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | URL pública del backend en Railway | URL base del backend que consume el frontend (ver `frontend/lib/config.ts`). En producción **es obligatoria**: si falta o viene vacía, el frontend queda sin `API_BASE` y las rutas de imágenes/API no se resuelven correctamente. |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS` | No definida | `false` o no definir | Si se setea a `'true'`, muestra credenciales demo (`admin@kermingo.com` / `admin123`) en el login. En producción no debe estar definida o debe ser `'false'`. Ver `frontend/components/admin/login-screen.tsx`. |
 
 **Template:** `frontend/.env.local.example`.
+
+**Regla adicional:** en entorno `production`, validar antes del deploy que `NEXT_PUBLIC_API_URL` esté definida.
 
 ### Backend (`.env` en `backend/` o vars en Railway)
 

@@ -65,6 +65,22 @@ const FILTER_OPTIONS: { key: ComprobanteFilter; label: string }[] = [
   { key: 'all', label: 'Todos' },
 ]
 
+export function buildComprobantesQuery(filter: ComprobanteFilter): Record<string, string | number | undefined> {
+  const params: Record<string, string | number | undefined> = {
+    metodo_pago: 'transferencia',
+    origen: 'online',
+    limit: 100,
+  }
+
+  if (filter === 'comprobante_subido') {
+    params.estado_pago = 'comprobante_subido'
+  } else if (filter === 'rechazado') {
+    params.estado_pago = 'rechazado'
+  }
+
+  return params
+}
+
 /* ====================================================================== */
 /* Main component                                                          */
 /* ====================================================================== */
@@ -87,10 +103,7 @@ export function ComprobantesScreen() {
     setLoading(true)
     setError(null)
     try {
-      const params: Record<string, string | number | undefined> = {
-        solo_pagos_pendientes: filter === 'all' ? undefined : 'true',
-        limit: 100,
-      }
+      const params = buildComprobantesQuery(filter)
       const data = await apiGet<{ pedidos: ApiPedidoListItem[]; paginacion: { total: number } }>('/api/admin/pedidos', params)
       setOrders(data.pedidos)
     } catch (err) {

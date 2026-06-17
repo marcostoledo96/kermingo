@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X, ImagePlus, Check, Loader2, Trash2 } from 'lucide-react'
 import type { MealCategory, ProductIcon, ProductType } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
-import type { AdminProduct } from '@/lib/admin'
+import { apiToAdminProduct, type AdminProduct } from '@/lib/admin'
 import { apiDelete, apiPostForm, ApiError } from '@/lib/api'
 import { ABSOLUTE_IMAGE_URL } from '@/lib/config'
 import type { ApiProducto } from '@/lib/types'
@@ -43,12 +43,14 @@ export function ProductFormDialog({
   error = null,
   onSave,
   onClose,
+  onProductUpdated,
 }: {
   initial?: AdminProduct | null
   submitting?: boolean
   error?: string | null
   onSave: (product: AdminProduct) => Promise<AdminProduct>
   onClose: () => void
+  onProductUpdated?: (product: AdminProduct) => void
 }) {
   const [form, setForm] = useState<AdminProduct>(initial ?? emptyProduct())
 
@@ -171,21 +173,30 @@ export function ProductFormDialog({
     e.preventDefault()
     if (!canSave) return
     setLocalSubmitError(null)
+    setImageError(null)
     try {
       const saved = await onSave({ ...form, id: form.id || `prod-${Date.now()}` })
 
       // Create mode with pending file: upload now
       if (!isEditing && pendingFile && saved.id && !saved.id.startsWith('prod-')) {
+        setUploadingImage(true)
         try {
-          await uploadImage(saved.id, pendingFile)
+          const uploaded = await uploadImage(saved.id, pendingFile)
+          const updatedProduct = apiToAdminProduct(uploaded)
+          setForm((f) => ({ ...f, ...updatedProduct }))
+          setPreviewUrl(updatedProduct.image ?? null)
+          setPendingFile(null)
+          onProductUpdated?.(updatedProduct)
         } catch (err) {
-          // Non-blocking: show warning but proceed
+          // Keep dialog open so admin can retry uploading image.
           setLocalSubmitError(
             err instanceof ApiError
               ? `Producto creado, pero la imagen no se pudo subir: ${err.message}`
               : 'Producto creado, pero la imagen no se pudo subir',
           )
-          // Don't return — close the dialog anyway
+          return
+        } finally {
+          setUploadingImage(false)
         }
       }
       onClose()

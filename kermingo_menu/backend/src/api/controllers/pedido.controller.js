@@ -255,7 +255,6 @@ export async function obtenerComprobante(req, res, next) {
     if (!archivo) throw new NotFoundError('Comprobante no encontrado en almacenamiento');
 
     return respuestaExitosa(res, {
-      drive_id: archivo.drive_id,
       nombre_original: archivo.nombre_original,
       mime_type: archivo.mime_type,
       tamanio_bytes: archivo.tamanio_bytes,

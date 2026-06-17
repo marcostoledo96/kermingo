@@ -192,6 +192,10 @@ describe('Caja payment-state-machine method-aware (unit)', () => {
     expect(validatePaymentTransition('rechazado', 'comprobante_subido', 'transferencia')).toBe(true);
   });
 
+  it('transferencia: rechazado -> pagado is valid', () => {
+    expect(validatePaymentTransition('rechazado', 'pagado', 'transferencia')).toBe(true);
+  });
+
   it('transferencia: pagado -> anything is invalid (terminal)', () => {
     expect(validatePaymentTransition('pagado', 'pendiente', 'transferencia')).toBe(false);
   });
@@ -328,6 +332,33 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({ estado_pago: 'pagado' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.estado_pago).toBe('pagado');
+  });
+
+  it('PATCH rechazado -> pagado for transferencia returns 200', async () => {
+    const resCreate = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-TRANSFERENCIA-RECHAZADO`,
+        metodo_pago: 'transferencia',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+    expect(resCreate.statusCode).toBe(201);
+
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', [
+      'rechazado',
+      resCreate.body.data.id,
+    ]);
+
+    const res = await request(app)
+      .patch(`/api/admin/pedidos/${resCreate.body.data.id}/pago`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'pagado' });
+
     expect(res.statusCode).toBe(200);
     expect(res.body.data.estado_pago).toBe('pagado');
   });

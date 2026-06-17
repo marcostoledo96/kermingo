@@ -181,6 +181,50 @@ describe('mapProducto', () => {
     expect(p.price).toBe(100)
     expect(p.meals).toEqual(['merienda', 'cena'])
   })
+
+  it('converts relative imagen_url to absolute URL', () => {
+    const api: ApiProducto = {
+      id: 4,
+      nombre: 'Item',
+      descripcion: 'x',
+      precio: '100',
+      tipo: 'comida',
+      stock_limitado: 1,
+      stock_actual: 5,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: 42,
+      imagen_nombre_original: 'pic.jpg',
+      imagen_mime_type: 'image/jpeg',
+      imagen_tamanio_bytes: 1234,
+      imagen_url: '/api/productos/4/imagen?v=42',
+      categorias: 'Cena',
+    }
+    const p = mapProducto(api)
+    expect(p.image).toBe('http://localhost:3001/api/productos/4/imagen?v=42')
+  })
+
+  it('returns undefined image when imagen_url is null', () => {
+    const api: ApiProducto = {
+      id: 5,
+      nombre: 'Item',
+      descripcion: 'x',
+      precio: '100',
+      tipo: 'comida',
+      stock_limitado: 1,
+      stock_actual: 5,
+      stock_minimo_alerta: 0,
+      activo: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+      categorias: 'Cena',
+    }
+    const p = mapProducto(api)
+    expect(p.image).toBeUndefined()
+  })
 })
 
 describe('mapPedido', () => {

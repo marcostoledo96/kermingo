@@ -329,10 +329,11 @@ describe('B6.3 Comprobantes integration', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.ok).toBe(true);
-        expect(res.body.data.drive_id).toBeDefined();
+        expect(res.body.data).not.toHaveProperty('drive_id');
         expect(res.body.data.nombre_original).toBeDefined();
         expect(res.body.data.mime_type).toBeDefined();
         expect(res.body.data.tamanio_bytes).toBeDefined();
+        expect(res.body.data.url_publica).toBeDefined();
         expect(res.body.data.buffer).toBeUndefined(); // No file bytes
       });
     }

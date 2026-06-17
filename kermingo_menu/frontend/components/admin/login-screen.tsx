@@ -9,6 +9,10 @@ import { KermingoLogo } from '@/components/kermingo-logo'
 import { useAdminSession, cacheAdminUser } from './admin-session'
 import { API_BASE } from '@/lib/config'
 
+export function shouldShowDemoCredentials(): boolean {
+  return process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS === 'true'
+}
+
 export function AdminLoginScreen() {
   const router = useRouter()
   const { refresh } = useAdminSession()
@@ -173,16 +177,18 @@ export function AdminLoginScreen() {
                   )}
                 </button>
 
-                <p className="pt-1 text-center text-[11px] text-[#6B7280]">
-                  Credenciales de prueba:{' '}
-                  <code className="rounded bg-[#EEF5FF] px-1.5 py-0.5 text-[#003B73]">
-                    admin@kermingo.com
-                  </code>{' '}
-                  /{' '}
-                  <code className="rounded bg-[#EEF5FF] px-1.5 py-0.5 text-[#003B73]">
-                    admin123
-                  </code>
-                </p>
+                {shouldShowDemoCredentials() && (
+                  <p className="pt-1 text-center text-[11px] text-[#6B7280]">
+                    Credenciales de prueba:{' '}
+                    <code className="rounded bg-[#EEF5FF] px-1.5 py-0.5 text-[#003B73]">
+                      admin@kermingo.com
+                    </code>{' '}
+                    /{' '}
+                    <code className="rounded bg-[#EEF5FF] px-1.5 py-0.5 text-[#003B73]">
+                      admin123
+                    </code>
+                  </p>
+                )}
               </form>
             </div>
 

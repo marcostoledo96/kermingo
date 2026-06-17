@@ -81,7 +81,7 @@ export function ProductsScreen() {
     refetch,
     setData: setProducts,
   } = useApiResource<AdminProduct[]>(async () => {
-    const data = await apiGet<ApiProductoPaginada>('/api/admin/productos', { limit: 24 })
+    const data = await apiGet<ApiProductoPaginada>('/api/admin/productos', { limit: 100 })
     return data.productos.map(apiToAdminProduct)
   })
 
@@ -127,6 +127,15 @@ export function ProductsScreen() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleProductUpdated = (product: AdminProduct) => {
+    setProducts((prev) => {
+      const list = prev ?? []
+      const idx = list.findIndex((p) => p.id === product.id)
+      if (idx === -1) return [product, ...list]
+      return list.map((p) => (p.id === product.id ? product : p))
+    })
   }
 
   const closeDialog = () => {
@@ -367,6 +376,7 @@ export function ProductsScreen() {
           submitting={submitting}
           error={submitError}
           onSave={handleSave}
+          onProductUpdated={handleProductUpdated}
           onClose={closeDialog}
         />
       )}

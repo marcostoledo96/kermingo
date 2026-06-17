@@ -128,6 +128,35 @@ describe('Configuración — Controller con mocks', () => {
   // ─── PUT admin (FIX retroactivo affectedRows) ───────────────────────
 
   describe('PUT /api/admin/configuracion-tienda (admin)', () => {
+    it('acepta actualizar solo estado', async () => {
+      updateMinimalMock.mockResolvedValue(1);
+      findAdminMock.mockResolvedValue({ ...CONFIG_ADMIN_ROW, estado: 'cerrada' });
+
+      const res = await request(app)
+        .put('/api/admin/configuracion-tienda')
+        .send({ estado: 'cerrada' });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(updateMinimalMock).toHaveBeenCalledWith(expect.anything(), { estado: 'cerrada' });
+    });
+
+    it('acepta actualizar solo mensaje_publico', async () => {
+      updateMinimalMock.mockResolvedValue(1);
+      findAdminMock.mockResolvedValue({ ...CONFIG_ADMIN_ROW, mensaje_publico: 'Mensaje parcial' });
+
+      const res = await request(app)
+        .put('/api/admin/configuracion-tienda')
+        .send({ mensaje_publico: 'Mensaje parcial' });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(updateMinimalMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ mensaje_publico: 'Mensaje parcial' })
+      );
+    });
+
     it('actualiza estado y retorna 200 con la config completa', async () => {
       updateMinimalMock.mockResolvedValue(1);
       findAdminMock.mockResolvedValue({ ...CONFIG_ADMIN_ROW, estado: 'cerrada' });
@@ -246,10 +275,10 @@ describe('Configuración — Controller con mocks', () => {
       expect(res.body.ok).toBe(false);
     });
 
-    it('rechaza body sin estado → 400', async () => {
+    it('rechaza body vacío → 400', async () => {
       const res = await request(app)
         .put('/api/admin/configuracion-tienda')
-        .send({ mensaje_publico: 'algo' });
+        .send({});
 
       expect(res.statusCode).toBe(400);
       expect(res.body.ok).toBe(false);

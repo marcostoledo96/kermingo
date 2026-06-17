@@ -61,7 +61,7 @@ export function transicionEstadoValida(actual, siguiente) {
  * efectivo: pendiente -> pagado; pagado terminal.
  * transferencia: pendiente -> pagado|comprobante_subido;
  *   comprobante_subido -> pagado|rechazado;
- *   rechazado -> pendiente|comprobante_subido; pagado terminal.
+ *   rechazado -> pendiente|comprobante_subido|pagado; pagado terminal.
  */
 export const transitionsByMethod = {
   efectivo: {
@@ -71,7 +71,7 @@ export const transitionsByMethod = {
   transferencia: {
     pendiente: ['pagado', 'comprobante_subido'],
     comprobante_subido: ['pagado', 'rechazado'],
-    rechazado: ['pendiente', 'comprobante_subido'],
+    rechazado: ['pendiente', 'comprobante_subido', 'pagado'],
     pagado: [], // terminal
   },
 };

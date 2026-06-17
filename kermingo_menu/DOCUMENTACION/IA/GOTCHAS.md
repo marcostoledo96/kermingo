@@ -416,6 +416,6 @@ items: z.preprocess((val) => {
 - `lib/admin.ts` → `apiToCajaProduct()` — caja rápida
 - `components/admin/product-form-dialog.tsx` → preview tras crear/actualizar
 
-**Helper:** `ABSOLUTE_IMAGE_URL(path)` en `lib/config.ts`. Toma un string relativo o `null/undefined`, antepone `API_BASE` (default `http://localhost:3001` o `NEXT_PUBLIC_API_URL`). Si el path ya es absoluto (`http://...`), lo devuelve sin cambios. Si es null/undefined, devuelve `undefined`.
+**Helper:** `ABSOLUTE_IMAGE_URL(path)` en `lib/config.ts`. Toma un string relativo o `null/undefined`, antepone `API_BASE` (en dev: `http://localhost:3001`; en producción exige `NEXT_PUBLIC_API_URL`). Si el path ya es absoluto (`http://...`), lo devuelve sin cambios. Si es null/undefined, devuelve `undefined`.
 
 **Regla:** Cualquier mapper o componente que consuma `imagen_url` de la API debe pasarlo por `ABSOLUTE_IMAGE_URL()`. No asumir que el path es absoluto ni que el navegador lo resuelve contra el backend.

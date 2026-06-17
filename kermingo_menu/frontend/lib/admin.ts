@@ -86,7 +86,7 @@ function inferIcon(name: string, tipo: ProductType): ProductIcon {
 /* Pedido mapping ---------------------------------------------------------- */
 
 export type OrderStatus = 'recibido' | 'preparacion' | 'listo' | 'entregado' | 'cancelado'
-export type PayStatus = 'pendiente' | 'pagado'
+export type PayStatus = 'pendiente' | 'comprobante_subido' | 'pagado' | 'rechazado'
 export type PayMethod = 'efectivo' | 'transferencia'
 
 export type Order = {
@@ -141,8 +141,18 @@ export function orderStatusToApi(s: OrderStatus): 'recibido' | 'en_preparacion' 
   }
 }
 
-function mapPayStatus(s: string): PayStatus {
-  return s === 'pagado' ? 'pagado' : 'pendiente'
+export function mapPayStatus(s: string): PayStatus {
+  switch (s) {
+    case 'comprobante_subido':
+      return 'comprobante_subido'
+    case 'pagado':
+      return 'pagado'
+    case 'rechazado':
+      return 'rechazado'
+    case 'pendiente':
+    default:
+      return 'pendiente'
+  }
 }
 
 function mapOrderStatus(s: string): OrderStatus {
@@ -195,7 +205,7 @@ export function apiToCocinaOrder(
     code: header.numero,
     customer: header.nombre_cliente,
     table: header.mesa ?? undefined,
-    payStatus: header.estado_pago === 'pagado' ? 'pagado' : 'pendiente',
+    payStatus: mapPayStatus(header.estado_pago),
     status: mapOrderStatus(header.estado_pedido),
     time: formatTime(header.created_at),
     observations: header.observaciones ?? undefined,

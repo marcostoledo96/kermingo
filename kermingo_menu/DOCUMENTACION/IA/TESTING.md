@@ -170,9 +170,10 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Configuración (integration) | `configuracion.test.js` | Integration tests con DB real |
 | Configuración (controller) | `configuracion.controller.test.js` | Controller unit tests |
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
-| Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
+| Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests (incluye partial update validation FIX B7) |
+| Producto imagen | `producto-imagen.test.js` | Product image upload/remove/query |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 13 suites, **225 tests** | Contar con `npm test` para verificación exacta |
+| **Total** | 13 suites | Contar con `npm test` para verificación exacta. Pendiente conteo completo por fallas conocidas de caja PR2 no relacionadas. |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 
@@ -214,11 +215,16 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | useLocalStorageState | `frontend/test/use-local-storage.test.ts` | 10 | Estabilidad referencial, cache invalidation, evita React #185 |
 | useApiResource | `frontend/test/use-api-resource.test.ts` | 7 | Estabilidad de fetcher, refetch manual, evita loop infinito |
 | Cocina actions | `frontend/test/cocina-actions.test.ts` | 7 | Acciones ágiles por estado: recibido→preparacion|listo, preparacion→recibido|listo, listo→preparacion|entregado, terminal sin acciones |
+| AdminSession provider | `frontend/test/admin-session-provider.test.tsx` | - | Provider renderiza redirect en unauthenticated, no muestra children |
+| Comprobantes query | `frontend/test/comprobantes-screen-query.test.ts` | - | Filtro default pide `estado_pago=comprobante_subido`, rechazados pide `estado_pago=rechazado` |
+| Config screen | `frontend/test/config.test.ts` | - | PUT configuración con campos parciales |
+| Login screen | `frontend/test/login-screen.test.tsx` | - | Login exitoso redirige a dashboard, credenciales demo condicionales |
+| Product form dialog | `frontend/test/product-form-dialog.test.tsx` | - | Crear producto con imagen, error mantiene diálogo abierto |
 
 **Comandos:**
 ```bash
 cd frontend
-pnpm test        # Todos los tests (actualmente 10 files / 132 tests, 225 backend)
+pnpm test        # Todos los tests (actualmente 14 files, +1 setup.ts utilitario)
 pnpm test -- --coverage  # Con cobertura
 ```
 

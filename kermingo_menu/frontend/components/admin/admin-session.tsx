@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { setOnUnauthorized } from '@/lib/api'
 import { API_BASE } from '@/lib/config'
@@ -76,9 +76,12 @@ export function AdminSessionProvider({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [status, setStatus] = useState<SessionStatus>('loading')
   const [user, setUser] = useState<AdminUser | null>(null)
   const redirectingRef = useRef(false)
+
+  const isLoginRoute = pathname === '/admin' || pathname === '/admin/'
 
   const clearAndRedirect = useCallback(() => {
     if (redirectingRef.current) return
@@ -193,6 +196,11 @@ export function AdminSessionProvider({
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#EEF5FF]">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--km-celeste)]" />
           <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Verificando sesión…</p>
+        </div>
+      ) : status === 'unauthenticated' && !isLoginRoute ? (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#EEF5FF] px-6 text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--km-celeste)]" />
+          <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Redirigiendo al login…</p>
         </div>
       ) : (
         children

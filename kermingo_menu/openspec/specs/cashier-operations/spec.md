@@ -27,7 +27,7 @@ efectivo:
 transferencia:
   pendiente → pagado | comprobante_subido
   comprobante_subido → pagado | rechazado
-  rechazado → pendiente | comprobante_subido
+  rechazado → pendiente | comprobante_subido | pagado
   pagado → (terminal)
 ```
 
@@ -42,7 +42,7 @@ export const transitionsByMethod = {
   transferencia: {
     pendiente: ['pagado', 'comprobante_subido'],
     comprobante_subido: ['pagado', 'rechazado'],
-    rechazado: ['pendiente', 'comprobante_subido'],
+    rechazado: ['pendiente', 'comprobante_subido', 'pagado'], // B7: permite reaprobar directo
     pagado: [], // terminal
   },
 };
