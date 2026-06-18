@@ -46,6 +46,58 @@ function matchesFilter(
   }
 }
 
+function MenuLoadingSkeleton() {
+  return (
+    <div className="mt-5 space-y-4" aria-hidden="true">
+      <div className="rounded-[1.75rem] border border-[#75AADB]/25 bg-white/75 p-3 shadow-sm">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#EEF5FF] p-1">
+          <div className="h-11 animate-pulse rounded-xl bg-[#003B73]/85" />
+          <div className="h-11 animate-pulse rounded-xl bg-white ring-1 ring-[#75AADB]/25" />
+        </div>
+        <div className="mt-3 flex gap-2 overflow-hidden">
+          {[0, 1, 2, 3].map((item) => (
+            <div
+              key={item}
+              className={`h-9 flex-shrink-0 animate-pulse rounded-full ${
+                item === 0 ? 'w-20 bg-[#F6B21A]/70' : 'w-24 bg-[#75AADB]/20'
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {[0, 1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className="relative overflow-hidden rounded-3xl border border-[#75AADB]/25 bg-white p-3 shadow-sm"
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#75AADB] via-white to-[#F6B21A] opacity-70" />
+            <div className="flex gap-3.5">
+              <div className="relative h-24 w-24 flex-shrink-0 animate-pulse rounded-2xl bg-[#EEF5FF] ring-1 ring-[#75AADB]/25">
+                <div className="absolute left-2 top-2 h-4 w-12 rounded-full bg-white/90" />
+                <div className="absolute inset-0 m-auto h-10 w-10 rounded-2xl bg-[#75AADB]/25" />
+              </div>
+
+              <div className="min-w-0 flex-1 py-1">
+                <div className="h-4 w-3/4 animate-pulse rounded-full bg-[#003B73]/20" />
+                <div className="mt-2 h-3 w-full animate-pulse rounded-full bg-[#75AADB]/20" />
+                <div className="mt-1.5 h-3 w-2/3 animate-pulse rounded-full bg-[#75AADB]/15" />
+                <div className="mt-3 h-5 w-24 animate-pulse rounded-full bg-[#F6B21A]/35" />
+
+                <div className="mt-5 flex items-end justify-between gap-3">
+                  <div className="h-7 w-20 animate-pulse rounded-full bg-[#003B73]/18" />
+                  <div className="h-10 w-28 animate-pulse rounded-2xl bg-[#F6B21A]/70" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function MenuScreen() {
   const [meal, setMeal] = useState<MealCategory>('merienda')
   const [filter, setFilter] = useState<SecondaryFilter>('todos')
@@ -168,14 +220,7 @@ export function MenuScreen() {
 
         {/* Estado: loading */}
         {state === 'loading' && (
-          <div className="mt-6 space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-28 animate-pulse rounded-3xl bg-white/70 shadow-sm"
-              />
-            ))}
-          </div>
+          <MenuLoadingSkeleton />
         )}
 
         {/* Estado: error */}
