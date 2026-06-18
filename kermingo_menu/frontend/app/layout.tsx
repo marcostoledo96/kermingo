@@ -18,14 +18,36 @@ const bricolage = Bricolage_Grotesque({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://kermingo.vercel.app'),
   title: 'Kermingo | Bingo · Kermesse · Mundial · Día de la Bandera',
   description: 'Evento scout recaudatorio del campamento de verano. Grupo Scout San Patricio, Tropa Raider "Compañía de Jesús" y Comunidad Raider "Fortaleza de María". 20 de Junio de 2026.',
-  generator: 'v0.app',
   keywords: ['kermingo', 'bingo', 'kermesse', 'scout', 'san patricio', 'dia de la bandera', 'evento', 'argentina'],
   icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon.ico',
-    apple: '/apple-icon.png',
+    icon: '/branding/kermingo-logo.png',
+    shortcut: '/branding/kermingo-logo.png',
+    apple: '/branding/kermingo-logo.png',
+  },
+  openGraph: {
+    title: 'Kermingo | Bingo · Kermesse · Mundial · Día de la Bandera',
+    description: 'Evento scout recaudatorio del campamento de verano. Grupo Scout San Patricio, Tropa Raider “Compañía de Jesús” y Comunidad Raider “Fortaleza de María”. 20 de Junio de 2026.',
+    url: 'https://kermingo.vercel.app',
+    siteName: 'Kermingo',
+    locale: 'es_AR',
+    type: 'website',
+    images: [
+      {
+        url: '/branding/kermingo-logo.png',
+        width: 487,
+        height: 502,
+        alt: 'Logo del evento Kermingo',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Kermingo | Bingo · Kermesse · Mundial · Día de la Bandera',
+    description: 'Evento scout recaudatorio del campamento de verano. 20 de Junio de 2026.',
+    images: ['/branding/kermingo-logo.png'],
   },
 }
 
