@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Footer } from '@/components/footer'
 import { MenuScreen } from '@/components/menu/menu-screen'
 
 export const metadata: Metadata = {
@@ -8,5 +9,10 @@ export const metadata: Metadata = {
 }
 
 export default function MenuPage() {
-  return <MenuScreen />
+  return (
+    <>
+      <MenuScreen />
+      <Footer />
+    </>
+  )
 }
