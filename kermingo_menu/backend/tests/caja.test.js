@@ -339,7 +339,7 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
     await limpiarPedidosDeTest();
   });
 
-  it('PATCH pendiente -> pagado for efectivo returns 200, stock/estado_pedido unchanged', async () => {
+  it('PATCH pendiente -> pagado for efectivo returns 200, stock/estado_pedido unchanged (en_preparacion)', async () => {
     const res = await request(app)
       .patch(`/api/admin/pedidos/${pedidoEfectivo.id}/pago`)
       .set('Cookie', adminCookie())
@@ -489,13 +489,16 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
       6: 20,   // Nuggets
       9: 30,   // Torta frita (edit tests)
       15: 60,  // Coca Cola
-      18: 0,   // Agua mineral (unlimited, but keep as-is)
+      18: 0,   // Agua mineral (unlimited product)
       24: 0,   // Combo cena placeholder
     };
     for (const [pid, stock] of Object.entries(baselineStock)) {
-      if (pid === '18' || pid === '24') continue;
       await pool.query('UPDATE producto SET stock_actual = ? WHERE id = ?', [stock, pid]);
     }
+
+    // Ensure fixture characteristics are explicit for unstable local DBs.
+    await pool.query('UPDATE producto SET stock_limitado = 0 WHERE id = ?', [18]);
+    await pool.query('UPDATE producto SET activo = 1 WHERE id = ?', [24]);
 
     await limpiarPedidosDeTest();
     editPedido = await crearPedidoCaja({
@@ -509,11 +512,11 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
     await limpiarPedidosDeTest();
   });
 
-  it('PUT replaces items and total, stock reflects delta', async () => {
-    const stockBefore = await readStock([prodIdLimited, prodIdLimited2]);
+    it('PUT replaces items and total, stock reflects delta', async () => {
+      const stockBefore = await readStock([prodIdLimited, prodIdLimited2]);
 
-    const res = await request(app)
-      .put(`/api/admin/pedidos/${editPedido.id}`)
+      const res = await request(app)
+        .put(`/api/admin/pedidos/${editPedido.id}`)
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({
@@ -523,13 +526,21 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
         ],
       });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.ok).toBe(true);
-    const pedido = res.body.data;
+      expect(res.statusCode).toBe(200);
+      expect(res.body.ok).toBe(true);
+      const pedido = res.body.data;
 
-    // total recalculated (Nuggets 3000*2 + Torta frita 1000*3 = 9000)
-    expect(parseFloat(pedido.total)).toBeCloseTo(9000, 0);
-    expect(pedido.items.length).toBe(2);
+      const [priceRows] = await pool.query(
+        'SELECT id, precio FROM producto WHERE id IN (?, ?)',
+        [prodIdLimited2, prodIdLimited]
+      );
+      const priceMap = new Map(priceRows.map((r) => [r.id, parseFloat(r.precio)]));
+      const expectedTotal =
+        priceMap.get(prodIdLimited2) * 2 +
+        priceMap.get(prodIdLimited) * 3;
+
+      expect(parseFloat(pedido.total)).toBeCloseTo(expectedTotal, 0);
+      expect(pedido.items.length).toBe(2);
 
     const detalles = await readDetalle(editPedido.id);
     const tieneNuggets = detalles.some((d) => d.producto_id === prodIdLimited2 && d.cantidad === 2);
@@ -733,8 +744,10 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
       .send({
         items: [{ producto_id: prodIdLimited2, cantidad: 2 }],
       });
-    expect(res.statusCode).toBe(200);
-    expect(parseFloat(res.body.data.total)).toBeCloseTo(6000, 0); // Nuggets 3000*2
+      expect(res.statusCode).toBe(200);
+      const [priceRows] = await pool.query('SELECT precio FROM producto WHERE id = ?', [prodIdLimited2]);
+      const expectedTotal = parseFloat(priceRows[0].precio) * 2;
+      expect(parseFloat(res.body.data.total)).toBeCloseTo(expectedTotal, 0);
 
     // original item restored (Pancho stock should be +1 vs before)
     const [stockAfter] = await pool.query(
@@ -951,6 +964,8 @@ describe('B7: Public route rejects efectivo; caja accepts both', () => {
     expect(res.statusCode).toBe(201);
     expect(res.body.ok).toBe(true);
     expect(res.body.data.estado_pago).toBe('pagado');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
+    expect(res.body.data.origen).toBe('caja');
   });
 
   it('P1-4: caja transferencia sin estado_pago queda pendiente', async () => {
@@ -967,6 +982,8 @@ describe('B7: Public route rejects efectivo; caja accepts both', () => {
     expect(res.statusCode).toBe(201);
     expect(res.body.ok).toBe(true);
     expect(res.body.data.estado_pago).toBe('pendiente');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
+    expect(res.body.data.origen).toBe('caja');
   });
 
   it('P1-4: caja explícita estado_pago se preserva', async () => {

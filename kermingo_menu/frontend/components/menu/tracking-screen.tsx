@@ -21,7 +21,6 @@ import {
   AlertCircle,
   Search,
   Loader2,
-  X,
   ListOrdered,
   ChevronDown,
   ChevronUp,
@@ -58,7 +57,7 @@ const STATUS_CONFIG: Record<
 > = {
   recibido: {
     label: 'Pedido recibido',
-    message: 'Recibimos tu pedido y lo vamos a empezar a preparar.',
+    message: '', // Dynamic: set below based on payment status
     badge: 'Recibido',
     bg: 'bg-[var(--km-info-bg)]',
     fg: 'text-[var(--km-info-text)]',
@@ -153,7 +152,7 @@ type FetchedOrder = {
 }
 
 export function TrackingScreen() {
-  const { orders: myOrders, remove: removeFromList } = useMyOrders()
+  const { orders: myOrders } = useMyOrders()
   const [showManual, setShowManual] = useState(false)
   const [orders, setOrders] = useState<Record<string, FetchedOrder>>({})
   const [globalLoading, setGlobalLoading] = useState(false)
@@ -179,7 +178,7 @@ export function TrackingScreen() {
     if (urlToken && !next.some((e) => e.token === urlToken)) {
       next = [...next, { token: urlToken, numero: '', createdAt: new Date().toISOString() }]
     }
-    next.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    next.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     return next
   }, [myOrders, urlToken, hydrated])
 
@@ -318,16 +317,6 @@ export function TrackingScreen() {
     })
   }
 
-  const onRemoveOne = (token: string) => {
-    if (!window.confirm('¿Sacar este pedido de tu lista? Solo lo quitamos de tu celular.')) return
-    removeFromList(token)
-    setOrders((prev) => {
-      const next = { ...prev }
-      delete next[token]
-      return next
-    })
-  }
-
   const onManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = manualToken.trim()
@@ -424,7 +413,6 @@ export function TrackingScreen() {
             entry={entry}
             fetched={orders[entry.token]}
             onRefresh={() => onRefreshOne(entry.token)}
-            onRemove={() => onRemoveOne(entry.token)}
           />
         ))}
 
@@ -482,12 +470,10 @@ function OrderCard({
   entry,
   fetched,
   onRefresh,
-  onRemove,
 }: {
   entry: MyOrderEntry
   fetched: FetchedOrder | undefined
   onRefresh: () => void
-  onRemove: () => void
 }) {
   // Si la entrada persistida tiene numero (de un refresh anterior), lo usamos
   // mientras carga el detalle fresco.
@@ -532,18 +518,10 @@ function OrderCard({
             <button
               type="button"
               onClick={onRefresh}
-              className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-linea)] bg-white text-[var(--km-azul)] hover:bg-[var(--km-fondo)]"
+              className="km-focus flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--km-linea)] bg-white text-[var(--km-azul)] hover:bg-[var(--km-fondo)]"
               aria-label="Reintentar"
             >
-              <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.4} />
-            </button>
-            <button
-              type="button"
-              onClick={onRemove}
-              className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-linea)] bg-white text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
-              aria-label="Quitar de mi lista"
-            >
-              <X className="h-3.5 w-3.5" strokeWidth={2.4} />
+              <RefreshCw className="h-5 w-5" strokeWidth={2.4} />
             </button>
           </div>
         </div>
@@ -552,7 +530,7 @@ function OrderCard({
   }
 
   const order = fetched.data
-  return <OrderDetail order={order} expanded={expanded} setExpanded={setExpanded} onRefresh={onRefresh} onRemove={onRemove} />
+  return <OrderDetail order={order} expanded={expanded} setExpanded={setExpanded} onRefresh={onRefresh} />
 }
 
 function OrderDetail({
@@ -560,13 +538,11 @@ function OrderDetail({
   expanded,
   setExpanded,
   onRefresh,
-  onRemove,
 }: {
   order: DisplayOrder
   expanded: boolean
   setExpanded: (v: boolean) => void
   onRefresh: () => void
-  onRemove: () => void
 }) {
   const cfg = STATUS_CONFIG[order.status]
   const pay = PAYMENT_CONFIG[order.payment] || PAYMENT_CONFIG.pendiente
@@ -576,6 +552,13 @@ function OrderDetail({
   const date = new Date(order.createdAt)
   const dateLabel = date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
   const timeLabel = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+
+  // Dynamic message for recibido status based on payment state
+  const recibidoMessage = order.status === 'recibido' && order.payment !== 'pagado'
+    ? 'Estamos comprobando tu pago. En cuanto lo verifiquemos, lo mandamos a cocina.'
+    : order.status === 'recibido'
+      ? 'Pago confirmado. Tu pedido será preparado pronto.'
+      : cfg.message
 
   return (
     <article className="km-panel overflow-hidden">
@@ -609,7 +592,7 @@ function OrderDetail({
           </h2>
         </div>
         <p className="mt-1.5 text-xs leading-relaxed opacity-90 text-pretty">
-          {cfg.message}
+          {recibidoMessage}
         </p>
         <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium opacity-80">
           <Clock className="h-3 w-3" strokeWidth={2.4} />
@@ -619,17 +602,17 @@ function OrderDetail({
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
-            className="km-focus inline-flex items-center gap-1 rounded-full bg-white/25 px-2.5 py-1 text-[11px] font-bold text-current hover:bg-white/35"
+            className="km-focus inline-flex min-h-10 items-center gap-2 rounded-full bg-white/25 px-4 py-2 text-sm font-extrabold text-current hover:bg-white/35"
             aria-expanded={expanded}
           >
             {expanded ? (
               <>
-                <ChevronUp className="h-3 w-3" strokeWidth={2.6} />
+                <ChevronUp className="h-4 w-4" strokeWidth={2.6} />
                 Ocultar detalle
               </>
             ) : (
               <>
-                <ChevronDown className="h-3 w-3" strokeWidth={2.6} />
+                <ChevronDown className="h-4 w-4" strokeWidth={2.6} />
                 Ver detalle
               </>
             )}
@@ -637,20 +620,11 @@ function OrderDetail({
           <button
             type="button"
             onClick={onRefresh}
-            className="km-focus inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/25 text-current hover:bg-white/35"
+            className="km-focus inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/25 text-current hover:bg-white/35"
             aria-label="Refrescar este pedido"
             title="Refrescar"
           >
-            <RefreshCw className="h-3 w-3" strokeWidth={2.4} />
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="km-focus inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/25 text-current hover:bg-white/35"
-            aria-label="Quitar de mi lista"
-            title="Quitar de mi lista"
-          >
-            <X className="h-3 w-3" strokeWidth={2.4} />
+            <RefreshCw className="h-5 w-5" strokeWidth={2.4} />
           </button>
         </div>
       </section>

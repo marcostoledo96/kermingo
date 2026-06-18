@@ -44,12 +44,13 @@
 | Ver pedidos de cocina | — | ✅ | `GET /api/admin/cocina/pedidos` |
 | Ver detalle de pedido (cocina) | — | ✅ | `GET /api/admin/cocina/pedidos/:id` |
 | Avanzar estado (cocina) | — | ✅ | `PATCH /api/admin/cocina/pedidos/:id/estado` |
-| Listar productos admin | — | ✅ | `GET /api/admin/productos` |
+| Listar productos admin (con filtros) | — | ✅ | `GET /api/admin/productos?estado=activo|todos|desactivado|agotado|todavia_no_disponible` |
 | Crear producto | — | ✅ | `POST /api/admin/productos` |
 | Actualizar producto | — | ✅ | `PUT /api/admin/productos/:id` |
 | Desactivar producto | — | ✅ | `PATCH /api/admin/productos/:id/desactivar` |
 | Recuperar producto | — | ✅ | `PATCH /api/admin/productos/:id/recuperar` |
 | Ajustar stock | — | ✅ | `PATCH /api/admin/productos/:id/stock` |
+| Reordenar productos | — | ✅ | `PATCH /api/admin/productos/orden` |
 | Ver config completa | — | ✅ | `GET /api/admin/configuracion-tienda` |
 | Actualizar config | — | ✅ | `PUT /api/admin/configuracion-tienda` |
 
@@ -76,24 +77,26 @@
 ### Caja rápida (admin)
 
 - El admin crea pedidos directamente desde `/admin/caja`.
-- Puede setear `estado_pago: 'pagado'` y `estado_pedido` inicial distinto a `'recibido'`.
+- **B7:** Default `estado_pedido='en_preparacion'` (caja bypassa el gate `recibido`). Puede setearse otro estado explícitamente si se necesita override.
+- Puede setear `estado_pago: 'pagado'` y `estado_pedido` inicial.
 - **Fix B7:** Backend hace coerción segura: efectivo sin `estado_pago` → `'pagado'`; transferencia sin `estado_pago` → `'pendiente'`.
-- Útil para ventas presenciales con pago inmediato.
+- Útil para ventas presenciales con pago inmediato. Los pedidos de caja van directo a cocina sin pasar por verificación de pago.
 
 ### Cocina (admin)
 
-- Vista optimizada: solo pedidos en estados `recibido`, `en_preparacion`, `listo`.
-- Orden: primero los `recibido`, después `en_preparacion`, después `listo`, y dentro de cada grupo por antigüedad.
+- **B7:** Vista optimizada: solo pedidos en estados `en_preparacion`, `listo`. Los pedidos online en `recibido` deben ser confirmados desde la solapa "Pendiente de confirmación" en `/admin/pedidos` antes de aparecer aquí.
+- Orden: primero los `en_preparacion`, después `listo`, y dentro de cada grupo por antigüedad.
 - Transiciones ágiles de estado:
-  - `recibido → en_preparacion` (empezar a cocinar), o directo `recibido → listo` (skip preparación).
-  - `en_preparacion → listo` (marcar listo), o volver a `recibido` (corrección antes de preparar).
+  - `en_preparacion → listo` (marcar listo), o volver a `recibido` (corrección — desaparece de KDS).
   - `listo → entregado` (terminal, con confirmación), o volver a `en_preparacion` (corrección antes de entregar).
   - `entregado` y `cancelado` son estados terminales (sin acciones).
 
 ### Gestión de pagos (admin)
 
+- La verificación de pago se hace desde la solapa **"Pendiente de confirmación"** en `/admin/pedidos`.
 - Marca pedidos como `pagado` o `rechazado`.
 - Si un pedido online eligió transferencia con comprobante, se crea con `estado_pago=comprobante_subido`. El admin puede aprobar (`comprobante_subido → pagado`) o rechazar (`comprobante_subido → rechazado`) el comprobante.
+- **Flujo de confirmación (B7):** "Confirmar pago" ejecuta secuencia `PATCH /pago {pagado}` → `PATCH /estado {en_preparacion}`. No es atómico — si el segundo PATCH falla, el pedido queda en `recibido`+`pagado` para reintento manual.
 - Efectivo no existe en el flujo online; si se intenta enviar, el backend responde 400. Las ventas en efectivo se cargan desde caja rápida.
 - Caja rápida puede crear pedidos con `estado_pago='pagado'` directamente.
 - Cambiar `estado_pago` no afecta el stock.
@@ -124,5 +127,8 @@
 
 - CRUD completo con activación/desactivación (soft-delete).
 - **Fix B7:** al crear/editar producto se envían `categorias: ['Merienda' | 'Cena']` al backend, que persiste en `producto_categoria`. Obligatorio al crear; opcional al editar pero no vacío.
+- **Filtros por estado:** admin puede filtrar productos por `estado` (activo/todos/desactivado/agotado/todavía no disponible). Default `activo`. Productos "todavía no disponible" (`activo=1, disponible=0`) son visibles en menú público pero no comprables.
+- **Agrupación por categoría:** los productos se muestran agrupados por `Merienda`/`Cena` con encabezados visuales.
+- **Reordenamiento drag & drop:** admin puede reordenar productos arrastrando filas en desktop, o con botones up/down en mobile. El orden se persiste vía `PATCH /api/admin/productos/orden` y se refleja en el menú público.
 - Ajuste manual de stock.
 - Subida, reemplazo y eliminación de imagen de producto desde admin. El frontend envía `FormData` con campo `imagen` a `POST /api/admin/productos/:id/imagen`; quitar imagen usa `DELETE /api/admin/productos/:id/imagen`. **Fix B7:** ProductFormDialog no cierra hasta que el upload de imagen finalice (create o fallo mantienen diálogo abierto).

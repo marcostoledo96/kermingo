@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useMemo, useState } from 'react'
 import {
   Search,
@@ -260,15 +261,26 @@ export function CajaScreen() {
                           : 'border-[var(--km-celeste)]/25 bg-[var(--km-papel)] hover:-translate-y-0.5 hover:border-[var(--km-azul)] hover:shadow-md active:scale-[0.98]'
                     }`}
                   >
-                    {/* Icon glyph + status */}
+                    {/* Image or Icon glyph + status */}
                     <div className="flex w-full items-start justify-between">
-                      <div
-                        className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                          soldOut ? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]' : 'bg-[var(--km-fondo)] text-[var(--km-azul)]'
-                        }`}
-                      >
-                        <ProductIconGlyph icon={product.icon} className="h-6 w-6" strokeWidth={2} />
-                      </div>
+                      {product.image ? (
+                        <Image
+                          src={product.image}
+                          alt={product.name}
+                          width={44}
+                          height={44}
+                          className={`h-11 w-11 rounded-xl object-cover ${soldOut ? 'opacity-60 grayscale' : ''}`}
+                          unoptimized
+                        />
+                      ) : (
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                            soldOut ? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]' : 'bg-[var(--km-fondo)] text-[var(--km-azul)]'
+                          }`}
+                        >
+                          <ProductIconGlyph icon={product.icon} className="h-6 w-6" strokeWidth={2} />
+                        </div>
+                      )}
                       {soldOut && (
                         <span className="shrink-0 text-[10px] font-bold text-[var(--km-peligro-text)]">
                           Agotado

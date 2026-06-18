@@ -14,6 +14,8 @@ const mockProducts: ApiProducto[] = [
     stock_actual: null,
     stock_minimo_alerta: 0,
     activo: 1,
+    disponible: 1,
+    orden: 0,
     imagen_archivo_id: null,
     imagen_nombre_original: null,
     imagen_mime_type: null,

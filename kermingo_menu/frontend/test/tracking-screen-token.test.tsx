@@ -31,6 +31,7 @@ vi.mock('@/lib/mappers', () => ({
     numero: data.numero ?? 'KMG-0001',
     token: data.token_seguimiento,
     name: 'Test',
+    table: '',
     createdAt: new Date().toISOString(),
     method: 'efectivo' as const,
     total: 5000,
@@ -175,5 +176,120 @@ describe('TrackingScreen — auto-carga desde este celular (S5, S6, S7)', () => 
     })
     // Crítico: el form de "tengo que tipear" no debe aparecer
     expect(screen.queryByText(/^Seguí tu pedido$/)).toBeNull()
+  })
+
+  it('muestra "Estamos comprobando tu pago" para pedido recibido con comprobante_subido', async () => {
+    setMyOrders([
+      { token: 'token-recibido', numero: 'KMG-0099', createdAt: '2026-06-17T18:00:00.000Z' },
+    ])
+
+    const { mapPedido } = await import('@/lib/mappers')
+    vi.mocked(mapPedido).mockReturnValue({
+      id: 1,
+      numero: 'KMG-0099',
+      token: 'token-recibido',
+      name: 'Test Recibido',
+      table: '',
+      createdAt: new Date().toISOString(),
+      method: 'transferencia',
+      total: 5000,
+      count: 1,
+      status: 'recibido',
+      payment: 'comprobante_subido',
+      items: [],
+    })
+
+    mockApiGet.mockResolvedValue({
+      token_seguimiento: 'token-recibido',
+      numero: 'KMG-0099',
+    })
+
+    render(<TrackingScreen />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Estamos comprobando tu pago/i)).toBeTruthy()
+    })
+  })
+
+  it('muestra "pago confirmado" para pedido recibido ya pagado', async () => {
+    setMyOrders([
+      { token: 'token-recibido-pagado', numero: 'KMG-0100', createdAt: '2026-06-17T18:00:00.000Z' },
+    ])
+
+    const { mapPedido } = await import('@/lib/mappers')
+    vi.mocked(mapPedido).mockReturnValue({
+      id: 2,
+      numero: 'KMG-0100',
+      token: 'token-recibido-pagado',
+      name: 'Test Recibido Pagado',
+      table: '',
+      createdAt: new Date().toISOString(),
+      method: 'transferencia',
+      total: 5000,
+      count: 1,
+      status: 'recibido',
+      payment: 'pagado',
+      items: [],
+    })
+
+    mockApiGet.mockResolvedValue({
+      token_seguimiento: 'token-recibido-pagado',
+      numero: 'KMG-0100',
+    })
+
+    render(<TrackingScreen />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Pago confirmado.*preparado pronto/i)).toBeTruthy()
+    })
+  })
+
+  it('sorts orders with most recent first (newer on top)', async () => {
+    // Add two orders: one older, one newer
+    setMyOrders([
+      { token: 'older-token', numero: 'KMG-0001', createdAt: '2026-06-17T18:00:00.000Z' },
+      { token: 'newer-token', numero: 'KMG-0002', createdAt: '2026-06-17T20:00:00.000Z' },
+    ])
+
+    mockApiGet.mockImplementation(async (url: string) => {
+      const token = url.split('/').pop()
+      const isNewer = token === 'newer-token'
+      return {
+        ...API_PEDIDO,
+        token_seguimiento: token,
+        numero: isNewer ? 'KMG-0002' : 'KMG-0001',
+      }
+    })
+
+    const { mapPedido } = await import('@/lib/mappers')
+    vi.mocked(mapPedido).mockImplementation((data: { token_seguimiento: string }) => {
+      const isNewer = data.token_seguimiento === 'newer-token'
+      return {
+        id: isNewer ? 2 : 1,
+        numero: isNewer ? 'KMG-0002' : 'KMG-0001',
+        token: data.token_seguimiento,
+        name: isNewer ? 'Newer Order' : 'Older Order',
+        table: '',
+        createdAt: isNewer ? '2026-06-17T20:00:00.000Z' : '2026-06-17T18:00:00.000Z',
+        method: 'efectivo' as const,
+        total: 5000,
+        count: 2,
+        status: 'en_preparacion' as const,
+        payment: 'pendiente' as const,
+        items: [],
+      }
+    })
+
+    render(<TrackingScreen />)
+
+    // Wait for the orders to load
+    await waitFor(() => {
+      expect(screen.getByText(/Tus pedidos/i)).toBeTruthy()
+    })
+
+    // Find all order number texts — the newer order (KMG-0002) should appear before the older (KMG-0001)
+    const allOrderNumbers = screen.getAllByText(/KMG-000[12]/)
+    // The first rendered order number should be the newer one
+    expect(allOrderNumbers[0].textContent).toContain('KMG-0002')
   })
 })

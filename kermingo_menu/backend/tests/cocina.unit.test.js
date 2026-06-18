@@ -4,11 +4,18 @@
 import { transicionEstadoValida, TRANSICIONES_VALIDAS } from '../src/api/models/pedido.model.js';
 
 describe('transicionEstadoValida (unit, real impl)', () => {
-  // El estado `recibido` se eliminó del flujo: pedidos nuevos entran
-  // directamente como `en_preparacion`. Las transiciones desde/hacia
-  // `recibido` ahora son inválidas.
+  // El estado `recibido` es el estado inicial para pedidos online.
+  // Caja pedidos entran directamente como `en_preparacion`.
 
-  // ── Forward transitions (nuevo flujo) ──
+  // ── Forward transitions (state machine) ──
+
+  it('recibido → en_preparacion: true (payment confirmed, release to kitchen)', () => {
+    expect(transicionEstadoValida('recibido', 'en_preparacion')).toBe(true);
+  });
+
+  it('recibido → listo: true (fast-forward to ready)', () => {
+    expect(transicionEstadoValida('recibido', 'listo')).toBe(true);
+  });
 
   it('en_preparacion → listo: true', () => {
     expect(transicionEstadoValida('en_preparacion', 'listo')).toBe(true);
@@ -24,18 +31,8 @@ describe('transicionEstadoValida (unit, real impl)', () => {
     expect(transicionEstadoValida('listo', 'en_preparacion')).toBe(true);
   });
 
-  // ── Invalid: recibido ya no es un estado inicial válido ──
-
-  it('recibido → en_preparacion: false (estado inicial eliminado)', () => {
-    expect(transicionEstadoValida('recibido', 'en_preparacion')).toBe(false);
-  });
-
-  it('recibido → listo: false (estado inicial eliminado)', () => {
-    expect(transicionEstadoValida('recibido', 'listo')).toBe(false);
-  });
-
-  it('en_preparacion → recibido: false (backward a recibido eliminado)', () => {
-    expect(transicionEstadoValida('en_preparacion', 'recibido')).toBe(false);
+  it('en_preparacion → recibido: true (kitchen sends back to pending confirmation)', () => {
+    expect(transicionEstadoValida('en_preparacion', 'recibido')).toBe(true);
   });
 
   // ── Invalid transitions ──
@@ -57,6 +54,10 @@ describe('transicionEstadoValida (unit, real impl)', () => {
   });
 
   // ── Same-state transitions (always invalid) ──
+
+  it('recibido → recibido: false (same state)', () => {
+    expect(transicionEstadoValida('recibido', 'recibido')).toBe(false);
+  });
 
   it('en_preparacion → en_preparacion: false (same state)', () => {
     expect(transicionEstadoValida('en_preparacion', 'en_preparacion')).toBe(false);
@@ -82,15 +83,15 @@ describe('transicionEstadoValida (unit, real impl)', () => {
 });
 
 describe('TRANSICIONES_VALIDAS (constant)', () => {
-  it('recibido no está en el state machine (eliminado)', () => {
-    expect(TRANSICIONES_VALIDAS.recibido).toBeUndefined();
+  it('recibido allows en_preparacion and listo', () => {
+    expect(TRANSICIONES_VALIDAS.recibido).toEqual(['en_preparacion', 'listo']);
   });
 
-  it('en_preparacion solo permite listo (sin volver a recibido)', () => {
-    expect(TRANSICIONES_VALIDAS.en_preparacion).toEqual(['listo']);
+  it('en_preparacion allows listo and recibido', () => {
+    expect(TRANSICIONES_VALIDAS.en_preparacion).toEqual(['listo', 'recibido']);
   });
 
-  it('listo permite en_preparacion y entregado', () => {
+  it('listo allows en_preparacion and entregado', () => {
     expect(TRANSICIONES_VALIDAS.listo).toEqual(['en_preparacion', 'entregado']);
   });
 

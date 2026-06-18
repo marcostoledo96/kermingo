@@ -38,6 +38,8 @@ const uploadedApiResponse: ApiProducto = {
   stock_actual: 10,
   stock_minimo_alerta: 2,
   activo: 1,
+  disponible: 1,
+  orden: 0,
   imagen_archivo_id: 7,
   imagen_nombre_original: 'pizza.webp',
   imagen_mime_type: 'image/webp',

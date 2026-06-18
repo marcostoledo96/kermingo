@@ -20,12 +20,12 @@ export function Footer() {
           </p>
         </div>
 
-        {/* Escudos institucionales (placeholders reemplazables) */}
+        {/* Escudos institucionales */}
         <div className="mt-8">
           <CrestRow
             crests={[
               {
-                src: '/branding/escudo-grupo-san-patricio.png',
+                src: '/branding/escudo-san-patricio.png',
                 label: EVENTO.organizador,
               },
               {

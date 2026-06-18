@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   apiToAdminProduct,
+  apiToAdminReportes,
   adminToApiPayload,
   apiToOrder,
   orderStatusToApi,
@@ -17,6 +18,7 @@ import type {
   ApiPedido,
   ApiPedidoListItem,
   ApiProducto,
+  ApiReportes,
 } from '@/lib/types'
 
 describe('apiToAdminProduct', () => {
@@ -855,5 +857,68 @@ describe('mapPayStatus', () => {
 
   it('falls back unknown payment state to pendiente', () => {
     expect(mapPayStatus('estado_extrano')).toBe('pendiente')
+  })
+})
+
+describe('apiToAdminReportes', () => {
+  it('normalizes reportes payload to frontend shape', () => {
+    const source: ApiReportes = {
+      total_recaudado: 12800,
+      total_efectivo: 3000,
+      total_transferencia: 9800,
+      pedidos_pagados: 14,
+      productos_vendidos: 44,
+      pedidos_pendientes_pago: 1,
+      monto_pendiente_pago: 2500,
+      producto_top: {
+        producto_id: 7,
+        nombre: 'Empanadas x12',
+        cantidad: 12,
+      },
+      ranking_productos: [
+        {
+          producto_id: 7,
+          nombre: 'Empanadas x12',
+          cantidad: 12,
+        },
+        {
+          producto_id: 8,
+          nombre: 'Mini churro',
+          cantidad: 9,
+        },
+      ],
+      actualizado_en: '2026-06-17T12:00:00.000Z',
+    }
+
+    const reportes = apiToAdminReportes(source)
+
+    expect(reportes.totalRecaudado).toBe(12800)
+    expect(reportes.totalEfectivo).toBe(3000)
+    expect(reportes.totalTransferencia).toBe(9800)
+    expect(reportes.pedidosPendientesPago).toBe(1)
+    expect(reportes.productoTop).toEqual({ productoId: 7, nombre: 'Empanadas x12', cantidad: 12 })
+    expect(reportes.rankingProductos).toHaveLength(2)
+    expect(reportes.rankingProductos[1]).toEqual({ productoId: 8, nombre: 'Mini churro', cantidad: 9 })
+  })
+
+  it('handles missing ranking entries gracefully', () => {
+    const source = {
+      total_recaudado: 0,
+      total_efectivo: 0,
+      total_transferencia: 0,
+      pedidos_pagados: 0,
+      productos_vendidos: 0,
+      pedidos_pendientes_pago: 0,
+      monto_pendiente_pago: 0,
+      producto_top: null,
+      ranking_productos: [{ producto_id: 1, nombre: 'Sorpresa', cantidad: 0 }],
+      actualizado_en: '2026-06-17T12:00:00.000Z',
+    } as ApiReportes
+
+    const reportes = apiToAdminReportes(source)
+
+    expect(reportes.productoTop).toBeNull()
+    expect(reportes.rankingProductos).toHaveLength(1)
+    expect(reportes.rankingProductos[0]).toEqual({ productoId: 1, nombre: 'Sorpresa', cantidad: 0 })
   })
 })

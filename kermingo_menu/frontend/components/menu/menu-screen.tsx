@@ -17,10 +17,10 @@ import { MenuHeader } from '@/components/menu/menu-header'
 type LoadState = 'loading' | 'ready' | 'error'
 
 function sortBySoldOut(a: Product, b: Product): number {
-  const aOut = a.stock === 'agotado'
-  const bOut = b.stock === 'agotado'
-  if (aOut && !bOut) return 1
-  if (bOut && !aOut) return -1
+  const aUnavailable = a.stock === 'agotado' || a.stock === 'no_disponible'
+  const bUnavailable = b.stock === 'agotado' || b.stock === 'no_disponible'
+  if (aUnavailable && !bUnavailable) return 1
+  if (bUnavailable && !aUnavailable) return 0
   return 0
 }
 
@@ -30,16 +30,17 @@ function matchesFilter(
   filter: SecondaryFilter,
 ): boolean {
   if (!p.meals.includes(meal)) return false
-  const notSoldOut = p.stock !== 'agotado'
+  const isSoldOut = p.stock === 'agotado'
+  const isNotAvailable = p.stock === 'no_disponible'
   switch (filter) {
     case 'comidas':
-      return p.type === 'comida' && notSoldOut
+      return p.type === 'comida' && !isSoldOut
     case 'bebidas':
-      return p.type === 'bebida' && notSoldOut
+      return p.type === 'bebida' && !isSoldOut
     case 'promos':
-      return p.type === 'promo' && notSoldOut
+      return p.type === 'promo' && !isSoldOut
     case 'agotados':
-      return p.stock === 'agotado'
+      return isSoldOut || isNotAvailable
     default:
       return true
   }
@@ -59,6 +60,7 @@ function stockSummary(products: Product[]): Record<StockStatus, number> {
 export function MenuScreen() {
   const [meal, setMeal] = useState<MealCategory>('merienda')
   const [filter, setFilter] = useState<SecondaryFilter>('todos')
+  const [defaultTabApplied, setDefaultTabApplied] = useState(false)
 
   const {
     data: products,
@@ -86,6 +88,15 @@ export function MenuScreen() {
   const disabledMessage =
     storeConfig?.mensaje_publico?.trim() ??
     (isStoreClosed ? 'La tienda está cerrada. No se aceptan nuevos pedidos por ahora.' : '')
+  const productDisabledMessage = isStoreClosed ? 'Próximamente' : disabledMessage
+
+  // Apply default category tab from config (only once)
+  if (!defaultTabApplied && storeConfig?.categoria_default) {
+    setDefaultTabApplied(true)
+    if (storeConfig.categoria_default === 'cena') {
+      setMeal('cena')
+    }
+  }
 
   const state: LoadState = loading ? 'loading' : error ? 'error' : 'ready'
 
@@ -205,7 +216,7 @@ export function MenuScreen() {
         {state === 'ready' && visible.length > 0 && (
           <div className="space-y-3 pt-4">
             {visible.map((p) => (
-              <ProductCard key={p.id} product={p} disabled={isStoreDisabled} disabledReason={disabledMessage} />
+              <ProductCard key={p.id} product={p} disabled={isStoreDisabled} disabledReason={productDisabledMessage} />
             ))}
           </div>
         )}

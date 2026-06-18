@@ -29,6 +29,11 @@ const STOCK_CONFIG: Record<
     className: 'bg-[#003B73]/10 text-[#5b6b7d]',
     icon: null,
   },
+  no_disponible: {
+    label: 'Todavía no disponible',
+    className: 'bg-[#F6B21A]/15 text-[#8a5d00]',
+    icon: null,
+  },
 }
 
 const TYPE_LABEL: Record<Product['type'], string> = {
@@ -49,6 +54,7 @@ export function ProductCard({
   const { qtyOf, add, increment, decrement } = useCart()
   const qty = qtyOf(product.id)
   const soldOut = product.stock === 'agotado'
+  const notAvailable = product.stock === 'no_disponible' || !product.available
   const stock = STOCK_CONFIG[product.stock]
   const StockIcon = stock.icon
 
@@ -115,6 +121,10 @@ export function ProductCard({
             {soldOut ? (
               <span className="inline-flex items-center rounded-2xl bg-[#EEF5FF] px-4 py-2.5 text-sm font-bold text-[#5b6b7d] ring-1 ring-[#75AADB]/30">
                 Sin stock
+              </span>
+            ) : notAvailable ? (
+              <span className="inline-flex items-center rounded-2xl bg-[#F6B21A]/15 px-4 py-2.5 text-sm font-bold text-[#8a5d00] ring-1 ring-[#F6B21A]/30">
+                Todavía no disponible
               </span>
             ) : disabled ? (
               <span className="inline-flex items-center rounded-2xl bg-[#F6B21A]/60 px-4 py-2.5 text-sm font-bold text-[#003B73] text-center">

@@ -12,6 +12,7 @@ export const updateConfiguracionSchema = z
       .regex(/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/, 'Formato esperado: HH:MM:SS')
       .nullable()
       .optional(),
+    categoria_default: z.enum(['merienda', 'cena']).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

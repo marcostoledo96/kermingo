@@ -8,6 +8,8 @@ export type ApiProducto = {
   stock_actual: number | null
   stock_minimo_alerta: number
   activo: 0 | 1
+  disponible: 0 | 1
+  orden: number
   imagen_archivo_id: number | null
   imagen_nombre_original: string | null
   imagen_mime_type: string | null
@@ -21,6 +23,7 @@ export type ApiConfiguracion = {
   estado: 'abierta' | 'cerrada' | 'demo'
   mensaje_publico: string | null
   cena_habilitada_desde?: string | null
+  categoria_default?: 'merienda' | 'cena'
 }
 
 export type ApiItem = {
@@ -75,6 +78,25 @@ export type ApiCocinaPedido = {
   total: string | number
   created_at: string
   cantidad_items: number
+}
+
+export type ApiReporteProducto = {
+  producto_id: number
+  nombre: string
+  cantidad: number
+}
+
+export type ApiReportes = {
+  total_recaudado: number
+  total_efectivo: number
+  total_transferencia: number
+  pedidos_pagados: number
+  productos_vendidos: number
+  pedidos_pendientes_pago: number
+  monto_pendiente_pago: number
+  producto_top: ApiReporteProducto | null
+  ranking_productos: ApiReporteProducto[]
+  actualizado_en: string
 }
 
 export type ApiOk<T> = {

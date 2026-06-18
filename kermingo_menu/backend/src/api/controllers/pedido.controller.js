@@ -11,7 +11,7 @@ import {
   assertStoreOpen,
 } from '../models/pedido.model.js';
 import { findArchivoById } from '../models/archivo.model.js';
-import { uploadFile as driveUploadFile } from '../services/drive.service.js';
+import { uploadFile as driveUploadFile, downloadFile as driveDownloadFile } from '../services/drive.service.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
 import { NotFoundError, InsufficientStockError, ValidationError, DriveUploadError } from '../utils/errors.js';
 
@@ -265,8 +265,49 @@ export async function obtenerComprobante(req, res, next) {
       mime_type: archivo.mime_type,
       tamanio_bytes: archivo.tamanio_bytes,
       url_publica: archivo.url_publica,
+      url_proxy: `/api/admin/pedidos/${req.params.id}/comprobante/imagen`,
       created_at: archivo.created_at,
     }, 'Comprobante obtenido correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/admin/pedidos/:id/comprobante/imagen (admin)
+ * Proxies the comprobante image/PDF from Google Drive through the backend.
+ * Uses the same pattern as GET /api/productos/:id/imagen.
+ * Falls back to Drive's own contentType if the archivo record doesn't have one.
+ */
+export async function obtenerComprobanteImagen(req, res, next) {
+  try {
+    const pool = getPool();
+    const pedido = await findById(pool, req.params.id);
+    if (!pedido) throw new NotFoundError('Pedido no encontrado');
+
+    if (!pedido.comprobante_archivo_id) {
+      throw new NotFoundError('Este pedido no tiene comprobante asociado');
+    }
+
+    const archivo = await findArchivoById(pool, pedido.comprobante_archivo_id);
+    if (!archivo) throw new NotFoundError('Comprobante no encontrado en almacenamiento');
+
+    const contentType = archivo.mime_type || 'application/octet-stream';
+    const stream = await driveDownloadFile(archivo.drive_id);
+
+    // Set Content-Disposition: inline so browsers display images/PDFs instead of downloading
+    const disposition = contentType.startsWith('image/')
+      ? `inline; filename="comprobante-${req.params.id}${contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg'}"`
+      : contentType === 'application/pdf'
+        ? `inline; filename="comprobante-${req.params.id}.pdf"`
+        : `inline; filename="comprobante-${req.params.id}"`;
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=300',
+      'Content-Disposition': disposition,
+    });
+    stream.pipe(res);
   } catch (err) {
     next(err);
   }

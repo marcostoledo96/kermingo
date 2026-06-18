@@ -3,7 +3,7 @@ import { getActions } from '../lib/cocina-actions'
 import type { OrderStatus } from '../lib/admin'
 
 describe('getActions (cocina agile transitions)', () => {
-  it('recibido: no actions (estado eliminado del flujo, legacy display only)', () => {
+  it('recibido: no actions (managed from pedidos screen, not cocina)', () => {
     expect(getActions('recibido')).toEqual([])
   })
 

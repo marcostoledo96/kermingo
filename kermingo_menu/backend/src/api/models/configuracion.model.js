@@ -1,13 +1,13 @@
 export async function findPublic(pool) {
   const [rows] = await pool.query(
-    'SELECT id, estado, mensaje_publico FROM configuracion_tienda WHERE id = 1'
+    'SELECT id, estado, mensaje_publico, categoria_default FROM configuracion_tienda WHERE id = 1'
   );
   return rows[0] || null;
 }
 
 export async function findAdmin(pool) {
   const [rows] = await pool.query(
-    'SELECT id, estado, mensaje_publico, cena_habilitada_desde FROM configuracion_tienda WHERE id = 1'
+    'SELECT id, estado, mensaje_publico, cena_habilitada_desde, categoria_default FROM configuracion_tienda WHERE id = 1'
   );
   return rows[0] || null;
 }
@@ -27,6 +27,10 @@ export async function updateMinimal(pool, data) {
   if (data.cena_habilitada_desde !== undefined) {
     fields.push('cena_habilitada_desde = ?');
     values.push(data.cena_habilitada_desde);
+  }
+  if (data.categoria_default !== undefined) {
+    fields.push('categoria_default = ?');
+    values.push(data.categoria_default);
   }
 
   if (fields.length === 0) return 0;

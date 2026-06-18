@@ -151,18 +151,22 @@ describe('Cocina admin workflow (con mocks del modelo)', () => {
     expect(res.body.data.estado_pedido).toEqual('en_preparacion');
   });
 
-  it('PATCH /:id/estado en_preparacion→recibido → 400 (estado inicial eliminado)', async () => {
+  it('PATCH /:id/estado en_preparacion→recibido → 200 (kitchen sends back to pending confirmation)', async () => {
     const pedidoMock = { id: 1, estado_pedido: 'en_preparacion' };
-    findByIdMock.mockResolvedValue(pedidoMock);
-    transicionEstadoValidaMock.mockReturnValue(false);
+    const pedidoActualizado = { id: 1, estado_pedido: 'recibido' };
+    findByIdMock
+      .mockResolvedValueOnce(pedidoMock)
+      .mockResolvedValueOnce(pedidoActualizado);
+    transicionEstadoValidaMock.mockReturnValue(true);
+    updateEstadoPedidoMock.mockResolvedValue(1);
 
     const res = await request(app)
       .patch('/api/admin/cocina/pedidos/1/estado')
       .send({ estado_pedido: 'recibido' });
 
-    expect(res.statusCode).toEqual(400);
-    expect(res.body.ok).toEqual(false);
-    expect(res.body.error).toMatch(/no válida|Invalid option/i);
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.ok).toEqual(true);
+    expect(res.body.data.estado_pedido).toEqual('recibido');
   });
 
   it('PATCH /:id/estado entregado→listo → 400 (delivered is terminal)', async () => {

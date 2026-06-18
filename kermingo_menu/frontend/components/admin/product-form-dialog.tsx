@@ -32,6 +32,8 @@ const emptyProduct = (): AdminProduct => ({
   meals: ['cena'],
   icon: 'pizza',
   active: true,
+  available: true,
+  order: 0,
   stockLimited: true,
   stockCurrent: 20,
   stockMin: 5,
@@ -467,6 +469,22 @@ export function ProductFormDialog({
                 disabled={submitting || uploadingImage}
               />
             </div>
+
+            {/* Disponible */}
+            <div className="rounded-2xl border border-[#75AADB]/20 bg-white p-4">
+              <ToggleRow
+                label="Disponible para pedir"
+                hint="Si está desactivado, el producto se muestra en el menú pero no se puede comprar."
+                value={form.available}
+                onChange={(v) => set('available', v)}
+                disabled={submitting || uploadingImage}
+              />
+              {!form.available && (
+                <p className="mt-2 text-xs font-medium text-[#8a5d00]">
+                  Los clientes verán el producto con la etiqueta "Todavía no disponible".
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3 border-t border-[#75AADB]/20 bg-white px-5 py-4">
@@ -530,8 +548,8 @@ function ToggleRow({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div>
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0 pr-2">
         <p className="text-sm font-bold text-[#003B73]">{label}</p>
         {hint && <p className="text-[11px] text-[#003B73]/40">{hint}</p>}
       </div>
@@ -541,13 +559,13 @@ function ToggleRow({
         aria-checked={value}
         onClick={() => onChange(!value)}
         disabled={disabled}
-        className={`relative h-7 w-12 flex-shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+        className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors disabled:opacity-50 ${
           value ? 'bg-[#003B73]' : 'bg-[#75AADB]/40'
         }`}
       >
         <span
-          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-            value ? 'translate-x-5' : 'translate-x-0.5'
+          className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+            value ? 'translate-x-6' : 'translate-x-0'
           }`}
         />
       </button>

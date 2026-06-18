@@ -48,7 +48,9 @@ export function deriveStockStatus(
   stockLimitado: 0 | 1,
   stockActual: number | null,
   stockMinimoAlerta: number,
+  disponible: 0 | 1 | boolean = 1,
 ): StockStatus {
+  if (!disponible) return 'no_disponible'
   if (!stockLimitado) return 'ilimitado'
   if (stockActual === null || stockActual === undefined) return 'disponible'
   if (stockActual <= 0) return 'agotado'
@@ -76,9 +78,11 @@ export function mapProducto(p: ApiProducto): Product {
     price: typeof p.precio === 'string' ? parseFloat(p.precio) : p.precio,
     meals: parseCategorias(p.categorias),
     type: p.tipo,
-    stock: deriveStockStatus(p.stock_limitado, p.stock_actual, p.stock_minimo_alerta),
+    stock: deriveStockStatus(p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.disponible),
     icon: pickProductIcon(p.nombre, p.tipo),
     image: ABSOLUTE_IMAGE_URL(p.imagen_url),
+    order: p.orden ?? 0,
+    available: p.disponible === 1,
   }
 }
 

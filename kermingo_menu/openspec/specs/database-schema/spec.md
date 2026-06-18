@@ -35,9 +35,9 @@ The system MUST use `IF NOT EXISTS` on every `CREATE TABLE` so the file can be r
 - THEN it MUST complete without errors
 - AND it MUST NOT drop or alter existing tables
 
-### Requirement: Schema must include 7 indexes on the `pedido` and `producto` tables
+### Requirement: Schema must include 8 indexes on the `pedido` and `producto` tables
 
-The system MUST create 7 indexes to support common query patterns.
+The system MUST create 8 indexes to support common query patterns, including stable product ordering.
 
 #### Scenario: Indexes exist after execution
 
@@ -45,6 +45,7 @@ The system MUST create 7 indexes to support common query patterns.
 - WHEN querying `SHOW INDEX` for relevant tables
 - THEN the following indexes MUST exist:
   - `idx_producto_activo` on `producto(activo)`
+  - `idx_producto_orden` on `producto(orden)`
   - `idx_pedido_numero` on `pedido(numero)`
   - `idx_pedido_token` on `pedido(token_seguimiento)`
   - `idx_pedido_estado_pedido` on `pedido(estado_pedido)`
@@ -100,7 +101,30 @@ The system MUST use MySQL `ENUM` for constrained status and type columns.
 - AND `pedido.estado_pago` MUST be `ENUM('pendiente','comprobante_subido','pagado','rechazado')`
 - AND `pedido.estado_pedido` MUST be `ENUM('recibido','en_preparacion','listo','entregado','cancelado')`
 - AND `configuracion_tienda.estado` MUST be `ENUM('abierta','cerrada','demo')`
+- AND `configuracion_tienda.categoria_default` MUST be `ENUM('merienda','cena') NOT NULL DEFAULT 'merienda'`
 - AND `archivo_drive.tipo` MUST be `ENUM('producto_imagen','comprobante')`
+
+### Requirement: Product schema must support ordering and availability
+
+The system MUST store `producto.orden INT NOT NULL DEFAULT 0` and `producto.disponible TINYINT(1) NOT NULL DEFAULT 1`.
+
+#### Scenario: Product ordering fields exist
+
+- GIVEN the schema defines `producto`
+- WHEN a product row is inserted without explicit ordering fields
+- THEN `orden` defaults to `0`
+- AND `disponible` defaults to `1`
+
+### Requirement: Migration scripts must preserve existing data safely
+
+Manual migration SQL MUST assign deterministic `orden` values to existing products, default existing products to `disponible=1`, and default existing configuration rows to `categoria_default='merienda'`.
+
+#### Scenario: Existing rows after migration
+
+- GIVEN existing products and a configuration row
+- WHEN the migration is applied
+- THEN every product has non-null `orden` and `disponible=1`
+- AND config `categoria_default` is `merienda` unless explicitly changed later
 
 ### Requirement: Timestamps must be set automatically
 

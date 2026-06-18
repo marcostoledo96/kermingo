@@ -108,6 +108,27 @@ The system MUST provide an `assertStoreOpen(pool)` function in the store configu
 
 **Traceability**: `backend/src/api/models/pedido.model.js`, `backend/src/api/controllers/pedido.controller.js`, `backend/tests/comprobantes.test.js`
 
+### Requirement: Store configuration must expose default menu category
+
+Public and admin configuration responses MUST include `categoria_default`, constrained to `merienda|cena`. Admin update MUST allow changing it through the existing protected configuration endpoint.
+
+#### Scenario: Public config includes default category
+- GIVEN `configuracion_tienda.categoria_default='cena'`
+- WHEN public client calls `GET /api/configuracion-tienda`
+- THEN the response includes `categoria_default: 'cena'`
+
+#### Scenario: Admin updates default category
+- GIVEN an authenticated admin with trusted origin
+- WHEN admin updates config with `categoria_default='merienda'`
+- THEN the API returns 200
+- AND later public menu config reads `merienda`
+
+#### Scenario: Invalid category is rejected
+- GIVEN an authenticated admin
+- WHEN admin sends `categoria_default='almuerzo'`
+- THEN the API returns 400
+- AND stored config remains unchanged
+
 ## Out of Scope
 
 No agregar DB de test. No rehacer estructura. No tocar main. No tocar PRs #1/#4/#5.

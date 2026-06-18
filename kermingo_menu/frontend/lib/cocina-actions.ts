@@ -17,8 +17,9 @@ export type ActionDef = {
 /**
  * Returns the available actions for a cocina order based on its current status.
  *
- * El estado `recibido` se eliminó del flujo: los pedidos entran a cocina
- * directamente como `en_preparacion`. El state machine queda:
+ * El estado `recibido` se gestiona desde /admin/pedidos (confirmar pago → en_preparacion).
+ * Cocina nunca ve pedidos `recibido`; los pedidos entran a cocina como `en_preparacion`.
+ * El state machine en cocina queda:
  *   - en_preparacion → listo (primary)
  *   - listo → en_preparacion (secondary/backward), listo → entregado (primary, with confirm)
  *   - entregado: terminal, no actions

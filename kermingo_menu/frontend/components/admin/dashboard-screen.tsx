@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
 import {
   Clock,
@@ -9,21 +9,19 @@ import {
   Truck,
   CreditCard,
   DollarSign,
-  AlertTriangle,
-  Zap,
-  ClipboardList,
-  ReceiptText,
-  UtensilsCrossed,
-  BarChart3,
-  Settings,
   ChevronRight,
-  ArrowRight,
-  Store,
   Smartphone,
+  Store,
+  AlertCircle,
+  ArrowRight,
+  RefreshCcw,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { EVENTO } from '@/lib/evento'
+import { apiGet } from '@/lib/api'
+import { useApiResource } from '@/lib/use-api-resource'
 import { AdminShell } from './admin-shell'
 import {
   Badge,
@@ -32,101 +30,255 @@ import {
   type BadgeTone,
 } from './admin-ui'
 import { useAdminSession } from './admin-session'
+import type { ApiPedidoListItem, ApiPedidoPaginada } from '@/lib/types'
 
-type Origin = 'online' | 'caja'
+const RECENT_ORDERS_LIMIT = 6
+const COUNT_LIMIT = 1
+const RECAUDACION_PAGE_LIMIT = 100
 
-type DashOrder = {
-  id: string
-  code: string
-  customer: string
-  origin: Origin
-  method: 'transferencia' | 'efectivo'
-  payment: string
-  paymentLabel: string
-  paymentTone: BadgeTone
-  status: string
-  statusLabel: string
-  statusTone: BadgeTone
-  total: number
-  time: string
+const PAYMENT_LABEL: Record<ApiPedidoListItem['estado_pago'], string> = {
+  pendiente: 'Pago pendiente',
+  comprobante_subido: 'Comprobante',
+  pagado: 'Pagado',
+  rechazado: 'Rechazado',
+}
+
+const PAYMENT_TONE: Record<ApiPedidoListItem['estado_pago'], BadgeTone> = {
+  pendiente: 'warning',
+  comprobante_subido: 'info',
+  pagado: 'success',
+  rechazado: 'danger',
+}
+
+const STATUS_LABEL: Record<ApiPedidoListItem['estado_pedido'], string> = {
+  recibido: 'Recibido',
+  en_preparacion: 'En preparación',
+  listo: 'Listo',
+  entregado: 'Entregado',
+  cancelado: 'Cancelado',
+}
+
+const STATUS_TONE: Record<ApiPedidoListItem['estado_pedido'], BadgeTone> = {
+  recibido: 'info',
+  en_preparacion: 'preparando',
+  listo: 'listo',
+  entregado: 'entregado',
+  cancelado: 'danger',
+}
+
+const METHOD_LABEL: Record<ApiPedidoListItem['metodo_pago'], string> = {
+  transferencia: 'Transferencia',
+  efectivo: 'Efectivo',
+}
+
+type DashboardOrder = ApiPedidoListItem & {
   isNew?: boolean
 }
 
-const DEMO_ORDERS: DashOrder[] = [
-  { id: '1', code: 'KMG-0042', customer: 'Martín G.', origin: 'online', method: 'transferencia', payment: 'comprobante', paymentLabel: 'Comprobante', paymentTone: 'info', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 6500, time: '20:45', isNew: true },
-  { id: '2', code: 'KMG-0041', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 3500, time: '20:42' },
-  { id: '3', code: 'KMG-0040', customer: 'Federico R.', origin: 'online', method: 'transferencia', payment: 'pendiente', paymentLabel: 'Pago pendiente', paymentTone: 'warning', status: 'preparando', statusLabel: 'En preparación', statusTone: 'info', total: 8200, time: '20:38' },
-  { id: '4', code: 'KMG-0039', customer: 'Caja', origin: 'caja', method: 'efectivo', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'entregado', statusLabel: 'Entregado', statusTone: 'success', total: 4800, time: '20:31' },
-  { id: '5', code: 'KMG-0038', customer: 'Pablo S.', origin: 'online', method: 'transferencia', payment: 'pagado', paymentLabel: 'Pagado', paymentTone: 'success', status: 'listo', statusLabel: 'Listo', statusTone: 'gold', total: 5200, time: '20:25' },
-  { id: '6', code: 'KMG-0037', customer: 'Caja', origin: 'caja', method: 'transferencia', payment: 'rechazado', paymentLabel: 'Rechazado', paymentTone: 'danger', status: 'cancelado', statusLabel: 'Cancelado', statusTone: 'danger', total: 2600, time: '20:18' },
-]
+type DashboardState = {
+  metrics: {
+    pendientes: number
+    preparando: number
+    listos: number
+    entregados: number
+    pagosPendientes: number
+    recaudacion: number
+  }
+  orders: DashboardOrder[]
+  lastUpdate: string
+}
 
-const QUICK_ACCESS: {
-  href: string
+type AlertItem = {
   icon: LucideIcon
-  label: string
-  hint: string
-  primary?: boolean
-}[] = [
-  { href: '/admin/caja', icon: Zap, label: 'Nueva venta', hint: 'Caja rápida', primary: true },
-  { href: '/admin/pedidos', icon: ClipboardList, label: 'Ver pedidos', hint: 'Todos los pedidos' },
-  { href: '/admin/cocina', icon: ChefHat, label: 'Cocina / Entrega', hint: 'Preparar y entregar' },
-  { href: '/admin/comprobantes', icon: ReceiptText, label: 'Comprobantes', hint: 'Revisar transferencias' },
-  { href: '/admin/productos', icon: UtensilsCrossed, label: 'Productos', hint: 'Catálogo y stock' },
-  { href: '/admin/reportes', icon: BarChart3, label: 'Reportes', hint: 'Recaudación' },
-  { href: '/admin/config', icon: Settings, label: 'Configuración', hint: 'Estado de la tienda' },
-]
+  text: string
+  href: string
+  cta: string
+}
+
+type Origin = 'online' | 'caja'
+
+function toMoney(value: string | number): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  return Number.parseFloat(value) || 0
+}
+
+function toHHMM(isoDate: string): string {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return '--:--'
+  const h = String(date.getHours()).padStart(2, '0')
+  const m = String(date.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+function formatNow(date = new Date()): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function asDashboardOrder(order: ApiPedidoListItem): DashboardOrder {
+  return {
+    ...order,
+    total: toMoney(order.total),
+  }
+}
+
+async function fetchRecaudacionTotal(): Promise<number> {
+  let page = 1
+  let totalPages = 1
+  let recaudacion = 0
+
+  do {
+    const data = await apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+      estado_pago: 'pagado',
+      limit: RECAUDACION_PAGE_LIMIT,
+      page,
+    })
+
+    totalPages = data.paginacion.totalPages
+    data.pedidos.forEach((pedido) => {
+      if (pedido.estado_pedido === 'cancelado') return
+      recaudacion += toMoney(pedido.total)
+    })
+
+    page += 1
+  } while (page <= totalPages)
+
+  return recaudacion
+}
+
+async function fetchDashboardData(): Promise<DashboardState> {
+  const [recientes, recibidos, preparando, listos, entregados, pagosPendientes, recaudacion] =
+    await Promise.all([
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        limit: RECENT_ORDERS_LIMIT,
+      }),
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        estado_pedido: 'recibido',
+        limit: COUNT_LIMIT,
+      }),
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        estado_pedido: 'en_preparacion',
+        limit: COUNT_LIMIT,
+      }),
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        estado_pedido: 'listo',
+        limit: COUNT_LIMIT,
+      }),
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        estado_pedido: 'entregado',
+        limit: COUNT_LIMIT,
+      }),
+      apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+        solo_pagos_pendientes: 'true',
+        limit: COUNT_LIMIT,
+      }),
+      fetchRecaudacionTotal(),
+    ])
+
+  const mappedOrders = recientes.pedidos.map(asDashboardOrder).map((order, index) => ({
+    ...order,
+    isNew: index === 0,
+  }))
+
+  return {
+    metrics: {
+      pendientes: recibidos.paginacion.total,
+      preparando: preparando.paginacion.total,
+      listos: listos.paginacion.total,
+      entregados: entregados.paginacion.total,
+      pagosPendientes: pagosPendientes.paginacion.total,
+      recaudacion,
+    },
+    orders: mappedOrders,
+    lastUpdate: formatNow(),
+  }
+}
 
 export function DashboardScreen() {
-  const [storeStatus] = useState<'open' | 'closed' | 'demo'>('demo')
   const { user } = useAdminSession()
 
-  const storeBadge: Record<typeof storeStatus, { label: string; tone: BadgeTone }> = {
-    open: { label: 'Tienda abierta', tone: 'success' },
-    closed: { label: 'Tienda cerrada', tone: 'danger' },
-    demo: { label: 'Modo demo', tone: 'gold' },
+  const {
+    data,
+    loading,
+    refreshing,
+    error,
+    refetch,
+  } = useApiResource<DashboardState>(fetchDashboardData)
+
+  const state = data ?? {
+    metrics: {
+      pendientes: 0,
+      preparando: 0,
+      listos: 0,
+      entregados: 0,
+      pagosPendientes: 0,
+      recaudacion: 0,
+    },
+    orders: [],
+    lastUpdate: '--:--',
   }
 
-  const metrics = {
-    pendientes: 3,
-    preparando: 5,
-    listos: 2,
-    entregados: 28,
-    pagosPendientes: 4,
-    recaudacion: 187500,
-  }
-
-  const alerts = useMemo(() => {
-    const list: { icon: LucideIcon; text: string; href: string; cta: string }[] = []
-    if (metrics.pagosPendientes > 0) {
+  const alerts = useMemo<AlertItem[]>(() => {
+    const list: AlertItem[] = []
+    if (state.metrics.pagosPendientes > 0) {
       list.push({
         icon: CreditCard,
-        text: `${metrics.pagosPendientes} pagos por revisar`,
+        text: `${state.metrics.pagosPendientes} pagos por revisar`,
         href: '/admin/comprobantes',
         cta: 'Revisar',
       })
     }
-    if (storeStatus === 'closed') {
-      list.push({ icon: Store, text: 'La tienda está cerrada', href: '/admin/config', cta: 'Abrir' })
-    }
-    // Stock agotado (demo)
-    list.push({
-      icon: AlertTriangle,
-      text: '2 productos agotados',
-      href: '/admin/productos',
-      cta: 'Ver stock',
-    })
     return list
-  }, [metrics.pagosPendientes, storeStatus])
+  }, [state.metrics.pagosPendientes])
+
+  if (loading) {
+    return (
+      <AdminShell section="Panel general" lastUpdate="--:--">
+        <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[#75AADB]/20 bg-white p-8 text-[#003B73]">
+          <div className="flex items-center gap-2 text-sm font-medium text-[#3A5675]">
+            <Loader2 className="h-5 w-5 animate-spin text-[#003B73]" />
+            Cargando panel...
+          </div>
+        </div>
+      </AdminShell>
+    )
+  }
+
+  if (error) {
+    return (
+      <AdminShell section="Panel general" lastUpdate="--:--">
+        <div className="rounded-2xl border border-red-300 bg-[#FBE9E7] p-6 text-[#A63329]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <p className="font-semibold">No se pudo cargar el panel: {error}</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-[#A63329]/40 bg-white px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#A63329]"
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              Reintentar
+            </button>
+          </div>
+        </div>
+      </AdminShell>
+    )
+  }
 
   return (
     <AdminShell
       section="Panel general"
-      status={storeBadge[storeStatus]}
-      lastUpdate="20:46"
+      lastUpdate={refreshing ? `${state.lastUpdate} (actualizando)` : state.lastUpdate}
+      actions={
+        <button
+          type="button"
+          onClick={() => refetch({ silent: true })}
+          className="inline-flex items-center gap-2 rounded-lg border border-[#75AADB]/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73]"
+        >
+          <RefreshCcw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          Actualizar
+        </button>
+      }
     >
       <div className="space-y-7">
-        {/* ---- Greeting + event context ---- */}
         <div>
           <h1 className="font-display text-lg font-extrabold text-[#003B73] sm:text-xl">
             Buenos días{user?.name ? `, ${user.name.split(' ')[0]}` : ''}.
@@ -136,21 +288,20 @@ export function DashboardScreen() {
           </p>
         </div>
 
-        {/* ---- Alert strip ---- */}
         {alerts.length > 0 && (
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            {alerts.map((a) => {
-              const Icon = a.icon
+            {alerts.map((alert) => {
+              const Icon = alert.icon
               return (
                 <Link
-                  key={a.text}
-                  href={a.href}
+                  key={alert.text}
+                  href={alert.href}
                   className="group flex flex-1 items-center gap-2.5 rounded-xl border border-[#F6B21A]/40 bg-[#FBF0D6]/70 px-3.5 py-2.5 transition-colors hover:bg-[#FBF0D6] sm:min-w-[220px]"
                 >
                   <Icon className="h-4 w-4 shrink-0 text-[#8A5A00]" strokeWidth={2.4} />
-                  <span className="flex-1 text-sm font-semibold text-[#8A5A00]">{a.text}</span>
+                  <span className="flex-1 text-sm font-semibold text-[#8A5A00]">{alert.text}</span>
                   <span className="flex items-center gap-0.5 text-xs font-bold text-[#8A5A00]">
-                    {a.cta}
+                    {alert.cta}
                     <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                   </span>
                 </Link>
@@ -159,40 +310,28 @@ export function DashboardScreen() {
           </div>
         )}
 
-        {/* ---- Metric cards ---- */}
         <section>
           <SectionTitle>Resumen en vivo</SectionTitle>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <MetricCard icon={Clock} label="Pendientes" value={metrics.pendientes} />
-            <MetricCard icon={ChefHat} label="Preparando" value={metrics.preparando} />
-            <MetricCard icon={CheckCircle2} label="Listos" value={metrics.listos} />
-            <MetricCard icon={Truck} label="Entregados" value={metrics.entregados} />
+            <MetricCard icon={Clock} label="Pendientes" value={state.metrics.pendientes} />
+            <MetricCard icon={ChefHat} label="Preparando" value={state.metrics.preparando} />
+            <MetricCard icon={CheckCircle2} label="Listos" value={state.metrics.listos} />
+            <MetricCard icon={Truck} label="Entregados" value={state.metrics.entregados} />
             <MetricCard
               icon={CreditCard}
               label="Pagos pend."
-              value={metrics.pagosPendientes}
-              variant={metrics.pagosPendientes > 0 ? 'alert' : 'default'}
+              value={state.metrics.pagosPendientes}
+              variant={state.metrics.pagosPendientes > 0 ? 'alert' : 'default'}
             />
             <MetricCard
               icon={DollarSign}
               label="Recaudación"
-              value={formatPrice(metrics.recaudacion)}
+              value={formatPrice(state.metrics.recaudacion)}
               variant="primary"
             />
           </div>
         </section>
 
-        {/* ---- Quick access ---- */}
-        <section>
-          <SectionTitle>Accesos rápidos</SectionTitle>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {QUICK_ACCESS.map((q) => (
-              <QuickAccess key={q.href} {...q} />
-            ))}
-          </div>
-        </section>
-
-        {/* ---- Recent orders ---- */}
         <section>
           <SectionTitle
             action={
@@ -208,119 +347,120 @@ export function DashboardScreen() {
           </SectionTitle>
 
           <AdminCard className="overflow-hidden">
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[#75AADB]/15 bg-[#EEF5FF]/60 text-left text-[11px] font-bold uppercase tracking-wide text-[#003B73]/55">
-                    <th className="px-4 py-3">Código</th>
-                    <th className="px-4 py-3">Cliente</th>
-                    <th className="px-4 py-3">Origen</th>
-                    <th className="px-4 py-3">Método</th>
-                    <th className="px-4 py-3">Estado pago</th>
-                    <th className="px-4 py-3">Estado pedido</th>
-                    <th className="px-4 py-3 text-right">Total</th>
-                    <th className="px-4 py-3 text-right">Hora</th>
-                    <th className="px-4 py-3 text-right">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#75AADB]/10">
-                  {DEMO_ORDERS.map((order) => (
-                    <tr key={order.id} className="transition-colors hover:bg-[#EEF5FF]/50">
-                      <td className="px-4 py-3">
+            {state.orders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center px-4 py-8 text-sm text-[#3A5675]">
+                <AlertCircle className="h-5 w-5" />
+                <p className="mt-2 font-semibold">No hay pedidos todavía</p>
+              </div>
+            ) : (
+              <>
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#75AADB]/15 bg-[#EEF5FF]/60 text-left text-[11px] font-bold uppercase tracking-wide text-[#003B73]/55">
+                        <th className="px-4 py-3">Código</th>
+                        <th className="px-4 py-3">Cliente</th>
+                        <th className="px-4 py-3">Origen</th>
+                        <th className="px-4 py-3">Método</th>
+                        <th className="px-4 py-3">Estado pago</th>
+                        <th className="px-4 py-3">Estado pedido</th>
+                        <th className="px-4 py-3 text-right">Total</th>
+                        <th className="px-4 py-3 text-right">Hora</th>
+                        <th className="px-4 py-3 text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#75AADB]/10">
+                      {state.orders.map((order) => (
+                        <tr key={order.id} className="transition-colors hover:bg-[#EEF5FF]/50">
+                          <td className="px-4 py-3">
+                            <span className="flex items-center gap-2 font-mono font-bold text-[#003B73]">
+                              {order.numero}
+                              {order.isNew && (
+                                <span className="rounded-full bg-[#F6B21A] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#003B73]">
+                                  Nuevo
+                                </span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-[#1F3A56]">{order.nombre_cliente}</td>
+                          <td className="px-4 py-3">
+                            <OriginPill origin={order.origen} />
+                          </td>
+                          <td className="px-4 py-3 text-xs font-medium capitalize text-[#3A5675]">
+                            {METHOD_LABEL[order.metodo_pago]}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge tone={PAYMENT_TONE[order.estado_pago]}> {PAYMENT_LABEL[order.estado_pago]} </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge tone={STATUS_TONE[order.estado_pedido]} dot>
+                              {STATUS_LABEL[order.estado_pedido]}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold tabular-nums text-[#003B73]">
+                            {formatPrice(order.total)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-[#3A5675]">
+                            {toHHMM(order.created_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Link
+                              href="/admin/pedidos"
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]"
+                            >
+                              Ver
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="divide-y divide-[#75AADB]/10 md:hidden">
+                  {state.orders.map((order) => (
+                    <Link
+                      key={order.id}
+                      href="/admin/pedidos"
+                      className="block space-y-2 p-4 transition-colors active:bg-[#EEF5FF]/60"
+                    >
+                      <div className="flex items-center justify-between">
                         <span className="flex items-center gap-2 font-mono font-bold text-[#003B73]">
-                          {order.code}
+                          {order.numero}
                           {order.isNew && (
                             <span className="rounded-full bg-[#F6B21A] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#003B73]">
                               Nuevo
                             </span>
                           )}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium text-[#1F3A56]">{order.customer}</td>
-                      <td className="px-4 py-3">
-                        <OriginPill origin={order.origin} />
-                      </td>
-                      <td className="px-4 py-3 text-xs font-medium capitalize text-[#3A5675]">
-                        {order.method}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={order.paymentTone}>
-                          {order.paymentLabel}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={order.statusTone} dot>
-                          {order.statusLabel}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold tabular-nums text-[#003B73]">
-                        {formatPrice(order.total)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[#3A5675]">
-                        {order.time}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          href="/admin/pedidos"
-                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]"
-                        >
-                          Ver
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile list */}
-            <div className="divide-y divide-[#75AADB]/10 md:hidden">
-              {DEMO_ORDERS.map((order) => (
-                <Link
-                  key={order.id}
-                  href="/admin/pedidos"
-                  className="block space-y-2 p-4 transition-colors active:bg-[#EEF5FF]/60"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-mono font-bold text-[#003B73]">
-                      {order.code}
-                      {order.isNew && (
-                        <span className="rounded-full bg-[#F6B21A] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#003B73]">
-                          Nuevo
+                        <span className="text-xs tabular-nums text-[#3A5675]">{toHHMM(order.created_at)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 font-medium text-[#1F3A56]">
+                          {order.nombre_cliente}
+                          <OriginPill origin={order.origen} />
                         </span>
-                      )}
-                    </span>
-                    <span className="text-xs tabular-nums text-[#3A5675]">{order.time}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-medium text-[#1F3A56]">
-                      {order.customer}
-                      <OriginPill origin={order.origin} />
-                    </span>
-                    <span className="font-bold tabular-nums text-[#003B73]">
-                      {formatPrice(order.total)}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone={order.paymentTone}>
-                      {order.paymentLabel}
-                    </Badge>
-                    <Badge tone={order.statusTone} dot>
-                      {order.statusLabel}
-                    </Badge>
-                  </div>
-                </Link>
-              ))}
-            </div>
+                        <span className="font-bold tabular-nums text-[#003B73]">{formatPrice(order.total)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={PAYMENT_TONE[order.estado_pago]}>
+                          {PAYMENT_LABEL[order.estado_pago]}
+                        </Badge>
+                        <Badge tone={STATUS_TONE[order.estado_pedido]} dot>
+                          {STATUS_LABEL[order.estado_pedido]}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
           </AdminCard>
         </section>
       </div>
     </AdminShell>
   )
 }
-
-/* --- Subcomponents --- */
 
 function MetricCard({
   icon: Icon,
@@ -358,71 +498,18 @@ function MetricCard({
         >
           <Icon className="h-5 w-5" strokeWidth={2.2} />
         </div>
-        <span
-          className={`text-xs font-semibold leading-tight ${
-            isPrimary ? 'text-[#AFC8E6]' : 'text-[#3A5675]'
-          }`}
-        >
+        <span className={`text-xs font-semibold leading-tight ${isPrimary ? 'text-[#AFC8E6]' : 'text-[#3A5675]'}`}>
           {label}
         </span>
       </div>
       <p
-        className={`mt-3 text-2xl font-extrabold tabular-nums ${
+        className={`mt-3 w-full text-center text-2xl font-extrabold tabular-nums ${
           isPrimary ? 'text-white' : 'text-[#003B73]'
         }`}
       >
         {value}
       </p>
     </div>
-  )
-}
-
-function QuickAccess({
-  href,
-  icon: Icon,
-  label,
-  hint,
-  primary,
-}: {
-  href: string
-  icon: LucideIcon
-  label: string
-  hint: string
-  primary?: boolean
-}) {
-  return (
-    <Link
-      href={href}
-      className={`group flex items-center gap-3 rounded-2xl border p-4 transition-all hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003B73] focus-visible:ring-offset-2 ${
-        primary
-          ? 'border-[#F6B21A] bg-[#F6B21A] text-[#003B73] hover:bg-[#ffbe2e]'
-          : 'border-[#75AADB]/25 bg-white hover:border-[#75AADB]'
-      }`}
-    >
-      <div
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-          primary ? 'bg-[#003B73] text-[#F6B21A]' : 'bg-[#EEF5FF] text-[#003B73]'
-        }`}
-      >
-        <Icon className="h-5 w-5" strokeWidth={2.2} />
-      </div>
-      <div className="min-w-0">
-        <p
-          className={`truncate text-sm font-extrabold ${
-            primary ? 'text-[#003B73]' : 'text-[#003B73]'
-          }`}
-        >
-          {label}
-        </p>
-        <p
-          className={`truncate text-xs font-medium ${
-            primary ? 'text-[#003B73]/70' : 'text-[#3A5675]'
-          }`}
-        >
-          {hint}
-        </p>
-      </div>
-    </Link>
   )
 }
 

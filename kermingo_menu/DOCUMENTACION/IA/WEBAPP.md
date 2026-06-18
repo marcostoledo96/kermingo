@@ -30,6 +30,8 @@
 | lucide-react | 1.x | Iconos |
 | jsPDF | — | Generación de ticket PDF |
 | qrcode.react | — | Generación de QR scaneable en ticket confirmado |
+| @dnd-kit/core | — | Drag & drop para reordenar productos admin |
+| @dnd-kit/sortable | — | Sortable list para tabla de productos admin |
 
 **Comandos:**
 
@@ -70,9 +72,9 @@ pnpm build     # Build de producción (ejecuta prebuild check de NEXT_PUBLIC_API
 | `/admin/cocina` | `app/admin/cocina/page.tsx` | Vista cocina |
 | `/admin/comprobantes` | `app/admin/comprobantes/page.tsx` | Revisión de comprobantes de transferencia |
 | `/admin/config` | `app/admin/config/page.tsx` | Configuración de la tienda |
-| `/admin/reportes` | `app/admin/reportes/page.tsx` | Reportes (placeholder) |
+| `/admin/reportes` | `app/admin/reportes/page.tsx` | Reportes de recaudación, pagos y ranking de productos |
 
-> **Rutas implementadas:** `/admin/comprobantes`, `/admin/config`, `/admin/reportes` ahora tienen `page.tsx`. Comprobantes y Configuración son funcionales. Reportes es placeholder.
+> **Rutas implementadas:** `/admin/comprobantes`, `/admin/config`, `/admin/reportes` ahora tienen `page.tsx` funcional.
 
 ---
 
@@ -172,7 +174,7 @@ Componentes esperados (alineados con la referencia v0):
 
 | Componente | Propósito |
 |---|---|
-| `ProductCard` | Card de producto en el menú |
+| `ProductCard` | Card de producto en el menú. Deshabilita botón cuando `disponible=0` (todavía no disponible) con copia "Todavía no disponible". |
 | `CartItemRow` | Fila de item en el carrito |
 | `OrderStatusBadge` | Badge de estado del pedido |
 | `PaymentStatusBadge` | Badge de estado de pago |
@@ -180,11 +182,12 @@ Componentes esperados (alineados con la referencia v0):
 | `AdminHeader` | Header del panel admin. Usa `useAdminSession()` para mostrar usuario activo y botón de logout. Muestra skeleton durante loading, alerta en error, y nombre real en authenticated |
 | `AdminSessionProvider` | Guard de sesión: protege rutas admin, solo renderiza contenido cuando `status === 'authenticated'` o `'unauthenticated'` (login). Estado `'error'` muestra retry, `'loading'` muestra spinner. |
 | `AdminShell` | Shell con sidebar, topbar y footer para secciones admin |
-| `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado, campo `cena_habilitada_desde` (input type=time). Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
-| `ReportesScreen` | Placeholder honesto: hero con `Construction` + 3 cards de preview con `IconBox`. Sin endpoints backend todavía |
+| `MenuScreen` | Pantalla del menú público. Lee `configuracion_tienda.categoria_default` para seleccionar pestaña inicial (Merienda/Cena). Usuarios pueden cambiar libremente. Renderiza productos en orden del API (`orden ASC`). |
+| `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado, campo `cena_habilitada_desde` (input type=time), selector de categoría por defecto (Merienda/Cena). Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
+| `ReportesScreen` | Reportes admin. Consume `GET /api/admin/reportes`, muestra KPIs de recaudación/pagos/productos, producto estrella, ranking y descarga CSV local de resumen/ranking |
 | `ComprobantesScreen` | Revisión de comprobantes de transferencia. Fetch metadata de `GET /api/admin/pedidos/:id/comprobante` y abre `url_publica` de Drive |
 | `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |
-| `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=` |
+| `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=`. **B7:** Cuando `estado_pedido='recibido'` y `estado_pago!='pagado'` muestra "Estamos comprobando tu pago. En cuanto lo verifiquemos, lo mandamos a cocina." |
 
 **Estilos:** TailwindCSS con tokens de color alineados a la paleta Argentina (celeste, azul, amarillo).
 
@@ -304,7 +307,7 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | Endpoint admin | Uso en frontend |
 |---|---|
 | `POST /api/auth/login` | Login admin |
-| `GET /api/admin/pedidos` | Lista de pedidos con filtros |
+| `GET /api/admin/pedidos` | Lista de pedidos con filtros. Soporta `?estado_pedido=recibido|en_preparacion|listo|entregado` (usado por los 4 tabs de admin pedidos) |
 | `POST /api/admin/pedidos/caja` | Crear pedido de caja |
 | `PATCH /api/admin/pedidos/:id/estado` | Avanzar estado |
 | `PATCH /api/admin/pedidos/:id/pago` | Cambiar estado de pago |
@@ -312,12 +315,14 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | `GET /api/admin/pedidos/:id/comprobante` | Metadatos de comprobante (Drive URL) — `ComprobantesScreen` |
 | `GET /api/admin/cocina/pedidos` | Pedidos para cocina |
 | `PATCH /api/admin/cocina/pedidos/:id/estado` | Avanzar estado en cocina |
-| `GET /api/admin/productos` | Lista de productos admin |
-| `POST /api/admin/productos` | Crear producto |
-| `PUT /api/admin/productos/:id` | Actualizar producto |
+| `GET /api/admin/productos` | Lista de productos admin con filtro `?estado=` (activo/todos/desactivado/agotado/todavia_no_disponible). Default `activo`. |
+| `POST /api/admin/productos` | Crear producto (incluye `orden`, `disponible`) |
+| `PUT /api/admin/productos/:id` | Actualizar producto (incluye `orden`, `disponible`) |
 | `PATCH /api/admin/productos/:id/stock` | Ajustar stock |
-| `GET /api/admin/configuracion-tienda` | Config actual |
-| `PUT /api/admin/configuracion-tienda` | Actualizar config |
+| `PATCH /api/admin/productos/orden` | Reordenar productos (batch) — body `{ ordenes: [{ id, orden }] }` |
+| `GET /api/admin/configuracion-tienda` | Config actual (incluye `categoria_default`) |
+| `PUT /api/admin/configuracion-tienda` | Actualizar config (acepta `categoria_default`)
+| `GET /api/admin/reportes` | KPIs y ranking de productos para `ReportesScreen` |
 
 | Endpoint público | Uso en frontend |
 |---|---|
@@ -329,7 +334,7 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | Endpoint admin | Uso en frontend |
 |---|---|
 | `POST /api/auth/login` | Login admin |
-| `GET /api/admin/pedidos` | Lista de pedidos con filtros |
+| `GET /api/admin/pedidos` | Lista de pedidos con filtros. Soporta `?estado_pedido=recibido|en_preparacion|listo|entregado` (usado por los 4 tabs de admin pedidos) |
 | `POST /api/admin/pedidos/caja` | Crear pedido de caja |
 | `PATCH /api/admin/pedidos/:id/estado` | Avanzar estado |
 | `PATCH /api/admin/pedidos/:id/pago` | Cambiar estado de pago |
@@ -337,12 +342,14 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | `GET /api/admin/pedidos/:id/comprobante` | Metadatos de comprobante (Drive URL) — `ComprobantesScreen` |
 | `GET /api/admin/cocina/pedidos` | Pedidos para cocina |
 | `PATCH /api/admin/cocina/pedidos/:id/estado` | Avanzar estado en cocina |
-| `GET /api/admin/productos` | Lista de productos admin |
-| `POST /api/admin/productos` | Crear producto |
-| `PUT /api/admin/productos/:id` | Actualizar producto |
+| `GET /api/admin/productos` | Lista de productos admin con filtro `?estado=` (activo/todos/desactivado/agotado/todavia_no_disponible). Default `activo`. |
+| `POST /api/admin/productos` | Crear producto (incluye `orden`, `disponible`) |
+| `PUT /api/admin/productos/:id` | Actualizar producto (incluye `orden`, `disponible`) |
 | `PATCH /api/admin/productos/:id/stock` | Ajustar stock |
-| `GET /api/admin/configuracion-tienda` | Config actual |
-| `PUT /api/admin/configuracion-tienda` | Actualizar config |
+| `PATCH /api/admin/productos/orden` | Reordenar productos (batch) — body `{ ordenes: [{ id, orden }] }` |
+| `GET /api/admin/configuracion-tienda` | Config actual (incluye `categoria_default`) |
+| `PUT /api/admin/configuracion-tienda` | Actualizar config (acepta `categoria_default`)
+| `GET /api/admin/reportes` | KPIs y ranking de productos para `ReportesScreen` |
 
 Ver `API.md` para detalles completos de cada endpoint.
 
@@ -355,7 +362,7 @@ El dashboard (`/admin/dashboard`) funciona como mesa de control del evento en vi
 **Jerarquía de la pantalla:**
 
 1. **Ahora en el evento** — tira operativa con pendientes, pagos por revisar, listos para entregar, preparando. Cada item linkea a la sección correspondiente (Pedidos o Cocina). Usa `EstadoBadge` con tokens Kermingo.
-2. **Acciones de jornada** — botones táctiles grandes: Caja rápida (dorado), Cocina, Pedidos, Productos, Comprobantes, Configuración y Reportes. Comprobantes y Configuración están integradas; Reportes usa un placeholder honesto de integración pendiente si no hay endpoint real.
+2. **Acciones de jornada** — botones táctiles grandes: Caja rápida (dorado), Cocina, Pedidos, Productos, Comprobantes, Configuración y Reportes. Comprobantes, Configuración y Reportes están integradas.
 3. **Alertas de stock** — stock bajo y agotados con tokens `--km-alerta` y `--km-peligro`.
 4. **Recaudación** — dato financiero secundario, no compite con lo operativo. Aparece al costado de últimos pedidos en desktop.
 5. **Últimos pedidos** — tabla compacta con `EstadoBadge` en vez de `Badge` con tones genéricos. En desktop, ocupa 2/3 del ancho junto a recaudación.
@@ -366,7 +373,7 @@ El dashboard (`/admin/dashboard`) funciona como mesa de control del evento en vi
 - Uso exclusivo de `EstadoBadge` y variables CSS `--km-*` para estados.
 - Dorado reservado solo para Caja rápida.
 - `km-tabular` en números, códigos y montos.
-- Navegación admin completa con shell/sidebar: Dashboard, Caja, Pedidos, Cocina, Comprobantes, Productos, Configuración y Reportes. Reportes no muestra métricas falsas: avisa que la integración está pendiente.
+- Navegación admin completa con shell/sidebar: Dashboard, Caja, Pedidos, Cocina, Comprobantes, Productos, Configuración y Reportes. Reportes consume métricas reales del backend.
 - Desktop usa `max-w-6xl` y layout 1fr/2fr para recaudación + pedidos.
 - Mobile 360px: densidad controlada, sin saturación.
 
@@ -383,8 +390,11 @@ La pantalla `/admin/caja` funciona como una caja rápida real de kermesse: vende
 3. **Barra "Cobrar" mobile** — barra inferior fija con `km-safe-bottom` que muestra ítems + total, sin cubrir productos. Toca para abrir el sheet del pedido.
 4. **Método de pago** — Efectivo es la opción default y visualmente destacada (fondo `--km-listo-bg` / teal). Transferencia usa azul oscuro. Al elegir transferencia, aparece aviso "Pago pendiente de verificación" con `--km-preparando-bg`. Al elegir efectivo, se indica "Se registra como pagado al confirmar" con `--km-listo-bg`.
 
+**B7: Product photos in caja cards** — Los botones de producto ahora renderizan `next/image` con la imagen del producto cuando `imagen_url` existe (URL absoluta via `ABSOLUTE_IMAGE_URL` en `apiToCajaProduct`). Si no hay imagen, se muestra el fallback `ProductIconGlyph`.
+
 **Cambios vs. versión anterior (doc 28 §4.8):**
 - Productos: de cards con icono+imagen a botones operativos compactos (nombre + precio + stock).
+- **B7 producto image:** se agregó imagen del producto dentro del botón cuando `imagen_url` está disponible; fallback a `ProductIconGlyph` si no.
 - Cantidad en botón: badge dorado con cantidad si el producto ya está en la venta.
 - Carrito desktop: panel lateral siempre visible con `km-panel`, sin sombras pesadas.
 - Mobile: barra inferior "Cobrar · $total" con chevron-up en vez de tapar contenido.
@@ -403,31 +413,31 @@ La pantalla `/admin/caja` funciona como una caja rápida real de kermesse: vende
 
 ## 13. Admin Cocina — KDS simple de kermesse
 
-La pantalla `/admin/cocina` funciona como un tablero KDS (Kitchen Display System) simplificado para una kermesse: ver rápido qué preparar, qué está listo y qué entregar.
+La pantalla `/admin/cocina` funciona como un tablero KDS (Kitchen Display System) simplificado para una kermesse: ver rápido qué preparar, qué está listo y qué entregar. **B7: la cocina ya no muestra pedidos en `recibido`** — los pedidos online deben ser confirmados desde la solapa "Pendiente de confirmación" en `/admin/pedidos` primero.
 
 **Jerarquía de la pantalla:**
 
 1. **Productos pendientes** — strip horizontal arriba de todo que muestra los ítems por preparar agrupados por producto (no por pedido). Usa tokens `--km-preparando-*`. En desktop, muestra hasta 12 productos como chips; en mobile, hasta 8. Incluye total de ítems y productos únicos. Es la primera cosa que ve la cocina al entrar.
-2. **Desktop: KDS en columnas** — 3 columnas fijas por estado (Recibidos, En preparación, Listos). Cada columna tiene header con icono + label + conteo. Los pedidos se ubican en su columna correspondiente. Pedidos cerrados (entregados/cancelados) están colapsados en un `<details>` al final.
-3. **Mobile: tabs con estado visual** — tabs Recibidos / Preparando / Listos / Entregados. Cada tab usa el color de estado correspondiente (no solo el conteo). Pendientes repetido como chips debajo de los tabs para consulta rápida.
+2. **Desktop: KDS en columnas** — 2 columnas fijas por estado (En preparación, Listos). La columna "Recibidos" fue eliminada en B7. Cada columna tiene header con icono + label + conteo. Los pedidos se ubican en su columna correspondiente. Pedidos cerrados (entregados/cancelados) están colapsados en un `<details>` al final.
+3. **Mobile: tabs con estado visual** — tabs Preparando / Listos / Entregados (ya no incluye Recibidos). Cada tab usa el color de estado correspondiente (no solo el conteo). Pendientes repetido como chips debajo de los tabs para consulta rápida.
 4. **Card de pedido KDS** — cada pedido tiene: borde izquierdo coloreado por estado (no solo badge), banner de estado con icono + texto (no solo color), código, cliente, hora, mesa, observaciones con tokens `--km-preparando-*`, líneas de producto con cantidad y nombre.
-5. **Acciones múltiples por card** — según el estado actual, se muestran acciones primarias y secundarias:
-   - **Recibido**: primaria "Empezar" (→ preparación) + secundaria "Listo directo" (→ listo, para productos ya listos como medialunas)
-   - **En preparación**: secundaria "Volver a recibido" (→ recibido, retroceso por error) + primaria "Marcar listo" (→ listo)
+5. **Acciones múltiples por card** — según el estado actual, se muestran acciones primarias y secundarias. **B7: la cocina ya no muestra pedidos en `recibido`** (solo aparecen tras confirmación en admin pedidos):
+   - **En preparación**: secundaria "Volver a recibido" (→ recibido, retroceso por error — desaparece de KDS al retroceder) + primaria "Marcar listo" (→ listo)
    - **Listo**: secundaria "Volver a preparación" (→ preparación, retroceso por error) + primaria "Entregado" (→ entregado, con confirmación)
    - **Entregado/Cancelado**: sin acciones (estado terminal)
-6. **Cancelar oculto** — la acción de cancelar está en un menú desplegable (icono `MoreHorizontal` / "…"), no como botón visible que compite con las acciones de avance. Solo aparece en estados `recibido` y `preparacion`.
+6. **Cancelar oculto** — la acción de cancelar está en un menú desplegable (icono `MoreHorizontal` / "…"), no como botón visible que compite con las acciones de avance. Solo aparece en estados `en_preparacion`.
 
 **Diseño visual por estado (no solo color):**
 
 | Estado | Borde izquierdo | Banner | Icono | Token |
-|---|---|---|---|---|
-| Recibido | `--km-info-text` (azul) | `--km-info-bg` (celeste suave) | `CircleDot` | `informacion` |
+|---|---|---|---|---|---|
 | En preparación | `--km-preparando-text` (ámbar) | `--km-preparando-bg` (ámbar suave) | `Flame` | `preparando` |
 | Listo | `--km-listo-text` (teal) | `--km-listo-bg` (cian) | `Bell` | `listo` |
 | Entregado | `--km-entregado-text` (gris azulado) | `--km-entregado-bg` (gris suave) | `CircleCheck` | `entregado` |
 | Cancelado | `--km-peligro-text` (rojo Kermingo) | `--km-peligro-bg` (rosa suave) | `CircleX` | `cancelado` |
 | Pago pendiente | — | badge inline | — | `pagoPendiente` |
+
+> **B7:** `recibido` ya no aparece en el KDS de cocina. Los pedidos en `recibido` se gestionan desde la solapa "Pendiente de confirmación" en `/admin/pedidos`.
 
 **Cambios vs. versión anterior (doc 28 §4.9):**
 - Desktop: de grilla 2 cols genérica a tablero KDS 3 columnas por estado.
@@ -453,50 +463,44 @@ La pantalla `/admin/cocina` funciona como un tablero KDS (Kitchen Display System
 
 ## 14. Admin Pedidos — Gestión de excepciones y control de pedidos
 
-La pantalla `/admin/pedidos` funciona como herramienta para resolver excepciones y controlar pedidos, no como un listado genérico de cards.
+La pantalla `/admin/pedidos` funciona como herramienta para resolver excepciones, verificar pagos y controlar pedidos, organizada en tabs por estado.
 
-**Jerarquía de la pantalla:**
+**Jerarquía de la pantalla (B7 tabs):**
 
-1. **Vista "Necesitan acción" primero** — tab principal que muestra pedidos que requieren intervención (pendientes de pago, recibidos, en preparación, listos para entregar). Tiene badge con conteo. Si no hay ninguno, empty state positivo ("Todo en orden"). Los pedidos entregados y cancelados se excluyen de esta vista.
-2. **Vista "Todos"** — tab secundario que muestra todos los pedidos sin excluir estados.
+1. **4 tabs por estado** — el orden por defecto es "Pendiente de confirmación" (`recibido`), y el usuario puede cambiar entre tabs. Cada tab fetches `GET /api/admin/pedidos?estado_pedido={state}&limit=24` directamente desde el servidor; la tab pendiente agrega `origen=online&estado_pago=comprobante_subido` para que no entren ventas de caja rápida ni pedidos ya pagos. Los badges de conteo se obtienen en paralelo con requests `limit=1` por tab usando los mismos filtros:
+    - **Pendiente de confirmación** (`recibido`) — pedidos online con comprobante subido que esperan verificación de pago. **No tienen acción genérica de avance.** Solo se pueden enviar a cocina mediante el flujo "Confirmar pago" (ver abajo).
+   - **En preparación** (`en_preparacion`) — pedidos que ya están en cocina.
+   - **Listos** (`listo`) — pedidos listos para entregar.
+   - **Entregados** (`entregado`) — pedidos completados, solo lectura.
+2. **Confirmar pago (solo en tab `recibido`)** — botón "Confirmar pago" que ejecuta secuencia no-atómica: `PATCH /api/admin/pedidos/:id/pago {estado_pago:'pagado'}` → si 200, luego `PATCH /api/admin/pedidos/:id/estado {estado_pedido:'en_preparacion'}`. Si el payment PATCH falla, NO se ejecuta el state PATCH. El orden queda en `recibido`+`pagado` y puede reintentarse manualmente.
 3. **Búsqueda** — barra de búsqueda siempre visible (por número, cliente o teléfono) con debounce de 300ms.
 4. **Filtros colapsables** — panel desplegable con chips de Estado, Pago y Método. Solo se muestra si el usuario lo abre. Los filtros activos se indican con badge en el botón.
 5. **Cards con jerarquía clara** — cada pedido muestra: código, cliente, total, estado como `EstadoBadge`, pago como línea compacta inline (no badge que compite), origen (Caja/Online) sutil. Borde izquierdo coloreado por estado.
-6. **Acción principal dinámica** — un solo botón grande contextual por estado: "Empezar" (recibido), "Marcar listo" (preparación), "Entregar" (listo). Con icono de destino y flecha.
+6. **Acción principal dinámica** — un solo botón grande contextual por estado. En el tab `recibido` no hay avance genérico (solo confirm-payment):
+   - **recibido →** botón "Confirmar pago" (no avance de estado directo)
+   - **en_preparacion →** "Marcar listo"
+   - **listo →** "Entregar"
+   - **entregado →** sin acción disponible
 7. **Pago pendiente resaltado** — si un pedido necesita pago y no está cerrado, aparece aviso inline "Pago pendiente — verificá al entregar" y botón rápido "Pagado".
 8. **Acciones secundarias ocultas** — "Cancelar pedido" y "Ver detalle" están en menú desplegable (icono `MoreHorizontal`), no como botones visibles que compiten.
-9. **Empty states contextuales** — distinto mensaje según vista activa y si hay filtros.
+9. **Empty states contextuales** — distinto mensaje según tab activo y si hay filtros.
 
 **Diseño visual por estado:**
 
 | Estado | Borde izquierdo | EstadoBadge | Icono | Acción principal |
 |---|---|---|---|---|
-| Recibido | `--km-info-text` (azul) | `informacion` | `CircleDot` | Empezar → |
+| Recibido | `--km-info-text` (azul) | `informacion` | `CircleDot` | **Confirmar pago** (no avance directo a cocina) |
 | En preparación | `--km-preparando-text` (ámbar) | `preparando` | `Flame` | Marcar listo → |
 | Listo | `--km-listo-text` (teal) | `listo` | `Bell` | Entregar → |
 | Entregado | `--km-entregado-text` (gris azulado) | `entregado` | `CircleCheck` | Ver detalle |
 | Cancelado | `--km-peligro-text` (rojo Kermingo) | `cancelado` | `CircleX` | Ver detalle |
 | Pago pendiente | — | aviso inline | `CircleDollarSign` | Botón rápido "Pagado" |
 
-**Cambios vs. versión anterior (doc 28 §4.10):**
-- De listado genérico a herramienta de resolución de excepciones.
-- De "Todos" como vista default a "Necesitan acción" como vista principal.
-- De 4 chips/badges por card (estado, pago, método, origen) a 1 `EstadoBadge` + línea compacta de pago con método inline + origen sutil.
-- De 4 botones visibles que compiten (Ver, Marcar pagado, Preparación, Cancelar) a 1 acción principal dinámica + menú desplegable para secundarias.
-- De `Badge` con tones genéricos (`info`, `warning`, `success`, `neutral`, `danger`) a `EstadoBadge` con tokens `--km-*`.
-- De filtros siempre visibles a filtros colapsables con indicador de filtros activos.
-- De empty state genérico a empty states contextuales por vista.
-- De colores Tailwind default (`emerald-600`, `sky-600`, `red-200`, `bg-red-50`, `text-red-700`, `slate-400`) a tokens `--km-*`.
-- De tabla con 7 columnas (pedido, cliente, total, método, pago, estado, acciones) a tabla con 5 columnas (pedido, cliente, estado, total, acción) — método/pago combinados en línea compacta dentro de columna "Estado".
-- De `rounded-2xl + shadow-sm` en cards a `km-panel` con `border-l-[3px]` de estado.
-- De `uppercase tracking-wide` en headers de tabla a `tracking-wide` sin uppercase.
-- De errores con `border-red-200 bg-red-50 text-red-700` a `--km-peligro-bg`/`--km-peligro-text`.
-- De notas con `bg-amber-50 text-amber-700` a `--km-preparando-bg`/`--km-preparando-text`.
-- De comprobante sin adjunto con `bg-red-50/50 text-red-500` a `--km-peligro-bg`/`--km-peligro-text`.
-- De comprobante adjunto con `bg-emerald-50 text-emerald-600` a `--km-listo-bg`/`--km-listo-text`.
-- `km-tabular` en códigos, totales, cantidades y horas.
-- `km-focus` en todos los controles interactivos.
-- Endpoints, lógica de avance/cancelación/pago y data flow preservados sin cambios.
+**Cambios vs. versión anterior (B7):**
+- **De vista única a 4 tabs por estado** — flat list reemplazada por tabs `recibido`/`preparacion`/`listo`/`entregado` con server-side filtering.
+- **Payment gate agregado** — los pedidos online en `recibido` ya no tienen "Empezar" como acción de avance directo. Deben pasar por "Confirmar pago" que ejecuta payment PATCH → state PATCH secuencial.
+- **Tab counts** — badges con conteo por tab se obtienen con requests paralelos `limit=1`.
+- El resto de la jerarquía (cards con `EstadoBadge`, búsqueda, filtros, acciones secundarias ocultas, empty states, km-panel, km-tabular, km-focus) se preserva sin cambios.
 
 ---
 
@@ -504,12 +508,17 @@ La pantalla `/admin/pedidos` funciona como herramienta para resolver excepciones
 
 La pantalla `/admin/productos` funciona como inventario operativo del evento, no como tabla SaaS genérica.
 
+**Filtros por estado:** La pantalla carga productos con `GET /api/admin/productos?estado=activo` por defecto. El admin puede filtrar entre 5 estados: **Activos** (default), **Todos**, **Desactivados**, **Agotados**, **Todavía no disponible**. Cada cambio de filtro refetchea del servidor. El filtro `activo` excluye productos agotados (stock_limitado=1, stock_actual≤0) y no disponibles (disponible=0).
+
+**Agrupación por categoría:** Los productos se agrupan visualmente bajo encabezados de categoría (`Merienda`, `Cena`). Dentro de cada grupo, el orden sigue `orden ASC`.
+
 **Jerarquía de la pantalla:**
 
 1. **Encabezado "Inventario"** — reemplaza "Catálogo" para transmitir que es gestión de stock, no catálogo público.
-2. **Filtros compactos** — búsqueda por nombre + chips de Momento/Tipo/Estado con `km-focus`.
-3. **Tabla desktop tipo inventario** — columnas: Producto (con thumbnail funcional), Tipo, Momento, Precio, Stock (con unidades `u` e ícono de infinito para ilimitado), Estado (con `EstadoBadge`), Acciones. Header sin `uppercase` excesivo, solo `tracking-wide`.
-4. **Cards mobile compactas** — `km-panel` con borde izquierdo de estado (3px coloreado por estado), badges compactos, acciones primarias (Editar/Stock) separadas de acción peligrosa (Desactivar/Recuperar) en menú desplegable.
+2. **Filtros compactos** — chips de filtro de estado (activo/todos/desactivado/agotado/todavía no disponible) + búsqueda por nombre + chips de Momento/Tipo con `km-focus`.
+3. **Tabla desktop tipo inventario** — columnas: Producto (con thumbnail funcional), Tipo, Momento, Precio, Stock (con unidades `u` e ícono de infinito para ilimitado), Estado (con `EstadoBadge`), Acciones. Header sin `uppercase` excesivo, solo `tracking-wide`. Las filas son arrastrables con `@dnd-kit` para reordenar en desktop.
+4. **Drag & drop reorder (desktop)** — las filas de la tabla son sortables vía `@dnd-kit`. Al soltar un producto en nueva posición, se llama `PATCH /api/admin/productos/orden` con las nuevas posiciones. En mobile, se usan botones up/down como fallback accesible.
+5. **Cards mobile compactas** — `km-panel` con borde izquierdo de estado (3px coloreado por estado), badges compactos, acciones primarias (Editar/Stock) separadas de acción peligrosa (Desactivar/Recuperar) en menú desplegable. Incluye botones up/down para reordenar sin drag.
 5. **Stock visual por token** — stock agotado en `--km-peligro-text`, stock bajo en `--km-alerta-text`, stock OK en `--km-listo-text`, ilimitado con ícono infinito y `--km-tinta-suave`.
 6. **Acciones peligrosas separadas** — Desactivar/Recuperar en menú desplegable (icono `MoreHorizontal`), no como botón visible que compite con Editar y Stock. Desktop y mobile usan el mismo patrón.
 7. **Modal de stock táctil** — header azul con ícono, info del producto (nombre + stock mínimo), contador grande con +/- táctiles (h-14 w-14), feedback visual del estado: agotado (`--km-peligro-*`), stock bajo (`--km-alerta-*` con mínimo visible), stock OK (`--km-listo-*`). Usa `km-tabular` y `km-focus`.
@@ -566,20 +575,17 @@ La pantalla `/admin/config` permite abrir/cerrar la tienda y editar el mensaje p
 
 ---
 
-## 17. Admin Reportes — Placeholder de integración pendiente
+## 17. Admin Reportes — Resumen de recaudación
 
-La pantalla `/admin/reportes` funciona como placeholder honesto: no muestra métricas falsas y avisa que la integración está pendiente.
+La pantalla `/admin/reportes` usa `ReportesScreen` y carga `GET /api/admin/reportes` mediante `obtenerReportesAdmin()` (`frontend/lib/admin.ts`). El mapper `apiToAdminReportes()` traduce snake_case del backend a camelCase para la UI.
 
 **Jerarquía de la pantalla:**
 
-1. **Hero placeholder** — `AdminCard` centrada con ícono `Construction`, título "Reportes en desarrollo", descripción y badge de aviso con tokens `--km-preparando-*`.
-2. **Cards de preview** — grilla de 3 columnas con `IconBox` (`gold`, `celeste`, `blue`) mostrando "Recaudación", "Pedidos", "Producto estrella" con placeholder "—". No tienen datos reales.
-3. **Sin funcionalidad backend** — no hay endpoints de reportes todavía. Las cards son puramente visuales como preview de lo que vendrá.
+1. **KPIs principales** — recaudación total, efectivo, transferencia, pedidos pagados, productos vendidos, pagos pendientes y monto pendiente.
+2. **Producto estrella** — muestra `producto_top` cuando existe o empty state cuando todavía no hay ventas.
+3. **Ranking de productos** — lista `ranking_productos` ordenada por cantidad vendida.
+4. **CSV local** — botones para descargar resumen y ranking desde el navegador. No hay implementación Excel.
 
-**Comportamiento esperado:** Cuando se agreguen endpoints de reportes, las cards deben conectarse a datos reales y expandirse con métricas, filtros de fecha y descargas CSV (ver referencia v0 en `diseno-de-landing-kermingo/components/admin/reports-screen.tsx`).
+**Estados:** loading, error con reintento, empty state para ranking vacío y refresh silencioso desde el header.
 
-**Cambios vs. versión anterior:**
-- De placeholder mínimo sin estructura a hero placeholder + 3 cards de preview con `AdminCard` e `IconBox`.
-- De `AdminShell` sin `subtitle` a `subtitle="Estadísticas del evento"`.
-- Se agregan íconos `TrendingUp`, `FileSpreadsheet`, `Clock` para las cards de preview.
-- Endpoints: ninguno (placeholder puro).
+**Endpoint:** `GET /api/admin/reportes` (cookie admin). Ver `API.md` para el contrato completo.

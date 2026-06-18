@@ -11,6 +11,8 @@ const SQL_BASE_PUBLIC = `
     p.stock_actual,
     p.stock_minimo_alerta,
     p.activo,
+    p.disponible,
+    p.orden,
     p.imagen_archivo_id,
     ai.nombre_original AS imagen_nombre_original,
     ai.mime_type AS imagen_mime_type,
@@ -27,8 +29,9 @@ const SQL_BASE_PUBLIC = `
 const SQL_GROUP_ORDER_PUBLIC = `
   GROUP BY p.id, p.nombre, p.descripcion, p.precio, p.tipo,
            p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo,
+           p.disponible, p.orden,
            p.imagen_archivo_id, ai.id, ai.nombre_original, ai.mime_type, ai.tamanio_bytes
-  ORDER BY p.tipo, p.nombre
+  ORDER BY p.orden ASC, p.id ASC
 `;
 
 const SQL_BASE_ADMIN = `
@@ -42,6 +45,8 @@ const SQL_BASE_ADMIN = `
     p.stock_actual,
     p.stock_minimo_alerta,
     p.activo,
+    p.disponible,
+    p.orden,
     p.imagen_archivo_id,
     ai.nombre_original AS imagen_nombre_original,
     ai.mime_type AS imagen_mime_type,
@@ -58,8 +63,9 @@ const SQL_BASE_ADMIN = `
 const SQL_GROUP_ORDER_ADMIN = `
   GROUP BY p.id, p.nombre, p.descripcion, p.precio, p.tipo,
            p.stock_limitado, p.stock_actual, p.stock_minimo_alerta, p.activo,
+           p.disponible, p.orden,
            p.imagen_archivo_id, ai.id, ai.nombre_original, ai.mime_type, ai.tamanio_bytes
-  ORDER BY p.id DESC
+  ORDER BY p.orden ASC, p.id ASC
 `;
 
 function buildWherePublic(filters, values) {
@@ -83,14 +89,21 @@ function buildWherePublic(filters, values) {
   return conditions.join('\n');
 }
 
-function buildWhereAdmin(filters, values) {
+export function buildWhereAdmin(filters, values) {
   const conditions = [];
 
   if (filters.estado === 'activo') {
-    conditions.push('AND p.activo = 1');
-  } else if (filters.estado === 'inactivo') {
+    // Active + available + not sold out (or unlimited stock)
+    conditions.push('AND p.activo = 1 AND p.disponible = 1 AND (p.stock_limitado = 0 OR p.stock_actual IS NULL OR p.stock_actual > 0)');
+  } else if (filters.estado === 'desactivado' || filters.estado === 'inactivo') {
     conditions.push('AND p.activo = 0');
+  } else if (filters.estado === 'agotado') {
+    // Active + available but sold out (limited stock at 0 or below)
+    conditions.push('AND p.activo = 1 AND p.disponible = 1 AND p.stock_limitado = 1 AND p.stock_actual <= 0');
+  } else if (filters.estado === 'todavia_no_disponible') {
+    conditions.push('AND p.activo = 1 AND p.disponible = 0');
   }
+  // 'todos' or undefined => no estado filter
 
   if (filters.tipo) {
     conditions.push('AND p.tipo = ?');
@@ -210,4 +223,15 @@ export async function updateStock(pool, id, stock) {
 export async function updateImagenArchivoId(conn, productoId, archivoId) {
   const [result] = await conn.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = ?', [archivoId, productoId]);
   return result.affectedRows;
+}
+
+/**
+ * Batch-reorder products within a transaction.
+ * @param {import('mysql2/promise').PoolConnection} conn - Active transaction connection
+ * @param {Array<{id: number, orden: number}>} ordenes - Array of {id, orden} pairs
+ */
+export async function updateOrdenes(conn, ordenes) {
+  for (const item of ordenes) {
+    await conn.query('UPDATE producto SET orden = ? WHERE id = ?', [item.orden, item.id])
+  }
 }

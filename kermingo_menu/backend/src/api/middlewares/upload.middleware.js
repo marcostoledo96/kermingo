@@ -40,7 +40,7 @@ function isSupportedReceiptExtension(file) {
 
 export function validateReceiptUploadMetadata(file) {
   if (!isSupportedReceiptExtension(file)) {
-    throw new ValidationError(`Extension de archivo no soportada: ${file?.originalname || 'archivo'}. Solo se permiten JPG, PNG, WEBP y PDF.`);
+    throw new ValidationError(`Tipo de archivo no soportado: ${file?.originalname || 'archivo'}. Solo se permiten JPG, PNG, WEBP y PDF.`);
   }
 
   if (file.mimetype && !ALLOWED_MIME_TYPES.includes(file.mimetype)) {

@@ -24,7 +24,7 @@ export const createPedidoSchema = z.object({
 export const createCajaSchema = createPedidoSchema.extend({
   estado_pago: z.enum(['pendiente', 'pagado']).optional(),
   estado_pedido: z
-    .enum(['en_preparacion', 'listo', 'entregado'])
+    .enum(['recibido', 'en_preparacion', 'listo', 'entregado'])
     .default('en_preparacion'),
 });
 
@@ -32,7 +32,7 @@ export const pedidoQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(24),
   estado_pedido: z
-    .enum(['en_preparacion', 'listo', 'entregado', 'cancelado'])
+    .enum(['recibido', 'en_preparacion', 'listo', 'entregado', 'cancelado'])
     .optional(),
   estado_pago: z
     .enum(['pendiente', 'comprobante_subido', 'pagado', 'rechazado'])
@@ -48,6 +48,7 @@ export const pedidoQuerySchema = z.object({
 
 export const updateEstadoPedidoSchema = z.object({
   estado_pedido: z.enum([
+    'recibido',
     'en_preparacion',
     'listo',
     'entregado',

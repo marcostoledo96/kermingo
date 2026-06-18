@@ -404,7 +404,95 @@ items: z.preprocess((val) => {
 
 ---
 
-## 29. Imagen de producto relativa: 404 si no se convierte a absoluta
+## 29. Product availability states: `activo=0` vs `disponible=0`
+
+**Síntoma:** Un producto con `activo=1, disponible=0` (todavía no disponible) es visible en el menú público pero no comprable. Un producto con `activo=0` queda completamente oculto.
+
+**Causa:** Los flags `activo` y `disponible` son independientes. `activo=0` = desactivado (oculto). `activo=1 AND disponible=0` = "Todavía no disponible" (visible pero no comprable). El backend rechaza ambos casos en `createWithTransaction`.
+
+**Regla:** Para crear un producto "todavía no disponible", setear `activo=1, disponible=0`. Para desactivarlo completamente, setear `activo=0`.
+
+---
+
+## 30. Admin filter `activo` excludes sold-out AND unavailable by default
+
+**Síntoma:** Al abrir `/admin/productos`, los productos agotados y los "todavía no disponible" no aparecen.
+
+**Causa:** El filtro default `estado=activo` aplica SQL: `activo=1 AND disponible=1 AND (stock_limitado=0 OR stock_actual IS NULL OR stock_actual > 0)`. Esto excluye tanto agotados como no disponibles.
+
+**Regla:** Usar `estado=todos` para ver todos los productos, o filtros específicos (`agotado`, `todavia_no_disponible`) para enfocarse en un estado.
+
+---
+
+## 31. Sold-out filter (`agotado`) requires `disponible=1`
+
+**Síntoma:** Un producto con `activo=1, disponible=0, stock_limitado=1, stock_actual=0` no aparece ni en el filtro `agotado` ni en `todavia_no_disponible`.
+
+**Causa:** El filtro `agotado` requiere `disponible=1` para evitar ambigüedad. Si `disponible=0`, el producto es "todavía no disponible", no "agotado". La semántica es: primero resolver disponibilidad, luego agotamiento.
+
+**Regla:** No setear `disponible=0` en productos agotados. Dejar `disponible=1` y usar stock para controlar agotamiento. Usar `disponible=0` solo para productos que aún no están listos para la venta.
+
+---
+
+## 32. Drag/drop reorder only on desktop; mobile uses button fallback
+
+**Síntoma:** En mobile, el drag/drop con `@dnd-kit` no funciona (tocar y arrastrar compite con scroll).
+
+**Causa:** Por diseño — `@dnd-kit/sortable` se desactiva en viewports pequeños. En mobile, cada fila tiene botones up/down que llaman el mismo `PATCH /api/admin/productos/orden`.
+
+**Regla:** Si se necesita mejorar la experiencia mobile, considerar un modo de edición de orden que reorganice las cards como lista vertical sin drag.
+
+---
+
+## 33. `categoria_default` does NOT restrict purchases
+
+**Síntoma:** Aunque `categoria_default='merienda'`, los usuarios pueden comprar productos de "Cena" sin restricciones.
+
+**Causa:** `categoria_default` solo controla la pestaña inicial del menú público. No hay restricciones de compra por categoría — es una decisión de diseño.
+
+**Regla:** Si en el futuro se necesita restringir compras por categoría, se debe agregar un nuevo campo y validación tanto en frontend como en backend.
+
+---
+
+## 34. Backend test failures preexisting to this change
+
+**Síntoma:** `npm test` reporta 4 fallas conocidas: 3 en `caja.test.js` (PUT edit reconciliation) y 1 en `comprobantes.test.js` (MIME message mismatch).
+
+**Causa:** Estos fallos son preexistentes y no relacionados con la funcionalidad de filtrado/ordenamiento de productos. La suite `producto-filtering.test.js` (33 tests) pasa correctamente.
+
+**Regla:** Para verificar que este change no introdujo regresiones, correr: `npx jest producto-filtering.test.js producto-imagen.test.js configuracion.test.js configuracion.unit.test.js`.
+
+## 29. Sequential release: payment PATCH followed by state PATCH is NOT atomic (B7)
+
+**Síntoma:** Si el admin confirma pago en la solapa "Pendiente de confirmación" y el segundo PATCH (cambio de estado) falla, el pedido queda en `recibido`+`pagado`.
+
+**Causa:** La secuencia "Confirmar pago" en la UI hace dos llamadas en serie: primero `PATCH /pago {pagado}`, luego si 200, `PATCH /estado {en_preparacion}`. No hay transacción distribuida ni compensación.
+
+**Mitigación:** La UI muestra error y permite reintentar. El pedido no queda bloqueado — un admin puede ejecutar manualmente el state PATCH desde la misma solapa o desde otra pantalla.
+
+**Regla:** No intentar hacer un único endpoint combinado. La secuencia actual es aceptable para MVP.
+
+## 30. recibo+pagado: estado intermedio de recuperación manual (B7)
+
+**Síntoma:** Cuando el pago se confirma pero el state PATCH falla, el pedido queda con `estado_pago='pagado'` pero `estado_pedido='recibido'`.
+
+**Interpretación:** El pago fue verificado, pero el pedido no avanzó a cocina. No es un estado inválido — es recuperable.
+
+**Solución:** El admin puede (1) ejecutar el state PATCH manualmente desde la solapa "Pendiente de confirmación", o (2) usar `PATCH /api/admin/pedidos/:id/estado` desde otra pantalla admin.
+
+**Regla:** El frontend debe mostrar el estado `recibido`+`pagado` con un aviso visible y un botón de reintento simple.
+
+## 31. Cocina: backward transition to recibido removes order from KDS (B7)
+
+**Síntoma:** Un cocinero mueve un pedido de `en_preparacion` a `recibido` (retroceso por error), y el pedido desaparece del KDS.
+
+**Causa:** `findKitchenPedidos()` excluye `recibido`. Una vez que el pedido vuelve a `recibido`, ya no aparece en la lista de cocina.
+
+**Recuperación:** El pedido aparece en la solapa "Pendiente de confirmación" de `/admin/pedidos` (no en "recibido"). Un admin puede volver a enviarlo a `en_preparacion` desde allí.
+
+**Regla:** Documentar que retroceder a `recibido` desde cocina remueve el pedido del KDS. La recuperación requiere intervención desde admin pedidos.
+
+## 32. Imagen de producto relativa: 404 si no se convierte a absoluta
 
 **Síntoma:** En `/admin/productos`, la imagen de un producto no se muestra (404 gris) aunque el producto tenga imagen subida. En consola del navegador se ve un `GET http://localhost:3000/api/productos/...` 404.
 

@@ -138,7 +138,10 @@ Railway puede usar este endpoint para verificar que el servidor está vivo.
 
 - **Desarrollo:** MySQL local o Docker.
 - **Producción:** MySQL en Railway (mismo proyecto que el backend).
-- **Migraciones:** Ejecutar `schema.sql` + `indexes.sql` + `seed.sql` en orden la primera vez.
+- **Migraciones nuevas:** Ejecutar `schema.sql` + `indexes.sql` + `seed.sql` en orden la primera vez.
+- **Migraciones manuales:** cambios de esquema con datos existentes (ej: agregar columnas con backfill) se ejecutan via scripts en `backend/src/api/database/migrations/manual/`. Ejemplo: `2026-06-17-product-admin-filtering-grouping-ordering.sql` agrega `producto.orden`, `producto.disponible`, `configuracion_tienda.categoria_default` con backfill.
+- **Procedimiento de migración manual:** aplicar ALTER TABLE con columnas nullable → backfill datos (UPDATE) → ALTER a NOT NULL → crear índices. Este orden evita restricciones durante el backfill.
+- **Rollback de migración manual:** revertir código primero, luego DROP COLUMN de las nuevas columnas e índices. Los datos existentes no se pierden.
 - **Reset completo:** `DROP DATABASE` + `CREATE DATABASE` + `schema.sql` + `indexes.sql` + `seed.sql`.
 
 **Conexión desde tests:** Los tests de integración usan la misma DB configurada en `.env`. Se recomienda una DB separada para testing si es posible.

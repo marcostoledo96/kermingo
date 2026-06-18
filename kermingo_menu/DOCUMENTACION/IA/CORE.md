@@ -50,6 +50,7 @@ recibido ──→ en_preparacion ──→ listo ──→ entregado
 - Same-state transitions siempre son inválidas.
 - `cancelado` solo desde `recibido` o `en_preparacion` (enforce en `cancelWithTransaction`).
 - La cocina usa la misma state machine vía `cocina.controller.js` → `updateEstadoPedido`.
+- **B7 (payment gate):** La cocina (`findKitchenPedidos`) solo lista pedidos en `en_preparacion` y `listo`. Los pedidos online comienzan en `recibido` y deben ser confirmados por un admin desde la solapa "Pendiente de confirmación" en `/admin/pedidos` antes de aparecer en cocina. Los pedidos de caja rápida comienzan en `en_preparacion` y aparecen directamente en cocina.
 - `updateEstadoPedido` es atómico:
   1. Abre transacción (`conn.beginTransaction`).
   2. Bloquea el pedido con `SELECT ... FOR UPDATE`.
@@ -210,7 +211,8 @@ La función `normalizarTelefono(raw)` en `pedido.model.js`:
 | Auth | No | `requireAdmin` |
 | `metodo_pago` | Solo `'transferencia'` | `'efectivo'` o `'transferencia'` |
 | `estado_pago` inicial | Siempre `'comprobante_subido'` tras upload válido | Puede ser `'pendiente'` o `'pagado'` |
-| `estado_pedido` inicial | Siempre `'recibido'` | Puede ser `'recibido'`, `'en_preparacion'`, `'listo'` o `'entregado'` |
+| `estado_pedido` inicial | **`'recibido'` (gate de verificación de pago)** | **`'en_preparacion'`** (caja bypassa el gate). El schema acepta override explícito si se necesita otro estado. |
+| Aparece en cocina | Solo después de confirmar pago desde admin pedidos | Directamente al crearse |
 | Editable | No (solo seguimiento) | Sí (admin puede editar) |
 
 ---
@@ -236,10 +238,11 @@ Proceso (`cancelWithTransaction`):
 La tabla `configuracion_tienda` tiene un solo registro: `id = 1`.
 
 | Campo | Tipo | Valores |
-|---|---|---|
+|---|---|---|---|
 | `estado` | ENUM | `'abierta'`, `'cerrada'`, `'demo'` |
 | `mensaje_publico` | TEXT | Mensaje que se muestra cuando la tienda está cerrada |
 | `cena_habilitada_desde` | TIME | Hora desde la que se habilita la cena (o `NULL`) |
+| `categoria_default` | ENUM | `'merienda'`, `'cena'` — pestaña inicial del menú público (`'merienda'` por defecto) |
 
 - `'abierta'`: pedidos reales se crean normalmente.
 - `'cerrada'`: `createWithTransaction` lanza error.
@@ -247,7 +250,32 @@ La tabla `configuracion_tienda` tiene un solo registro: `id = 1`.
 
 ---
 
-## 10. Validación de tienda abierta
+## 10. Estado de disponibilidad de productos
+
+Cada producto tiene dos flags booleanos que determinan su visibilidad y comprabilidad:
+
+| Flag | Default | Significado |
+|---|---|---|
+| `activo` | `1` | Si `0`, el producto está desactivado (oculto en menú público) |
+| `disponible` | `1` | Si `0` con `activo=1`, el producto está "Todavía no disponible" (visible en menú público pero no comprable) |
+
+**Estados derivados (usados por admin `GET /api/admin/productos?estado=`):**
+
+| Filtro | SQL conditions |
+|---|---|
+| `activo` (default) | `activo=1 AND disponible=1 AND (stock_limitado=0 OR stock_actual IS NULL OR stock_actual > 0)` |
+| `todos` | Sin WHERE de estado (todos los productos) |
+| `desactivado` | `activo=0` |
+| `agotado` | `activo=1 AND disponible=1 AND stock_limitado=1 AND stock_actual=0` |
+| `todavia_no_disponible` | `activo=1 AND disponible=0` |
+
+**Reglas de pedido:** `createWithTransaction` rechaza cualquier producto con `activo=0` o `disponible=0` dentro de la transacción, incluso si el frontend fue bypasseado. Combos/promos también validan disponibilidad de sus componentes.
+
+**Ordenamiento:** Todas las listas de productos (públicas y admin) se ordenan por `orden ASC, id ASC`. El admin puede reordenar vía `PATCH /api/admin/productos/orden`.
+
+---
+
+## 11. Validación de tienda abierta
 
 Existen dos puntos de validación de tienda abierta:
 

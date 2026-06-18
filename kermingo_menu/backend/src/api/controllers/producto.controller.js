@@ -11,6 +11,7 @@ import {
   updateStock,
   findByIdAdmin,
   updateImagenArchivoId,
+  updateOrdenes,
 } from '../models/producto.model.js';
 import { findProductImageByProductId, createArchivo } from '../models/archivo.model.js';
 import { processProductImage } from '../services/image.service.js';
@@ -200,6 +201,32 @@ export async function ajustarStock(req, res, next) {
     const affectedRows = await updateStock(pool, req.params.id, req.body.stock_actual);
     if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
     return respuestaExitosa(res, { id: parseInt(req.params.id), stock_actual: req.body.stock_actual }, 'Stock actualizado correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /api/admin/productos/orden
+ * Batch-reorder products. Body: { ordenes: [{ id, orden }] }
+ */
+export async function reordenar(req, res, next) {
+  try {
+    const pool = getPool();
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await updateOrdenes(conn, req.body.ordenes);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    // Return updated list
+    const result = await findAllAdmin(pool, { estado: 'todos', page: 1, limit: 100 });
+    return respuestaExitosa(res, result.productos, 'Orden actualizado correctamente');
   } catch (err) {
     next(err);
   }

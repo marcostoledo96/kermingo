@@ -115,7 +115,7 @@ describe('Cocina endpoints autenticados con DB real', () => {
     expect(res.body.data.estado_pedido).toEqual('listo');
   });
 
-  it('PATCH /api/admin/cocina/pedidos/:id/estado rechaza en_preparacion → recibido (estado inicial eliminado)', async () => {
+  it('PATCH /api/admin/cocina/pedidos/:id/estado permite en_preparacion → recibido (kitchen sends back for payment check)', async () => {
     const pedido = await crearPedidoEnCocina(); // default: en_preparacion
 
     const res = await request(app)
@@ -124,8 +124,9 @@ describe('Cocina endpoints autenticados con DB real', () => {
       .set('Origin', ORIGIN)
       .send({ estado_pedido: 'recibido' });
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.ok).toEqual(false);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toEqual(true);
+    expect(res.body.data.estado_pedido).toEqual('recibido');
   });
 
   it('PATCH /api/admin/cocina/pedidos/:id/estado permite listo → en_preparacion', async () => {
@@ -195,5 +196,27 @@ describe('Cocina endpoints autenticados con DB real', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body.ok).toEqual(false);
+  });
+
+  it('GET /api/admin/cocina/pedidos excludes recibido orders (only shows en_preparacion and listo)', async () => {
+    // Create a caja pedido that starts as en_preparacion (default for caja)
+    const pedidoCaja = await crearPedidoEnCocina();
+
+    // Move it to recibido (backward transition)
+    await request(app)
+      .patch(`/api/admin/cocina/pedidos/${pedidoCaja.id}/estado`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pedido: 'recibido' });
+
+    // Fetch kitchen list — should NOT include the recibido order
+    const res = await request(app)
+      .get('/api/admin/cocina/pedidos')
+      .set('Cookie', adminCookie());
+
+    expect(res.statusCode).toBe(200);
+    const kitchenOrders = res.body.data;
+    const foundRecibido = kitchenOrders.some((p) => p.estado_pedido === 'recibido');
+    expect(foundRecibido).toBe(false);
   });
 });

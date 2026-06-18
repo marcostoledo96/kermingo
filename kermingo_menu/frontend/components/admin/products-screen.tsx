@@ -1,6 +1,23 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   Plus,
   Search,
@@ -16,6 +33,9 @@ import {
   AlertTriangle,
   MoreHorizontal,
   Infinity as InfinityIcon,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import { formatPrice, type MealCategory, type ProductType } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
@@ -31,10 +51,11 @@ import {
 import { useApiResource } from '@/lib/use-api-resource'
 import type { ApiProducto, ApiProductoPaginada } from '@/lib/types'
 
-type ProductState = 'activo' | 'desactivado' | 'agotado'
+type ProductState = 'activo' | 'desactivado' | 'agotado' | 'no_disponible'
 
 function getState(p: AdminProduct): ProductState {
   if (!p.active) return 'desactivado'
+  if (!p.available) return 'no_disponible'
   if (p.stockLimited && p.stockCurrent <= 0) return 'agotado'
   return 'activo'
 }
@@ -44,6 +65,7 @@ function stateToEstado(s: ProductState): EstadoVisual {
   switch (s) {
     case 'activo': return 'activo'
     case 'agotado': return 'agotado'
+    case 'no_disponible': return 'recibido' // amber/pending tone
     case 'desactivado': return 'entregado' // muted/closed tone
   }
 }
@@ -54,21 +76,57 @@ const TYPE_LABEL: Record<ProductType, string> = {
   promo: 'Promo',
 }
 
+const MEAL_LABEL: Record<string, string> = {
+  merienda: 'Merienda',
+  cena: 'Cena',
+}
+
 type MealFilter = 'todas' | MealCategory
 type TypeFilter = 'todos' | ProductType
 type StateFilter = 'todos' | ProductState
+
+/** Group products by their meal categories. Products in multiple categories appear in each. */
+function groupByMealCategory(products: AdminProduct[]): Array<{ key: string; label: string; products: AdminProduct[] }> {
+  const groups = new Map<string, AdminProduct[]>()
+
+  for (const p of products) {
+    if (p.meals.length === 0) {
+      const key = '_sin_categoria'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(p)
+    } else {
+      for (const m of p.meals) {
+        if (!groups.has(m)) groups.set(m, [])
+        groups.get(m)!.push(p)
+      }
+    }
+  }
+
+  const result: Array<{ key: string; label: string; products: AdminProduct[] }> = []
+  // Deterministic order: merienda first, cena, then uncategorized
+  for (const key of ['merienda', 'cena', '_sin_categoria']) {
+    const prods = groups.get(key)
+    if (prods && prods.length > 0) {
+      result.push({
+        key,
+        label: key === '_sin_categoria' ? 'Sin categoría' : MEAL_LABEL[key] ?? key,
+        products: prods.sort((a, b) => a.order - b.order || Number(a.id) - Number(b.id)),
+      })
+    }
+  }
+  return result
+}
 
 export function ProductsScreen() {
   const [search, setSearch] = useState('')
   const [mealFilter, setMealFilter] = useState<MealFilter>('todas')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('todos')
-  const [stateFilter, setStateFilter] = useState<StateFilter>('todos')
+  const [stateFilter, setStateFilter] = useState<StateFilter>('activo')
 
   const [editing, setEditing] = useState<AdminProduct | null>(null)
   const [creating, setCreating] = useState(false)
   const [adjusting, setAdjusting] = useState<AdminProduct | null>(null)
-  /** Product whose dangerous actions menu is open (desktop table) */
-  const [menuOpen, setMenuOpen] = useState<string | null>(null)
+  const [savingOrder, setSavingOrder] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -81,9 +139,15 @@ export function ProductsScreen() {
     refetch,
     setData: setProducts,
   } = useApiResource<AdminProduct[]>(async () => {
-    const data = await apiGet<ApiProductoPaginada>('/api/admin/productos', { limit: 100 })
+    const estadoParam = stateFilter === 'no_disponible' ? 'todavia_no_disponible' : stateFilter
+    const data = await apiGet<ApiProductoPaginada>('/api/admin/productos', { estado: estadoParam === 'todos' ? undefined : estadoParam, limit: 100 })
     return data.productos.map(apiToAdminProduct)
   })
+
+  // Refetch when stateFilter changes (server-side filtering)
+  useEffect(() => {
+    refetch({ silent: true })
+  }, [stateFilter, refetch])
 
   const filtered = useMemo(() => {
     if (!products) return []
@@ -91,10 +155,74 @@ export function ProductsScreen() {
       if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
       if (mealFilter !== 'todas' && !p.meals.includes(mealFilter)) return false
       if (typeFilter !== 'todos' && p.type !== typeFilter) return false
-      if (stateFilter !== 'todos' && getState(p) !== stateFilter) return false
+      // stateFilter is now applied server-side; no client-side filtering needed
       return true
     })
-  }, [products, search, mealFilter, typeFilter, stateFilter])
+  }, [products, search, mealFilter, typeFilter])
+
+  // Group filtered products by category for display
+  const grouped = useMemo(() => groupByMealCategory(filtered), [filtered])
+
+  // Only allow reorder when viewing "activo" or "todos" and not searching
+  const canReorder = (stateFilter === 'activo' || stateFilter === 'todos') && !search
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    setProducts((prev) => {
+      if (!prev) return prev
+      const oldIndex = prev.findIndex((p) => p.id === active.id)
+      const newIndex = prev.findIndex((p) => p.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return prev
+      return arrayMove(prev, oldIndex, newIndex).map((p, i) => ({ ...p, order: i }))
+    })
+
+    // Persist order change
+    const currentList = products ?? []
+    const oldIdx = currentList.findIndex((p) => p.id === active.id)
+    const newIdx = currentList.findIndex((p) => p.id === over.id)
+    if (oldIdx === -1 || newIdx === -1) return
+
+    const reordered = arrayMove([...currentList], oldIdx, newIdx)
+    const ordenes = reordered.map((p, i) => ({ id: Number(p.id), orden: i }))
+
+    setSavingOrder(true)
+    try {
+      await apiPatch('/api/admin/productos/orden', { ordenes })
+    } catch {
+      // Revert on failure
+      refetch({ silent: true })
+    } finally {
+      setSavingOrder(false)
+    }
+  }, [products, setProducts, refetch])
+
+  const moveItem = useCallback(async (id: string, direction: 'up' | 'down') => {
+    if (!products) return
+    const idx = products.findIndex((p) => p.id === id)
+    if (idx === -1) return
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= products.length) return
+
+    const reordered = arrayMove([...products], idx, targetIdx)
+    const ordenes = reordered.map((p, i) => ({ id: Number(p.id), orden: i }))
+
+    setProducts(reordered.map((p, i) => ({ ...p, order: i })))
+    setSavingOrder(true)
+    try {
+      await apiPatch('/api/admin/productos/orden', { ordenes })
+    } catch {
+      refetch({ silent: true })
+    } finally {
+      setSavingOrder(false)
+    }
+  }, [products, setProducts, refetch])
 
   const handleSave = async (product: AdminProduct): Promise<AdminProduct> => {
     setSubmitting(true)
@@ -171,6 +299,9 @@ export function ProductsScreen() {
     }
   }
 
+  // Flat sorted list for dnd-kit — only show when reorderable (no category grouping needed for drag)
+  const sortedIds = useMemo(() => filtered.map((p) => p.id), [filtered])
+
   return (
     <AdminShell section="Productos">
         {/* Encabezado + nuevo producto */}
@@ -179,6 +310,7 @@ export function ProductsScreen() {
             <h2 className="text-xl font-extrabold text-[#003B73]">Inventario</h2>
             <p className="text-sm text-[#003B73]/50 km-tabular">
               {filtered.length} de {products?.length ?? 0} productos
+              {savingOrder && <span className="ml-2 text-[#F6B21A]">Guardando orden…</span>}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -249,6 +381,7 @@ export function ProductsScreen() {
               <Chip active={stateFilter === 'activo'} onClick={() => setStateFilter('activo')}>Activo</Chip>
               <Chip active={stateFilter === 'desactivado'} onClick={() => setStateFilter('desactivado')}>Desactivado</Chip>
               <Chip active={stateFilter === 'agotado'} onClick={() => setStateFilter('agotado')}>Agotado</Chip>
+              <Chip active={stateFilter === 'no_disponible'} onClick={() => setStateFilter('no_disponible')}>No disponible</Chip>
             </FilterGroup>
           </div>
         </div>
@@ -266,101 +399,115 @@ export function ProductsScreen() {
           </div>
         ) : (
           <>
-            {/* Desktop: inventory table */}
-            <div className="hidden overflow-hidden lg:block km-panel">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[var(--km-linea)] bg-[var(--km-fondo)]/60 text-left text-[11px] font-semibold tracking-wide text-[#003B73]/55">
-                      <th className="px-4 py-3">Producto</th>
-                      <th className="px-4 py-3">Tipo</th>
-                      <th className="px-4 py-3">Momento</th>
-                      <th className="px-4 py-3 text-right">Precio</th>
-                      <th className="px-4 py-3 text-center">Stock</th>
-                      <th className="px-4 py-3">Estado</th>
-                      <th className="px-4 py-3 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--km-linea)]">
-                    {filtered.map((p) => {
-                      const state = getState(p)
-                      const low = p.stockLimited && p.stockCurrent > 0 && p.stockCurrent <= p.stockMin
-                      return (
-                        <tr key={p.id} className="transition-colors hover:bg-[var(--km-fondo)]/50">
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <ProductThumb product={p} />
-                              <div className="min-w-0">
-                                <p className="line-clamp-1 font-bold text-[#003B73]">{p.name}</p>
-                                {p.description && (
-                                  <p className="max-w-[220px] truncate text-xs text-[#003B73]/40">{p.description}</p>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-[#003B73]/60">{TYPE_LABEL[p.type]}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1">
-                              {p.meals.length === 0 ? (
-                                <span className="text-xs text-[#003B73]/30">—</span>
-                              ) : (
-                                p.meals.map((m) => (
-                                  <span key={m} className="rounded-md bg-[var(--km-fondo)] px-1.5 py-0.5 text-[11px] font-semibold capitalize text-[#003B73]">
-                                    {m}
-                                  </span>
-                                ))
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold km-tabular text-[#003B73]">{formatPrice(p.price)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <StockCell product={p} />
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col items-start gap-1">
-                              <EstadoBadge estado={stateToEstado(state)}>
-                                {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : 'Desactivado'}
-                              </EstadoBadge>
-                              {low && <EstadoBadge estado="stockBajo">Stock bajo</EstadoBadge>}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <DesktopActions
-                              product={p}
-                              state={state}
-                              menuOpen={menuOpen === p.id}
-                              onToggleMenu={() => setMenuOpen(menuOpen === p.id ? null : p.id)}
-                              onCloseMenu={() => setMenuOpen(null)}
-                              onEdit={() => setEditing(p)}
-                              onToggle={() => { toggleActive(p.id); setMenuOpen(null) }}
-                              onAdjust={() => setAdjusting(p)}
-                            />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            {/* Desktop: inventory table with category groups and drag/drop */}
+            <div className="hidden lg:block">
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={canReorder ? handleDragEnd : undefined}>
+                <SortableContext items={sortedIds} strategy={verticalListSortingStrategy}>
+                  {grouped.length > 1 && canReorder ? (
+                    // Grouped view with headers
+                    grouped.map((group) => (
+                      <div key={group.key} className="mb-4">
+                        <div className="flex items-center gap-2 mb-2 px-2">
+                          <h3 className="text-sm font-bold text-[#003B73]/70">{group.label}</h3>
+                          <span className="text-xs text-[#003B73]/40">({group.products.length})</span>
+                        </div>
+                        <div className="overflow-hidden rounded-xl border border-[var(--km-linea)] km-panel p-0">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-[var(--km-linea)] bg-[var(--km-fondo)]/60 text-left text-[11px] font-semibold tracking-wide text-[#003B73]/55">
+                                {canReorder && <th className="w-8 px-2 py-3"></th>}
+                                <th className="px-4 py-3">Producto</th>
+                                <th className="px-4 py-3">Tipo</th>
+                                <th className="px-4 py-3 text-right">Precio</th>
+                                <th className="px-4 py-3 text-center">Stock</th>
+                                <th className="px-4 py-3">Estado</th>
+                                <th className="px-4 py-3 text-right">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--km-linea)]">
+                              {group.products.map((p) => (
+                                <SortableProductRow key={p.id} product={p} canReorder={canReorder} onEdit={() => setEditing(p)} onToggle={() => { toggleActive(p.id); setMenuOpen(null) }} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    // Flat table (no grouping when filtering by type/meal or viewing non-activo)
+                    <div className="overflow-hidden km-panel">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-[var(--km-linea)] bg-[var(--km-fondo)]/60 text-left text-[11px] font-semibold tracking-wide text-[#003B73]/55">
+                              {canReorder && <th className="w-8 px-2 py-3"></th>}
+                              <th className="px-4 py-3">Producto</th>
+                              <th className="px-4 py-3">Tipo</th>
+                              <th className="px-4 py-3">Momento</th>
+                              <th className="px-4 py-3 text-right">Precio</th>
+                              <th className="px-4 py-3 text-center">Stock</th>
+                              <th className="px-4 py-3">Estado</th>
+                              <th className="px-4 py-3 text-right">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--km-linea)]">
+                            {filtered.map((p) => (
+                              <SortableProductRow key={p.id} product={p} canReorder={canReorder} onEdit={() => setEditing(p)} onToggle={() => { toggleActive(p.id); setMenuOpen(null) }} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </SortableContext>
+              </DndContext>
             </div>
 
-            {/* Mobile/tablet: compact inventory rows */}
+            {/* Mobile/tablet: compact inventory rows (no dnd on mobile) */}
             <div className="grid gap-2 sm:grid-cols-2 lg:hidden">
-              {filtered.map((p) => {
-                const state = getState(p)
-                const low = p.stockLimited && p.stockCurrent > 0 && p.stockCurrent <= p.stockMin
-                return (
-                  <MobileProductCard
-                    key={p.id}
-                    product={p}
-                    state={state}
-                    low={low}
-                    onEdit={() => setEditing(p)}
-                    onToggle={() => toggleActive(p.id)}
-                    onAdjust={() => setAdjusting(p)}
-                  />
-                )
-              })}
+              {grouped.length > 1 ? (
+                grouped.map((group) => (
+                  <div key={group.key} className="col-span-full">
+                    <div className="flex items-center gap-2 mb-1 px-1">
+                      <h3 className="text-sm font-bold text-[#003B73]/70">{group.label}</h3>
+                      <span className="text-xs text-[#003B73]/40">({group.products.length})</span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {group.products.map((p) => {
+                        const state = getState(p)
+                        const low = p.stockLimited && p.stockCurrent > 0 && p.stockCurrent <= p.stockMin
+                        return (
+                          <MobileProductCard
+                            key={p.id}
+                            product={p}
+                            state={state}
+                            low={low}
+                            onEdit={() => setEditing(p)}
+                            onToggle={() => toggleActive(p.id)}
+                            onAdjust={() => setAdjusting(p)}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                filtered.map((p) => {
+                  const state = getState(p)
+                  const low = p.stockLimited && p.stockCurrent > 0 && p.stockCurrent <= p.stockMin
+                  return (
+                    <MobileProductCard
+                      key={p.id}
+                      product={p}
+                      state={state}
+                      low={low}
+                      onEdit={() => setEditing(p)}
+                      onToggle={() => toggleActive(p.id)}
+                      onAdjust={() => setAdjusting(p)}
+                    />
+                  )
+                })
+              )}
             </div>
           </>
         )}
@@ -392,7 +539,175 @@ export function ProductsScreen() {
   )
 }
 
-/* --- Subcomponentes --- */
+/* --- Sortable Row Component (Desktop) --- */
+
+function SortableProductRow({
+  product,
+  canReorder,
+  onEdit,
+  onToggle,
+  onAdjust,
+  onMoveUp,
+  onMoveDown,
+}: {
+  product: AdminProduct
+  canReorder: boolean
+  onEdit: () => void
+  onToggle: () => void
+  onAdjust: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+}) {
+  const state = getState(product)
+  const low = product.stockLimited && product.stockCurrent > 0 && product.stockCurrent <= product.stockMin
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: product.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <tr ref={canReorder ? setNodeRef : undefined} style={canReorder ? style : undefined} className={`transition-colors ${isDragging ? 'bg-[var(--km-fondo)] z-10' : 'hover:bg-[var(--km-fondo)]/50'}`}>
+      {canReorder && (
+        <td className="px-1 py-3 text-center">
+          <div className="flex flex-col items-center gap-0.5">
+            <button
+              onClick={onMoveUp}
+              aria-label="Mover arriba"
+              className="flex h-5 w-5 items-center justify-center rounded text-[#003B73]/40 hover:text-[#003B73] hover:bg-[var(--km-fondo)] transition-colors"
+            >
+              <ChevronUp className="h-3.5 w-3.5" strokeWidth={2.2} />
+            </button>
+            <button
+              {...(canReorder ? listeners : {})}
+              {...(canReorder ? attributes : {})}
+              aria-label="Arrastrar para reordenar"
+              className="cursor-grab active:cursor-grabbing text-[#003B73]/30 hover:text-[#003B73]/60 transition-colors"
+            >
+              <GripVertical className="h-4 w-4" strokeWidth={2} />
+            </button>
+            <button
+              onClick={onMoveDown}
+              aria-label="Mover abajo"
+              className="flex h-5 w-5 items-center justify-center rounded text-[#003B73]/40 hover:text-[#003B73] hover:bg-[var(--km-fondo)] transition-colors"
+            >
+              <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.2} />
+            </button>
+          </div>
+        </td>
+      )}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <ProductThumb product={product} />
+          <div className="min-w-0">
+            <p className="line-clamp-1 font-bold text-[#003B73]">{product.name}</p>
+            {product.description && (
+              <p className="max-w-[220px] truncate text-xs text-[#003B73]/40">{product.description}</p>
+            )}
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-[#003B73]/60">{TYPE_LABEL[product.type]}</td>
+      <td className="px-4 py-3 text-right font-bold km-tabular text-[#003B73]">{formatPrice(product.price)}</td>
+      <td className="px-4 py-3 text-center">
+        <StockCell product={product} />
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-col items-start gap-1">
+          <EstadoBadge estado={stateToEstado(state)}>
+            {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : state === 'no_disponible' ? 'No disponible' : 'Desactivado'}
+          </EstadoBadge>
+          {low && <EstadoBadge estado="stockBajo">Stock bajo</EstadoBadge>}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <RowActions product={product} state={state} onEdit={onEdit} onToggle={onToggle} onAdjust={onAdjust} />
+      </td>
+    </tr>
+  )
+}
+
+/* --- Row Actions (separate from drag/drag) --- */
+
+function RowActions({
+  product,
+  state,
+  onEdit,
+  onToggle,
+  onAdjust,
+}: {
+  product: AdminProduct
+  state: ProductState
+  onEdit: () => void
+  onToggle: () => void
+  onAdjust: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={onEdit}
+        title="Editar"
+        aria-label="Editar producto"
+        className="flex items-center gap-1.5 rounded-lg border border-[var(--km-linea)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[var(--km-fondo)] km-focus"
+      >
+        <Pencil className="h-3.5 w-3.5" strokeWidth={2.2} />
+        <span>Editar</span>
+      </button>
+      {product.stockLimited && (
+        <button
+          onClick={onAdjust}
+          title="Ajustar stock"
+          aria-label="Ajustar stock"
+          className="flex items-center gap-1.5 rounded-lg border border-[var(--km-linea)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[var(--km-fondo)] km-focus"
+        >
+          <Boxes className="h-3.5 w-3.5" strokeWidth={2.2} />
+          <span>Stock</span>
+        </button>
+      )}
+      <div className="relative">
+        <button
+          onClick={() => setOpen(!open)}
+          aria-label="Más acciones"
+          aria-expanded={open}
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[var(--km-linea)] bg-white text-[#003B73]/50 transition-colors hover:bg-[var(--km-fondo)] km-focus"
+        >
+          <MoreHorizontal className="h-4 w-4" strokeWidth={2.2} />
+        </button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
+              {state === 'desactivado' ? (
+                <button
+                  onClick={() => { onToggle(); setOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--km-listo-bg)]"
+                  style={{ color: 'var(--km-listo-text)' }}
+                >
+                  <RotateCcw className="h-4 w-4" strokeWidth={2} />
+                  Recuperar
+                </button>
+              ) : (
+                <button
+                  onClick={() => { onToggle(); setOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--km-peligro-bg)]"
+                  style={{ color: 'var(--km-peligro-text)' }}
+                >
+                  <Power className="h-4 w-4" strokeWidth={2} />
+                  Desactivar
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* --- Subcomponentes (unchanged from original) --- */
 
 function StockCell({ product }: { product: AdminProduct }) {
   const low = product.stockLimited && product.stockCurrent > 0 && product.stockCurrent <= product.stockMin
@@ -442,91 +757,6 @@ function ProductThumb({ product, large }: { product: AdminProduct; large?: boole
   )
 }
 
-/** Desktop table actions: Edit + Stock are primary; Desactivar/Recuperar is in a dropdown menu */
-function DesktopActions({
-  product,
-  state,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
-  onEdit,
-  onToggle,
-  onAdjust,
-}: {
-  product: AdminProduct
-  state: ProductState
-  menuOpen: boolean
-  onToggleMenu: () => void
-  onCloseMenu: () => void
-  onEdit: () => void
-  onToggle: () => void
-  onAdjust: () => void
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {/* Primary actions */}
-      <button
-        onClick={onEdit}
-        title="Editar"
-        aria-label="Editar producto"
-        className="flex items-center gap-1.5 rounded-lg border border-[var(--km-linea)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[var(--km-fondo)] km-focus"
-      >
-        <Pencil className="h-3.5 w-3.5" strokeWidth={2.2} />
-        <span>Editar</span>
-      </button>
-      {product.stockLimited && (
-        <button
-          onClick={onAdjust}
-          title="Ajustar stock"
-          aria-label="Ajustar stock"
-          className="flex items-center gap-1.5 rounded-lg border border-[var(--km-linea)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[var(--km-fondo)] km-focus"
-        >
-          <Boxes className="h-3.5 w-3.5" strokeWidth={2.2} />
-          <span>Stock</span>
-        </button>
-      )}
-      {/* Dangerous action in dropdown */}
-      <div className="relative">
-        <button
-          onClick={onToggleMenu}
-          title="Más acciones"
-          aria-label="Más acciones"
-          aria-expanded={menuOpen}
-          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[var(--km-linea)] bg-white text-[#003B73]/50 transition-colors hover:bg-[var(--km-fondo)] km-focus"
-        >
-          <MoreHorizontal className="h-4 w-4" strokeWidth={2.2} />
-        </button>
-        {menuOpen && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-            <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
-              {state === 'desactivado' ? (
-                <button
-                  onClick={onToggle}
-                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--km-listo-bg)]"
-                  style={{ color: 'var(--km-listo-text)' }}
-                >
-                  <RotateCcw className="h-4 w-4" strokeWidth={2} />
-                  Recuperar
-                </button>
-              ) : (
-                <button
-                  onClick={onToggle}
-                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--km-peligro-bg)]"
-                  style={{ color: 'var(--km-peligro-text)' }}
-                >
-                  <Power className="h-4 w-4" strokeWidth={2} />
-                  Desactivar
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function MobileProductCard({
   product,
   state,
@@ -543,14 +773,13 @@ function MobileProductCard({
   onAdjust: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const isSoldOut = state === 'agotado'
-  const isDisabled = state === 'desactivado'
 
   return (
     <div
       className={`km-panel p-3 ${
-        isSoldOut ? 'border-l-[3px] border-l-[var(--km-peligro-text)]' :
-        isDisabled ? 'border-l-[3px] border-l-[var(--km-entregado-text)] opacity-70' :
+        state === 'agotado' ? 'border-l-[3px] border-l-[var(--km-peligro-text)]' :
+        state === 'desactivado' ? 'border-l-[3px] border-l-[var(--km-entregado-text)] opacity-70' :
+        state === 'no_disponible' ? 'border-l-[3px] border-l-[var(--km-recibido-text)]' :
         low ? 'border-l-[3px] border-l-[var(--km-alerta-text)]' :
         ''
       }`}
@@ -564,13 +793,12 @@ function MobileProductCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <EstadoBadge estado={stateToEstado(state)}>
-              {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : 'Desactivado'}
+              {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : state === 'no_disponible' ? 'No disponible' : 'Desactivado'}
             </EstadoBadge>
             {low && <EstadoBadge estado="stockBajo">Stock bajo</EstadoBadge>}
             <span className="rounded-md bg-[var(--km-fondo)] px-1.5 py-0.5 text-[11px] font-semibold text-[#003B73]">
               {TYPE_LABEL[product.type]}
             </span>
-            {/* Stock inline */}
             <StockInline product={product} />
           </div>
         </div>

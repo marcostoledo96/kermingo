@@ -9,6 +9,7 @@ import {
   createProductoSchema,
   updateProductoSchema,
   stockAdjustmentSchema,
+  reordenarSchema,
   idParamSchema,
 } from '../schemas/producto.schema.js';
 import {
@@ -20,6 +21,7 @@ import {
   desactivar,
   recuperar,
   ajustarStock,
+  reordenar,
   obtenerImagen,
   subirImagen,
   quitarImagen,
@@ -35,6 +37,7 @@ publicRouter.get('/:id', validateParams(idParamSchema), obtener);
 
 // ── Rutas admin ──
 adminRouter.get('/', requireAdmin, validateQuery(adminProductoQuerySchema), listarAdmin);
+adminRouter.patch('/orden', requireAdmin, requireTrustedOrigin, validateBody(reordenarSchema), reordenar);
 adminRouter.post('/', requireAdmin, requireTrustedOrigin, validateBody(createProductoSchema), crear);
 adminRouter.put('/:id', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), validateBody(updateProductoSchema), actualizar);
 adminRouter.patch('/:id/desactivar', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), desactivar);

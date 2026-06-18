@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Save, Loader2, AlertCircle, DoorOpen, DoorClosed, MessageSquare, Check } from 'lucide-react'
+import { Save, Loader2, AlertCircle, DoorOpen, DoorClosed, MessageSquare, Check, UtensilsCrossed } from 'lucide-react'
 import { AdminShell } from './admin-shell'
 import { SectionTitle, AdminCard, IconBox } from './admin-ui'
 import { useAdminSession } from './admin-session'
@@ -259,6 +259,74 @@ export function ConfigScreen() {
                   </>
                 )}
               </button>
+            </AdminCard>
+          </section>
+
+          {/* Default menu category */}
+          <section>
+            <SectionTitle>Categoría inicial del menú</SectionTitle>
+            <AdminCard className="p-5">
+              <label className="mb-2 flex items-center gap-2 text-sm font-bold text-[#003B73]">
+                <UtensilsCrossed className="h-4 w-4 text-[#75AADB]" strokeWidth={2.4} />
+                Pestaña que se muestra primero en el menú público
+              </label>
+              <p className="mb-3 text-xs text-[#003B73]/40">
+                Los clientes pueden cambiar de pestaña libremente. Esto solo elige cuál ven al entrar.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSaving(true)
+                    setSaveMsg(null)
+                    try {
+                      const updated = await apiPut<ApiConfiguracion>('/api/admin/configuracion-tienda', { categoria_default: 'merienda' })
+                      setConfig(updated)
+                      setSaveMsg('Categoría por defecto: Merienda')
+                    } catch (err) {
+                      if (err instanceof ApiError && err.status === 401) expireSession()
+                      setSaveMsg('Error al guardar')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className={`flex flex-col items-center gap-2 rounded-xl border-2 py-4 text-sm font-bold transition-all active:scale-[0.98] disabled:opacity-50 km-focus ${
+                    config.categoria_default === 'merienda'
+                      ? 'border-[#003B73] bg-[#003B73] text-white shadow-lg shadow-[#003B73]/20'
+                      : 'border-[#75AADB]/30 bg-white text-[#003B73] hover:border-[#75AADB] hover:bg-[#EEF5FF]'
+                  }`}
+                >
+                  <UtensilsCrossed className="h-5 w-5" strokeWidth={2.2} />
+                  Merienda
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSaving(true)
+                    setSaveMsg(null)
+                    try {
+                      const updated = await apiPut<ApiConfiguracion>('/api/admin/configuracion-tienda', { categoria_default: 'cena' })
+                      setConfig(updated)
+                      setSaveMsg('Categoría por defecto: Cena')
+                    } catch (err) {
+                      if (err instanceof ApiError && err.status === 401) expireSession()
+                      setSaveMsg('Error al guardar')
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                  disabled={saving}
+                  className={`flex flex-col items-center gap-2 rounded-xl border-2 py-4 text-sm font-bold transition-all active:scale-[0.98] disabled:opacity-50 km-focus ${
+                    config.categoria_default === 'cena'
+                      ? 'border-[#003B73] bg-[#003B73] text-white shadow-lg shadow-[#003B73]/20'
+                      : 'border-[#75AADB]/30 bg-white text-[#003B73] hover:border-[#75AADB] hover:bg-[#EEF5FF]'
+                  }`}
+                >
+                  <UtensilsCrossed className="h-5 w-5" strokeWidth={2.2} />
+                  Cena
+                </button>
+              </div>
             </AdminCard>
           </section>
 

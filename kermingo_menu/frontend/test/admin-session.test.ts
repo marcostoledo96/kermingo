@@ -89,25 +89,32 @@ describe('Config screen endpoint mapping', () => {
 })
 
 describe('Comprobante endpoint returns metadata, not file bytes', () => {
-  it('comprobante endpoint URL returns JSON with url_publica', () => {
-    type ComprobanteMeta = { url_publica: string | null; nombre_original: string; mime_type: string }
+  it('comprobante endpoint URL returns JSON with url_publica and url_proxy', () => {
+    type ComprobanteMeta = { url_publica: string | null; url_proxy: string; nombre_original: string; mime_type: string }
     const mockResponse: ComprobanteMeta = {
       url_publica: 'https://drive.google.com/file/d/abc123/view',
+      url_proxy: '/api/admin/pedidos/42/comprobante/imagen',
       nombre_original: 'comprobante.jpg',
       mime_type: 'image/jpeg',
     }
-    // The frontend should use url_publica to open Drive, not the API endpoint directly
+    // The frontend should use url_proxy for <img> embedding (proxied through backend)
+    // and url_publica for "Abrir en otra pestaña" fallback link
+    expect(mockResponse.url_proxy).toContain('/api/admin/pedidos/')
+    expect(mockResponse.url_proxy).toContain('/comprobante/imagen')
     expect(mockResponse.url_publica).toBeTruthy()
     expect(mockResponse.url_publica).toContain('drive.google.com')
   })
 
-  it('comprobante without url_publica should show error', () => {
-    type ComprobanteMeta = { url_publica: string | null; nombre_original: string; mime_type: string }
+  it('comprobante without url_publica should still have url_proxy for image display', () => {
+    type ComprobanteMeta = { url_publica: string | null; url_proxy: string; nombre_original: string; mime_type: string }
     const mockResponse: ComprobanteMeta = {
       url_publica: null,
+      url_proxy: '/api/admin/pedidos/42/comprobante/imagen',
       nombre_original: 'comprobante.jpg',
       mime_type: 'image/jpeg',
     }
+    // Even without url_publica, url_proxy works for displaying the image
+    expect(mockResponse.url_proxy).toBeTruthy()
     expect(mockResponse.url_publica).toBeNull()
   })
 })

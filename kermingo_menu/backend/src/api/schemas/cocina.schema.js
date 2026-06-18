@@ -6,6 +6,7 @@ export const idParamSchema = z.object({
 
 export const updateEstadoPedidoCocinaSchema = z.object({
   estado_pedido: z.enum([
+    'recibido',
     'en_preparacion',
     'listo',
     'entregado',

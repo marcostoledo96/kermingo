@@ -14,9 +14,7 @@ import {
   Banknote,
   ArrowRightLeft,
   X,
-  FilterX,
   Receipt,
-  ChevronDown,
   Inbox,
   AlertCircle,
   Store,
@@ -29,7 +27,10 @@ import {
   CircleCheck,
   CircleX,
   CircleDollarSign,
-  ListFilter,
+  ExternalLink,
+  Loader2,
+  ZoomIn,
+  ImageIcon,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
@@ -37,6 +38,7 @@ import { AdminShell } from './admin-shell'
 import { EstadoBadge } from './admin-ui'
 import type { EstadoVisual } from './admin-ui'
 import { apiGet, apiPatch, ApiError } from '@/lib/api'
+import { API_BASE } from '@/lib/config'
 import {
   type Order,
   type OrderStatus,
@@ -110,6 +112,9 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
 }
 
 /* ---- Dynamic primary action per state ---- */
+/* NOTE: recibido does NOT have a generic advance action.
+   The only way to move recibido → preparacion is via confirmPayment
+   (PATCH /pago → PATCH /estado), which is a dedicated two-step action. */
 
 const PRIMARY_ACTION: Partial<
   Record<OrderStatus, { label: string; icon: typeof Clock; nextLabel: string }>
@@ -124,18 +129,16 @@ function lineTotal(o: Order): number {
 
 /* ---- View tabs ---- */
 
-type ViewTab = 'necesitan-accion' | 'todos'
+type ViewTab = 'recibido' | 'preparacion' | 'listo' | 'entregado'
 
-const VIEW_TABS: { id: ViewTab; label: string; shortLabel: string }[] = [
-  { id: 'necesitan-accion', label: 'Necesitan acción', shortLabel: 'Acción' },
-  { id: 'todos', label: 'Todos los pedidos', shortLabel: 'Todos' },
+const VIEW_TABS: { id: ViewTab; label: string; shortLabel: string; icon: typeof Clock }[] = [
+  { id: 'recibido', label: 'Pendiente', shortLabel: 'Pend.', icon: CircleDot },
+  { id: 'preparacion', label: 'En preparación', shortLabel: 'Prep.', icon: Flame },
+  { id: 'listo', label: 'Listo', shortLabel: 'Listo', icon: Bell },
+  { id: 'entregado', label: 'Entregado', shortLabel: 'Entr.', icon: CircleCheck },
 ]
 
 /* ---- Status & payment filter options ---- */
-
-type StatusFilter = 'todos' | OrderStatus
-type PayStatusFilter = 'todos' | PayStatus
-type MethodFilter = 'todos' | PayMethod
 
 /* ---- Helper: does an order "need action"? ---- */
 
@@ -153,16 +156,23 @@ function needsAction(o: Order): boolean {
 export function OrdersScreen() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [viewTab, setViewTab] = useState<ViewTab>('necesitan-accion')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
-  const [payFilter, setPayFilter] = useState<PayStatusFilter>('todos')
-  const [methodFilter, setMethodFilter] = useState<MethodFilter>('todos')
+  const [viewTab, setViewTab] = useState<ViewTab>('recibido')
   const [detail, setDetail] = useState<Order | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-
   const [actionError, setActionError] = useState<string | null>(null)
   const [acting, setActing] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null)
+  const [comprobantePublicUrl, setComprobantePublicUrl] = useState<string | null>(null)
+  const [comprobanteError, setComprobanteError] = useState<string | null>(null)
+  const [showComprobanteModal, setShowComprobanteModal] = useState(false)
+  const [comprobanteLoading, setComprobanteLoading] = useState(false)
+  const [tabCounts, setTabCounts] = useState<Record<ViewTab, number>>({
+    recibido: 0,
+    preparacion: 0,
+    listo: 0,
+    entregado: 0,
+  })
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -175,15 +185,15 @@ export function OrdersScreen() {
   }, [search])
 
   const buildQuery = useCallback(() => {
-    const q: Record<string, string | number> = { limit: 50 }
-    if (statusFilter !== 'todos') {
-      q.estado_pedido = orderStatusToApi(statusFilter)
+    const q: Record<string, string | number> = { limit: 24 }
+    q.estado_pedido = orderStatusToApi(viewTab)
+    if (viewTab === 'recibido') {
+      q.origen = 'online'
+      q.estado_pago = 'comprobante_subido'
     }
-    if (payFilter !== 'todos') q.estado_pago = payFilter
-    if (methodFilter !== 'todos') q.metodo_pago = methodFilter
     if (debouncedSearch.trim()) q.buscar = debouncedSearch.trim()
     return q
-  }, [statusFilter, payFilter, methodFilter, debouncedSearch])
+  }, [viewTab, debouncedSearch])
 
   const {
     data: orders,
@@ -194,25 +204,54 @@ export function OrdersScreen() {
     setData: setOrders,
   } = useApiResource<Order[]>(async () => {
     const data = await apiGet<ApiPedidoPaginada>('/api/admin/pedidos', buildQuery())
-    return data.pedidos.map(apiToOrder)
+    const mapped = data.pedidos.map(apiToOrder)
+    if (viewTab === 'recibido') {
+      return mapped.filter((order) => order.origen === 'online')
+    }
+    return mapped
   })
 
+  // Re-fetch orders when tab or search filter changes
+  useEffect(() => {
+    refetch({ silent: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTab, debouncedSearch])
+
+  // Fetch tab counts (limit=1 for each status to get total without loading all data)
+  const refreshTabCounts = useCallback(async () => {
+    const statuses: ViewTab[] = ['recibido', 'preparacion', 'listo', 'entregado']
+    const counts: Record<ViewTab, number> = { recibido: 0, preparacion: 0, listo: 0, entregado: 0 }
+    const results = await Promise.allSettled(
+      statuses.map(async (tab) => {
+        const data = await apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
+          estado_pedido: orderStatusToApi(tab),
+          limit: 1,
+          ...(tab === 'recibido'
+            ? { origen: 'online', estado_pago: 'comprobante_subido' }
+            : {}),
+        })
+        counts[tab] = data.paginacion.total
+      }),
+    )
+    // Only update if at least one succeeded
+    if (results.some((r) => r.status === 'fulfilled')) {
+      setTabCounts(counts)
+    }
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshTabCounts()
+  }, [refreshTabCounts])
+
   const allOrders = orders ?? []
-
-  /* Apply view filter client-side */
-  const displayed = viewTab === 'necesitan-accion' ? allOrders.filter(needsAction) : allOrders
-
   const actionCount = allOrders.filter(needsAction).length
 
-  const hasFilters =
-    search !== '' || statusFilter !== 'todos' || payFilter !== 'todos' || methodFilter !== 'todos'
+  const hasFilters = search !== ''
 
   function clearFilters() {
     setSearch('')
     setDebouncedSearch('')
-    setStatusFilter('todos')
-    setPayFilter('todos')
-    setMethodFilter('todos')
   }
 
   const updateOrderLocal = (id: string, patch: Partial<Order>) => {
@@ -224,14 +263,68 @@ export function OrdersScreen() {
     setDetail(order)
     setDetailLoading(true)
     setActionError(null)
+    setComprobanteUrl(null)
+    setComprobantePublicUrl(null)
+    setComprobanteError(null)
     try {
       const full = await apiGet<ApiPedido>(`/api/admin/pedidos/${order.id}`)
       const mapped = apiToOrder(full)
       setDetail(mapped)
+      // If transfer order with comprobante, fetch the comprobante URLs
+      if (mapped.method === 'transferencia' && mapped.hasReceipt) {
+        try {
+          type ComprobanteMeta = { url_publica: string | null; url_proxy: string; nombre_original: string; mime_type: string }
+          const meta = await apiGet<ComprobanteMeta>(`/api/admin/pedidos/${order.id}/comprobante`)
+          if (meta.url_proxy) {
+            // url_proxy is relative (/api/admin/pedidos/:id/comprobante/imagen).
+            // Prepend API_BASE so the <img> tag hits the backend, not the frontend.
+            const proxyUrl = meta.url_proxy.startsWith('/')
+              ? `${API_BASE.replace(/\/$/, '')}${meta.url_proxy}`
+              : meta.url_proxy
+            setComprobanteUrl(proxyUrl)
+            setComprobantePublicUrl(meta.url_publica)
+          } else if (meta.url_publica) {
+            setComprobanteUrl(meta.url_publica)
+          } else {
+            setComprobanteError('El comprobante no tiene enlace público de Drive.')
+          }
+        } catch {
+          setComprobanteError('No se pudo obtener el comprobante')
+        }
+      }
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle')
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  /** Open comprobante image modal directly from row/card action, without needing detail modal */
+  async function openComprobante(order: Order) {
+    setComprobanteUrl(null)
+    setComprobantePublicUrl(null)
+    setComprobanteError(null)
+    setShowComprobanteModal(true)
+    setComprobanteLoading(true)
+    try {
+      type ComprobanteMeta = { url_publica: string | null; url_proxy: string; nombre_original: string; mime_type: string }
+      const meta = await apiGet<ComprobanteMeta>(`/api/admin/pedidos/${order.id}/comprobante`)
+      if (meta.url_proxy) {
+        // url_proxy is relative — prepend API_BASE so <img> hits the backend
+        const proxyUrl = meta.url_proxy.startsWith('/')
+          ? `${API_BASE.replace(/\/$/, '')}${meta.url_proxy}`
+          : meta.url_proxy
+        setComprobanteUrl(proxyUrl)
+        setComprobantePublicUrl(meta.url_publica)
+      } else if (meta.url_publica) {
+        setComprobanteUrl(meta.url_publica)
+      } else {
+        setComprobanteError('El comprobante no tiene enlace público de Drive.')
+      }
+    } catch {
+      setComprobanteError('No se pudo obtener el comprobante')
+    } finally {
+      setComprobanteLoading(false)
     }
   }
 
@@ -245,6 +338,7 @@ export function OrdersScreen() {
     setActionError(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/estado`, { estado_pedido: orderStatusToApi(status) })
+      refreshTabCounts()
     } catch (err) {
       if (previous) updateOrderLocal(id, { status: previous })
       setActionError(err instanceof ApiError ? err.message : 'No se pudo cambiar el estado')
@@ -260,11 +354,38 @@ export function OrdersScreen() {
     setActionError(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'pagado' })
+      refreshTabCounts()
     } catch (err) {
       if (previous) updateOrderLocal(id, { payStatus: previous })
       setActionError(err instanceof ApiError ? err.message : 'No se pudo marcar como pagado')
     } finally {
       setActing(null)
+    }
+  }
+
+  async function confirmPayment(id: string) {
+    // Find the order to check if payment is already confirmed
+    const order = orders?.find((o) => o.id === id)
+    const alreadyPaid = order?.payStatus === 'pagado'
+    setConfirming(id)
+    setActionError(null)
+    try {
+      // Only PATCH payment if not already paid (caja orders may arrive pagado)
+      if (!alreadyPaid) {
+        await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'pagado' })
+      }
+      // Always advance state to en_preparacion
+      await apiPatch(`/api/admin/pedidos/${id}/estado`, { estado_pedido: 'en_preparacion' })
+      // Optimistic: remove from current tab view and refetch
+      setOrders((prev) => (prev ?? []).filter((o) => o.id !== id))
+      refetch({ silent: true })
+      refreshTabCounts()
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo confirmar el pago')
+      refetch({ silent: true })
+      refreshTabCounts()
+    } finally {
+      setConfirming(null)
     }
   }
 
@@ -276,6 +397,7 @@ export function OrdersScreen() {
     setActionError(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/cancelar`, {})
+      refreshTabCounts()
     } catch (err) {
       if (previous) updateOrderLocal(id, { status: previous })
       setActionError(err instanceof ApiError ? err.message : 'No se pudo cancelar el pedido')
@@ -291,8 +413,8 @@ export function OrdersScreen() {
           <div>
             <h2 className="text-xl font-extrabold text-[#003B73]">Gestión de pedidos</h2>
             <p className="text-sm text-[var(--km-tinta-suave)]">
-              {displayed.length} {displayed.length === 1 ? 'pedido' : 'pedidos'}
-              {viewTab === 'necesitan-accion' && actionCount > 0 && (
+              {allOrders.length} {allOrders.length === 1 ? 'pedido' : 'pedidos'}
+              {actionCount > 0 && (
                 <span className="ml-1.5">
                   · <span className="km-tabular font-semibold text-[var(--km-preparando-text)]">{actionCount} necesitan acción</span>
                 </span>
@@ -337,7 +459,7 @@ export function OrdersScreen() {
           </div>
         )}
 
-        {/* Search + View tabs */}
+        {/* Search + Status tabs */}
         <div className="km-panel overflow-hidden">
           {/* Search bar */}
           <div className="border-b border-[#75AADB]/12 px-4 py-3">
@@ -354,107 +476,41 @@ export function OrdersScreen() {
             </div>
           </div>
 
-          {/* View tabs + filter toggle */}
+          {/* Status tabs */}
           <div className="flex items-center gap-1 border-b border-[#75AADB]/12 px-4 py-2">
-            {VIEW_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setViewTab(tab.id)}
-                aria-label={`Ver: ${tab.label}`}
-                className={`km-focus rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                  viewTab === tab.id
-                    ? tab.id === 'necesitan-accion'
-                      ? 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]'
-                      : 'bg-[#003B73] text-white'
-                    : 'text-[var(--km-tinta-suave)] hover:bg-[#EEF5FF]/60'
-                }`}
-              >
-                <span className="hidden sm:inline">{tab.label}</span>
-                <span className="sm:hidden">{tab.shortLabel}</span>
-                {tab.id === 'necesitan-accion' && actionCount > 0 && (
-                  <span className="km-tabular ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--km-preparando-text)] px-1 text-[10px] font-extrabold text-white">
-                    {actionCount}
-                  </span>
-                )}
-              </button>
-            ))}
-
-            <div className="flex-1" />
-
-            <button
-              onClick={() => setFiltersOpen(!filtersOpen)}
-              aria-label={filtersOpen ? 'Ocultar filtros' : 'Mostrar filtros'}
-              aria-expanded={filtersOpen}
-              className={`km-focus flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                hasFilters
-                  ? 'border-[#003B73] bg-[#003B73]/8 text-[#003B73]'
-                  : 'border-[#75AADB]/20 bg-white text-[var(--km-tinta-suave)] hover:bg-[#EEF5FF]/60'
-              }`}
-            >
-              <ListFilter className="h-3.5 w-3.5" strokeWidth={2.2} />
-              <span className="hidden sm:inline">Filtros</span>
-              {hasFilters && (
-                <span className="km-tabular ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#003B73] px-1 text-[10px] font-extrabold text-white">
-                  {[statusFilter !== 'todos', payFilter !== 'todos', methodFilter !== 'todos'].filter(Boolean).length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Collapsible filter panel */}
-          {filtersOpen && (
-            <div className="space-y-3 border-b border-[#75AADB]/12 px-4 py-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
-                <FilterGroup label="Estado">
-                  <FilterChip active={statusFilter === 'todos'} onClick={() => setStatusFilter('todos')}>
-                    Todos
-                  </FilterChip>
-                  {(Object.keys(ORDER_STATUS_VISUAL) as OrderStatus[]).map((s) => (
-                    <FilterChip key={s} active={statusFilter === s} onClick={() => setStatusFilter(s)}>
-                      {ORDER_STATUS_VISUAL[s].label}
-                    </FilterChip>
-                  ))}
-                </FilterGroup>
-
-                <FilterGroup label="Pago">
-                  <FilterChip active={payFilter === 'todos'} onClick={() => setPayFilter('todos')}>
-                    Todos
-                  </FilterChip>
-                  <FilterChip active={payFilter === 'pagado'} onClick={() => setPayFilter('pagado')}>
-                    Pagado
-                  </FilterChip>
-                  <FilterChip active={payFilter === 'pendiente'} onClick={() => setPayFilter('pendiente')}>
-                    Pendiente
-                  </FilterChip>
-                </FilterGroup>
-
-                <FilterGroup label="Método">
-                  <FilterChip active={methodFilter === 'todos'} onClick={() => setMethodFilter('todos')}>
-                    Todos
-                  </FilterChip>
-                  <FilterChip active={methodFilter === 'efectivo'} onClick={() => setMethodFilter('efectivo')}>
-                    Efectivo
-                  </FilterChip>
-                  <FilterChip
-                    active={methodFilter === 'transferencia'}
-                    onClick={() => setMethodFilter('transferencia')}
-                  >
-                    Transferencia
-                  </FilterChip>
-                </FilterGroup>
-              </div>
-
-              {hasFilters && (
+            {VIEW_TABS.map((tab) => {
+              const TabIcon = tab.icon
+              const isActive = viewTab === tab.id
+              const count = tabCounts[tab.id]
+              return (
                 <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-1.5 self-start rounded-full border border-[var(--km-peligro-bg)] bg-white px-3 py-1.5 text-xs font-bold text-[var(--km-peligro-text)] transition-colors hover:bg-[var(--km-peligro-bg)]"
+                  key={tab.id}
+                  onClick={() => setViewTab(tab.id)}
+                  aria-label={`Ver: ${tab.label}`}
+                  className={`km-focus flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    isActive
+                      ? tab.id === 'recibido'
+                        ? 'bg-[var(--km-info-bg)] text-[var(--km-info-text)]'
+                        : tab.id === 'preparacion'
+                          ? 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]'
+                          : tab.id === 'listo'
+                            ? 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]'
+                            : 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
+                      : 'text-[var(--km-tinta-suave)] hover:bg-[#EEF5FF]/60'
+                  }`}
                 >
-                  <FilterX className="h-3.5 w-3.5" strokeWidth={2.4} />
-                  Limpiar filtros
+                  <TabIcon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.shortLabel}</span>
+                  {count > 0 && (
+                    <span className="ml-0.5 km-tabular rounded-full bg-[#003B73]/10 px-1.5 text-[10px] font-bold leading-none">
+                      {count}
+                    </span>
+                  )}
                 </button>
-              )}
-            </div>
-          )}
+              )
+            })}
+          </div>
         </div>
 
         {/* Order list */}
@@ -462,7 +518,7 @@ export function OrdersScreen() {
           <div className="km-panel px-6 py-10 text-center text-sm font-medium text-[var(--km-tinta-suave)]">
             Cargando pedidos…
           </div>
-        ) : displayed.length === 0 ? (
+        ) : allOrders.length === 0 ? (
           <EmptyState viewTab={viewTab} hasFilters={hasFilters} onClearFilters={clearFilters} />
         ) : (
           <>
@@ -480,7 +536,7 @@ export function OrdersScreen() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#75AADB]/8">
-                    {displayed.map((o) => (
+                    {allOrders.map((o) => (
                       <tr key={o.id} className={`transition-colors hover:bg-[#EEF5FF]/40 ${ORDER_STATUS_VISUAL[o.status].borderClass}`}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 km-tabular font-extrabold text-[#003B73]">
@@ -517,6 +573,7 @@ export function OrdersScreen() {
                           <OrderActions
                             order={o}
                             acting={acting === o.id}
+                            confirming={confirming === o.id}
                             variant="table"
                             onDetail={() => openDetail(o)}
                             onAdvance={() => {
@@ -524,7 +581,9 @@ export function OrdersScreen() {
                               if (next) setStatus(o.id, next)
                             }}
                             onMarkPaid={() => markPaid(o.id)}
+                            onConfirmPayment={() => confirmPayment(o.id)}
                             onCancel={() => cancelOrder(o.id)}
+                            onViewComprobante={() => openComprobante(o)}
                           />
                         </td>
                       </tr>
@@ -536,18 +595,21 @@ export function OrdersScreen() {
 
             {/* Mobile/tablet: cards */}
             <div className="grid gap-3 sm:grid-cols-2 lg:hidden">
-              {displayed.map((o) => (
+              {allOrders.map((o) => (
                 <OrderCard
                   key={o.id}
                   order={o}
                   acting={acting === o.id}
+                  confirming={confirming === o.id}
                   onDetail={() => openDetail(o)}
                   onAdvance={() => {
                     const next = NEXT_STATUS[o.status]
                     if (next) setStatus(o.id, next)
                   }}
                   onMarkPaid={() => markPaid(o.id)}
+                  onConfirmPayment={() => confirmPayment(o.id)}
                   onCancel={() => cancelOrder(o.id)}
+                  onViewComprobante={() => openComprobante(o)}
                 />
               ))}
             </div>
@@ -560,13 +622,27 @@ export function OrdersScreen() {
           order={detail}
           loading={detailLoading}
           acting={acting === detail.id}
-          onClose={() => setDetail(null)}
+          confirming={confirming === detail.id}
+          comprobanteUrl={comprobanteUrl}
+          comprobanteError={comprobanteError}
+          onClose={() => { setDetail(null); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteError(null); setShowComprobanteModal(false) }}
           onAdvance={() => {
             const next = NEXT_STATUS[detail.status]
             if (next) setStatus(detail.id, next)
           }}
           onMarkPaid={() => markPaid(detail.id)}
+          onConfirmPayment={() => confirmPayment(detail.id)}
           onCancel={() => cancelOrder(detail.id)}
+          onViewComprobante={() => setShowComprobanteModal(true)}
+        />
+      )}
+      {showComprobanteModal && (comprobanteUrl || comprobanteError || comprobanteLoading) && (
+        <ComprobanteModal
+          url={comprobanteUrl}
+          publicUrl={comprobantePublicUrl}
+          error={comprobanteError}
+          loading={comprobanteLoading}
+          onClose={() => { setShowComprobanteModal(false); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteError(null) }}
         />
       )}
     </AdminShell>
@@ -616,17 +692,23 @@ function OrigenTag({ origen }: { origen: 'online' | 'caja' }) {
 function OrderCard({
   order,
   acting,
+  confirming,
   onDetail,
   onAdvance,
   onMarkPaid,
+  onConfirmPayment,
   onCancel,
+  onViewComprobante,
 }: {
   order: Order
   acting: boolean
+  confirming: boolean
   onDetail: () => void
   onAdvance: () => void
   onMarkPaid: () => void
+  onConfirmPayment: () => void
   onCancel: () => void
+  onViewComprobante?: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -689,6 +771,40 @@ function OrderCard({
         </div>
       )}
 
+      {/* Confirm payment action for recibido orders */}
+      {order.status === 'recibido' && !closed && (
+        <div className="mt-2 mx-4 flex items-center gap-2">
+          {order.method === 'transferencia' && order.hasReceipt && onViewComprobante && (
+            <button
+              type="button"
+              onClick={onViewComprobante}
+              className="km-focus flex items-center justify-center gap-1.5 rounded-lg border border-[#75AADB]/25 bg-white px-3 py-2.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+              aria-label="Ver comprobante adjunto"
+            >
+              <Receipt className="h-3.5 w-3.5" strokeWidth={2.2} />
+              Ver comprobante
+            </button>
+          )}
+          <button
+            onClick={onConfirmPayment}
+            disabled={confirming}
+            className="km-focus flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--km-info-text)] px-3 py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#1a6fa0] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {confirming ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" strokeWidth={2.2} />
+                {order.payStatus === 'pagado' ? 'Enviando…' : 'Confirmando…'}
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+                {order.payStatus === 'pagado' ? 'Enviar a cocina' : 'Confirmar pago y enviar a cocina'}
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Action row */}
       <div className="mt-3 flex items-center gap-2 border-t border-[#75AADB]/8 px-4 py-3">
         {/* Primary action: dynamic by state */}
@@ -747,6 +863,15 @@ function OrderCard({
                   <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
                   Ver detalle
                 </button>
+                {order.method === 'transferencia' && order.hasReceipt && onViewComprobante && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onViewComprobante() }}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
+                  >
+                    <Receipt className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    Ver comprobante adjunto
+                  </button>
+                )}
                 <button
                   onClick={() => { setMenuOpen(false); onCancel() }}
                   className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
@@ -768,19 +893,25 @@ function OrderCard({
 function OrderActions({
   order,
   acting,
+  confirming,
   variant: _variant,
   onDetail,
   onAdvance,
   onMarkPaid,
+  onConfirmPayment,
   onCancel,
+  onViewComprobante,
 }: {
   order: Order
   acting: boolean
+  confirming: boolean
   variant: 'table'
   onDetail: () => void
   onAdvance: () => void
   onMarkPaid: () => void
+  onConfirmPayment: () => void
   onCancel: () => void
+  onViewComprobante?: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -825,6 +956,32 @@ function OrderActions({
         </button>
       )}
 
+      {/* Confirm payment for recibido */}
+      {order.status === 'recibido' && !closed && (
+        <>
+          {order.method === 'transferencia' && order.hasReceipt && onViewComprobante && (
+            <button
+              type="button"
+              onClick={onViewComprobante}
+              className="km-focus flex items-center gap-1 rounded-lg border border-[#75AADB]/25 bg-white px-2 py-1.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+              aria-label="Ver comprobante adjunto"
+              title="Ver comprobante adjunto"
+            >
+              <Receipt className="h-3 w-3" strokeWidth={2.2} />
+            </button>
+          )}
+          <button
+            onClick={onConfirmPayment}
+            disabled={confirming}
+            className="km-focus flex items-center gap-1 rounded-lg bg-[var(--km-info-text)] px-2 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#1a6fa0] disabled:cursor-not-allowed disabled:opacity-50"
+            title={order.payStatus === 'pagado' ? 'Enviar a cocina' : 'Confirmar pago y enviar a cocina'}
+          >
+            {confirming ? <RefreshCw className="h-3 w-3 animate-spin" strokeWidth={2.2} /> : <CheckCircle2 className="h-3 w-3" strokeWidth={2.2} />}
+            <span className="hidden xl:inline">{order.payStatus === 'pagado' ? 'Enviar' : 'Confirmar'}</span>
+          </button>
+        </>
+      )}
+
       {/* Secondary: dropdown */}
       <div className="relative" ref={menuRef}>
         <button
@@ -844,6 +1001,15 @@ function OrderActions({
               <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
               Ver detalle
             </button>
+            {order.method === 'transferencia' && order.hasReceipt && onViewComprobante && (
+              <button
+                onClick={() => { setMenuOpen(false); onViewComprobante() }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
+              >
+                <Receipt className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Ver comprobante adjunto
+              </button>
+            )}
             {!closed && (
               <button
                 onClick={() => { setMenuOpen(false); onCancel() }}
@@ -871,26 +1037,26 @@ function EmptyState({
   hasFilters: boolean
   onClearFilters: () => void
 }) {
-  if (viewTab === 'necesitan-accion') {
+  if (viewTab === 'recibido') {
     return (
       <div className="km-panel flex flex-col items-center gap-3 px-6 py-14 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-info-bg)] text-[var(--km-info-text)]">
           <CircleCheck className="h-7 w-7" strokeWidth={1.8} />
         </div>
         <p className="font-bold text-[#003B73]">
-          {hasFilters ? 'Ningún pedido necesita acción con esos filtros' : 'Todo en orden'}
+          {hasFilters ? 'Ningún pedido pendiente con esos filtros' : 'Sin pedidos pendientes'}
         </p>
         <p className="text-sm text-[var(--km-tinta-suave)]">
           {hasFilters
-            ? 'Probá ajustar los filtros para ver más pedidos.'
-            : 'No hay pedidos pendientes de acción en este momento.'}
+            ? 'Probá ajustar la búsqueda.'
+            : 'Los pedidos online aparecerán acá para que confirmes el pago.'}
         </p>
         {hasFilters && (
           <button
             onClick={onClearFilters}
             className="mt-1 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60"
           >
-            Limpiar filtros
+            Limpiar búsqueda
           </button>
         )}
       </div>
@@ -903,58 +1069,22 @@ function EmptyState({
         <Inbox className="h-7 w-7" strokeWidth={1.6} />
       </div>
       <p className="font-bold text-[#003B73]">
-        {hasFilters ? 'No hay pedidos con esos filtros' : 'No hay pedidos todavía'}
+        {hasFilters ? 'Ningún pedido con esa búsqueda' : `No hay pedidos ${ORDER_STATUS_VISUAL[viewTab]?.label?.toLowerCase() ?? 'en este estado'}`}
       </p>
       <p className="text-sm text-[var(--km-tinta-suave)]">
         {hasFilters
-          ? 'Probá ajustar la búsqueda o los filtros.'
-          : 'Los pedidos aparecerán acá cuando se confirmen.'}
+          ? 'Probá ajustar la búsqueda.'
+          : 'Los pedidos aparecerán acá cuando cambien de estado.'}
       </p>
       {hasFilters && (
         <button
           onClick={onClearFilters}
           className="mt-1 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60"
         >
-          Limpiar filtros
+          Limpiar búsqueda
         </button>
       )}
     </div>
-  )
-}
-
-/* ---- Filter group & chips ---- */
-
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-2">
-      <span className="mt-1.5 hidden text-[11px] font-semibold text-[#003B73]/45 sm:inline">
-        {label}
-      </span>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
-    </div>
-  )
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`km-focus rounded-full border px-2.5 py-1 text-xs font-bold transition-colors ${
-        active
-          ? 'border-[#003B73] bg-[#003B73] text-white'
-          : 'border-[#75AADB]/25 bg-white text-[#003B73] hover:border-[#75AADB]'
-      }`}
-    >
-      {children}
-    </button>
   )
 }
 
@@ -966,18 +1096,28 @@ function OrderDetailModal({
   order,
   loading,
   acting,
+  confirming,
+  comprobanteUrl,
+  comprobanteError,
   onClose,
   onAdvance,
   onMarkPaid,
+  onConfirmPayment,
   onCancel,
+  onViewComprobante,
 }: {
   order: Order
   loading: boolean
   acting: boolean
+  confirming: boolean
+  comprobanteUrl: string | null
+  comprobanteError: string | null
   onClose: () => void
   onAdvance: () => void
   onMarkPaid: () => void
+  onConfirmPayment: () => void
   onCancel: () => void
+  onViewComprobante?: () => void
 }) {
   const closed = order.status === 'entregado' || order.status === 'cancelado'
   const primary = PRIMARY_ACTION[order.status]
@@ -1104,22 +1244,32 @@ function OrderDetailModal({
                 Comprobante
               </h3>
               {order.hasReceipt ? (
-                <button
-                  disabled
-                  title="Próximamente"
-                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl border border-[#75AADB]/20 bg-white p-3 text-left opacity-80"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
-                    <Receipt className="h-5 w-5" strokeWidth={2} />
-                  </span>
-                  <span className="flex-1">
-                    <span className="block text-sm font-bold text-[#003B73]">
-                      Comprobante adjunto
+                comprobanteUrl ? (
+                  <div
+                    className="flex w-full items-center gap-3 rounded-xl border border-[#75AADB]/20 bg-white p-3 text-left"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
+                      <Receipt className="h-5 w-5" strokeWidth={2} />
                     </span>
-                    <span className="block text-xs text-[var(--km-tinta-suave)]">Tocá para ver la imagen (próximamente)</span>
-                  </span>
-                  <ChevronDown className="h-4 w-4 -rotate-90 text-[var(--km-tinta-suave)]" />
-                </button>
+                    <span className="flex-1">
+                      <span className="block text-sm font-bold text-[#003B73]">
+                        Comprobante adjunto disponible
+                      </span>
+                      <span className="block text-xs text-[var(--km-tinta-suave)]">Usá el botón junto a la acción principal para abrir la vista previa.</span>
+                    </span>
+                    <ZoomIn className="h-4 w-4 text-[var(--km-tinta-suave)]" strokeWidth={2.2} aria-hidden="true" />
+                  </div>
+                ) : comprobanteError ? (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3.5 py-3 text-sm font-medium text-[var(--km-peligro-text)]">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+                    {comprobanteError}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl border border-[#75AADB]/15 bg-[#EEF5FF]/40 px-4 py-3 text-xs font-medium text-[var(--km-tinta-suave)]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.2} />
+                    Cargando comprobante…
+                  </div>
+                )
               ) : (
                 <p className="rounded-xl border border-dashed border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3.5 py-3 text-sm font-medium text-[var(--km-peligro-text)]">
                   Sin comprobante adjunto.
@@ -1150,6 +1300,40 @@ function OrderDetailModal({
               {primary.label}
               <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.4} />
             </button>
+          )}
+
+          {/* Confirm payment + View comprobante for recibido */}
+          {order.status === 'recibido' && !closed && (
+            <div className="flex items-center gap-2">
+              {order.method === 'transferencia' && order.hasReceipt && onViewComprobante && (
+                <button
+                  type="button"
+                  onClick={onViewComprobante}
+                  className="km-focus flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#75AADB]/25 bg-white px-3 py-2.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+                  aria-label="Ver comprobante adjunto"
+                >
+                  <Receipt className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Ver comprobante
+                </button>
+              )}
+               <button
+                onClick={onConfirmPayment}
+                disabled={confirming}
+                className="km-focus flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--km-info-text)] px-3 py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#1a6fa0] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {confirming ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" strokeWidth={2.2} />
+                    {order.payStatus === 'pagado' ? 'Enviando…' : 'Confirmando…'}
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    {order.payStatus === 'pagado' ? 'Enviar a cocina' : 'Confirmar pago y enviar a cocina'}
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           {/* Secondary actions row */}
@@ -1183,6 +1367,130 @@ function OrderDetailModal({
               </button>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ====================================================================== */
+/* Comprobante image modal                                                 */
+/* ====================================================================== */
+
+function ComprobanteModal({
+  url,
+  publicUrl,
+  error,
+  loading,
+  onClose,
+}: {
+  url: string | null
+  publicUrl: string | null
+  error: string | null
+  loading: boolean
+  onClose: () => void
+}) {
+  const [imgError, setImgError] = useState(false)
+  // Use the proxy URL for <img>, and the public Drive URL for "Abrir en otra pestaña"
+  const externalLink = publicUrl || url
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
+      {/* Backdrop */}
+      <button
+        aria-label="Cerrar vista previa del comprobante"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#003B73]/50 backdrop-blur-sm"
+      />
+
+      {/* Modal content */}
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#75AADB]/12 bg-[#003B73] px-5 py-3.5">
+          <div className="flex items-center gap-2 text-white">
+            <Receipt className="h-4 w-4 text-[#F6B21A]" strokeWidth={2.2} />
+            <h3 className="text-sm font-bold">Comprobante adjunto</h3>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {error ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+                <AlertCircle className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-peligro-text)]">{error}</p>
+            </div>
+          ) : url && !imgError ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- Proxy URL from backend, not statically analyzable */
+            <img
+              src={url}
+              alt="Comprobante de pago adjunto"
+              className="mx-auto max-h-[65vh] w-auto rounded-xl border border-[#75AADB]/15 object-contain"
+              onError={() => setImgError(true)}
+            />
+          ) : imgError ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+                <ImageIcon className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-peligro-text)]">No se pudo cargar la imagen.</p>
+              {externalLink && (
+                <a
+                  href={externalLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+                >
+                  <ExternalLink className="h-3 w-3" strokeWidth={2.2} />
+                  Abrir en otra pestaña
+                </a>
+              )}
+            </div>
+          ) : loading ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#75AADB]">
+                <Loader2 className="h-7 w-7 animate-spin" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Cargando comprobante…</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#75AADB]">
+                <ImageIcon className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-tinta-suave)]">No hay imagen disponible.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer with actions */}
+        <div className="flex items-center justify-between border-t border-[#75AADB]/12 bg-[#EEF5FF]/40 px-5 py-3">
+          <button
+            onClick={onClose}
+            className="km-focus rounded-lg border border-[#75AADB]/25 bg-white px-4 py-2 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+          >
+            Cerrar
+          </button>
+          {externalLink && (
+            <a
+              href={externalLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="km-focus inline-flex items-center gap-1.5 rounded-lg bg-[#003B73] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#00305e]"
+            >
+              <ExternalLink className="h-3 w-3" strokeWidth={2.2} />
+              Abrir en otra pestaña
+            </a>
+          )}
         </div>
       </div>
     </div>

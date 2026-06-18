@@ -1,6 +1,6 @@
 export type MealCategory = 'merienda' | 'cena'
 export type ProductType = 'comida' | 'bebida' | 'promo'
-export type StockStatus = 'disponible' | 'bajo' | 'agotado' | 'ilimitado'
+export type StockStatus = 'disponible' | 'bajo' | 'agotado' | 'ilimitado' | 'no_disponible'
 
 export type Product = {
   id: string
@@ -12,6 +12,8 @@ export type Product = {
   stock: StockStatus
   icon: ProductIcon
   image?: string
+  order: number
+  available: boolean
 }
 
 export type ProductIcon =

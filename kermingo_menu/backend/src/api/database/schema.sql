@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS producto (
     stock_actual INT NULL CHECK (stock_actual IS NULL OR stock_actual >= 0),
     stock_minimo_alerta INT NOT NULL DEFAULT 5 CHECK (stock_minimo_alerta >= 0),
     activo TINYINT(1) NOT NULL DEFAULT 1,
+    disponible TINYINT(1) NOT NULL DEFAULT 1,
+    orden INT NOT NULL DEFAULT 0,
     disponible_desde TIME NULL,
     imagen_archivo_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -114,6 +116,7 @@ CREATE TABLE IF NOT EXISTS configuracion_tienda (
     estado ENUM('abierta', 'cerrada', 'demo') NOT NULL DEFAULT 'cerrada',
     mensaje_publico TEXT NULL,
     cena_habilitada_desde TIME NULL,
+    categoria_default ENUM('merienda', 'cena') NOT NULL DEFAULT 'merienda',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

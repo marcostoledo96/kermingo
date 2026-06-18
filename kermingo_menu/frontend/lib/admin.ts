@@ -4,9 +4,11 @@ import type {
   ApiPedido,
   ApiPedidoListItem,
   ApiProducto,
+  ApiReportes,
 } from './types'
 import type { MealCategory, ProductIcon, ProductType } from './products'
 import { ABSOLUTE_IMAGE_URL } from './config'
+import { apiGet, apiPatch } from './api'
 
 /* Product mapping --------------------------------------------------------- */
 
@@ -20,9 +22,76 @@ export type AdminProduct = {
   icon: ProductIcon
   image?: string
   active: boolean
+  available: boolean
+  order: number
   stockLimited: boolean
   stockCurrent: number
   stockMin: number
+}
+
+export type AdminReporteProducto = {
+  productoId: number
+  nombre: string
+  cantidad: number
+}
+
+export type AdminReportes = {
+  totalRecaudado: number
+  totalEfectivo: number
+  totalTransferencia: number
+  pedidosPagados: number
+  productosVendidos: number
+  pedidosPendientesPago: number
+  montoPendientePago: number
+  productoTop: AdminReporteProducto | null
+  rankingProductos: AdminReporteProducto[]
+  actualizadoEn: string
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+function toRankingProducto(p: ApiReportes['ranking_productos'][number] | null): AdminReporteProducto | null {
+  if (!p) return null
+  return {
+    productoId: toNumber(p.producto_id),
+    nombre: p.nombre,
+    cantidad: toNumber(p.cantidad),
+  }
+}
+
+export function apiToAdminReportes(data: ApiReportes): AdminReportes {
+  return {
+    totalRecaudado: toNumber(data.total_recaudado),
+    totalEfectivo: toNumber(data.total_efectivo),
+    totalTransferencia: toNumber(data.total_transferencia),
+    pedidosPagados: toNumber(data.pedidos_pagados),
+    productosVendidos: toNumber(data.productos_vendidos),
+    pedidosPendientesPago: toNumber(data.pedidos_pendientes_pago),
+    montoPendientePago: toNumber(data.monto_pendiente_pago),
+    productoTop: toRankingProducto(data.producto_top),
+    rankingProductos: Array.isArray(data.ranking_productos)
+      ? data.ranking_productos
+          .map((producto) => {
+            const normalized = toRankingProducto(producto)
+            if (!normalized) return null
+            return { ...normalized, cantidad: toNumber(normalized.cantidad) }
+          })
+          .filter((producto): producto is AdminReporteProducto => producto !== null)
+      : [],
+    actualizadoEn: data.actualizado_en,
+  }
+}
+
+export async function obtenerReportesAdmin(): Promise<AdminReportes> {
+  const data = await apiGet<ApiReportes>('/api/admin/reportes')
+  return apiToAdminReportes(data)
 }
 
 export function apiToAdminProduct(p: ApiProducto): AdminProduct {
@@ -36,6 +105,8 @@ export function apiToAdminProduct(p: ApiProducto): AdminProduct {
     icon: inferIcon(p.nombre, p.tipo),
     image: ABSOLUTE_IMAGE_URL(p.imagen_url),
     active: p.activo === 1,
+    available: p.disponible === 1,
+    order: p.orden ?? 0,
     stockLimited: p.stock_limitado === 1,
     stockCurrent: p.stock_actual ?? 0,
     stockMin: p.stock_minimo_alerta,
@@ -57,6 +128,8 @@ export function adminToApiPayload(p: AdminProduct) {
     stock_actual: p.stockLimited ? p.stockCurrent : undefined,
     stock_minimo_alerta: p.stockMin,
     activo: p.active ? 1 : 0,
+    disponible: p.available ? 1 : 0,
+    orden: p.order,
   } as const
 }
 
@@ -163,8 +236,7 @@ export function mapPayStatus(s: string): PayStatus {
 function mapOrderStatus(s: string): OrderStatus {
   switch (s) {
     case 'recibido':
-      // legacy: orders older than the flujo-directo cambio.
-      // Se conserva el case para que pedidos viejos en DB sigan renderizando.
+      // Pedidos online entran como `recibido` hasta que admin confirme el pago.
       return 'recibido'
     case 'en_preparacion':
       return 'preparacion'
@@ -242,6 +314,7 @@ export type CajaProduct = {
   stockLimited: boolean
   stockActual: number | null
   stockMinimoAlerta: number
+  available: boolean
 }
 
 export type CajaFilter = 'todos' | 'merienda' | 'cena' | 'bebida' | 'promo'
@@ -258,6 +331,7 @@ export function apiToCajaProduct(p: ApiProducto): CajaProduct {
     stockLimited: p.stock_limitado === 1,
     stockActual: p.stock_actual,
     stockMinimoAlerta: p.stock_minimo_alerta,
+    available: p.disponible === 1,
   }
 }
 
@@ -265,6 +339,18 @@ export function isCajaSoldOut(p: CajaProduct): boolean {
   return p.stockLimited && (p.stockActual ?? 0) <= 0
 }
 
+export function isCajaUnavailable(p: CajaProduct): boolean {
+  return !p.available
+}
+
 export function isCajaLowStock(p: CajaProduct): boolean {
   return p.stockLimited && (p.stockActual ?? 0) > 0 && (p.stockActual ?? 0) <= p.stockMinimoAlerta
+}
+
+/**
+ * Reorder products by sending a batch of {id, orden} pairs.
+ */
+export async function reordenarProductos(ordenes: Array<{ id: number; orden: number }>): Promise<AdminProduct[]> {
+  const data = await apiPatch<Array<ApiProducto>>('/api/admin/productos/orden', { ordenes })
+  return data.map(apiToAdminProduct)
 }

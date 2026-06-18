@@ -8,7 +8,7 @@ Endpoint público de creación de pedidos (`POST /api/pedidos`). Acepta JSON par
 
 ### Requirement: POST /api/pedidos must accept JSON for efectivo orders
 
-The system MUST accept `application/json` requests for `POST /api/pedidos` when `metodo_pago === 'efectivo'`. The request body MUST conform to `createPedidoSchema` (Zod): `nombre_cliente`, `items[]`, `metodo_pago`, with optional `mesa`, `telefono_cliente`, `observaciones`.
+The system MUST accept `application/json` requests for `POST /api/pedidos` when `metodo_pago === 'efectivo'`. The request body MUST conform to `createPedidoSchema` (Zod): `nombre_cliente`, `items[]`, `metodo_pago`, with optional `mesa`, `telefono_cliente`, `observaciones`. Online efectivo orders MUST start with `estado_pago='pendiente'` and `estado_pedido='recibido'`.
 
 #### Scenario: Efectivo order creates pedido with estado_pago=pendiente
 
@@ -27,7 +27,7 @@ The system MUST accept `application/json` requests for `POST /api/pedidos` when 
 
 ### Requirement: POST /api/pedidos must accept multipart for transfer orders
 
-The system MUST accept `multipart/form-data` requests for `POST /api/pedidos` when `metodo_pago === 'transferencia'`. The multipart request MUST include a file field named `comprobante` and form fields matching `createPedidoSchema` (excluding the file).
+The system MUST accept `multipart/form-data` requests for `POST /api/pedidos` when `metodo_pago === 'transferencia'`. The multipart request MUST include a file field named `comprobante` and form fields matching `createPedidoSchema` (excluding the file). Successful transfer orders MUST be `estado_pago='comprobante_subido'` and `estado_pedido='recibido'`.
 
 #### Scenario: Transfer order with comprobante creates pedido with comprobante_subido
 
@@ -36,7 +36,7 @@ The system MUST accept `multipart/form-data` requests for `POST /api/pedidos` wh
 - WHEN `POST /api/pedidos` is called
 - THEN the file is uploaded to Google Drive
 - AND a row is inserted in `archivo_drive` with `tipo='comprobante'`
-- AND the pedido is created with `estado_pago='comprobante_subido'` and `comprobante_archivo_id` populated
+- AND the pedido is created with `estado_pago='comprobante_subido'`, `estado_pedido='recibido'` and `comprobante_archivo_id` populated
 - AND the response returns 201 with the pedido data
 
 #### Scenario: Transfer order without comprobante is rejected with 400

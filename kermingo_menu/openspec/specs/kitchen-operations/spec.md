@@ -2,7 +2,9 @@
 
 ## Overview
 
-Módulo de cocina para administración de pedidos operativos. Permite listar pedidos activos (excluye cancelado y entregado), ver detalle con cantidad de ítems, y gestionar el estado del pedido con transiciones ágiles que permiten avance, salto directo y retroceso controlado (`recibido ↔ en_preparacion ↔ listo → entregado` con `recibido → listo` directo).
+Módulo de cocina para administración de pedidos operativos. Permite listar pedidos activos (excluye `recibido`, cancelado y entregado), ver detalle con cantidad de ítems, y gestionar el estado del pedido con transiciones ágiles que permiten avance, salto directo y retroceso controlado (`recibido ↔ en_preparacion ↔ listo → entregado` con `recibido → listo` directo).
+
+> **B7 change:** La cocina ya no muestra pedidos en `recibido`. Los pedidos online llegan a `recibido` y deben ser confirmados desde la solapa "Pendiente de confirmación" de `/admin/pedidos` antes de aparecer en cocina. Los pedidos de caja rápida saltean `recibido` y van directo a `en_preparacion`.
 
 ## Files
 
@@ -70,11 +72,13 @@ SELECT p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
        COUNT(pd.id) AS cantidad_items
 FROM pedido p
 LEFT JOIN pedido_detalle pd ON pd.pedido_id = p.id
-WHERE p.estado_pedido IN ('recibido', 'en_preparacion', 'listo')
+WHERE p.estado_pedido IN ('en_preparacion', 'listo')
 GROUP BY p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
          p.estado_pago, p.observaciones, p.created_at, p.total
-ORDER BY FIELD(p.estado_pedido, 'recibido', 'en_preparacion', 'listo'), p.created_at ASC
+ORDER BY FIELD(p.estado_pedido, 'en_preparacion', 'listo'), p.created_at ASC
 ```
+
+> **B7 change:** `recibido` was removed from the kitchen list. Online orders now enter `recibido` and must be confirmed via the admin pedidos pending tab before they appear in cocina. Caja orders skip `recibido` entirely and appear directly in `en_preparacion`.
 
 FIX retroactivo: `GROUP BY` lista todas las columnas seleccionadas para compatibilidad con `ONLY_FULL_GROUP_BY` (default MySQL 8).
 
@@ -97,7 +101,8 @@ FIX retroactivo: `GROUP BY` lista todas las columnas seleccionadas para compatib
 4. GET /api/admin/cocina/pedidos con admin → 200, retorna array
 5. La lista NO incluye pedidos con `estado_pedido = 'cancelado'`
 6. La lista NO incluye pedidos con `estado_pedido = 'entregado'`
-7. Orden: primero `recibido`, luego `en_preparacion`, luego `listo`; dentro de cada grupo por `created_at` ascendente
+7. La lista NO incluye pedidos con `estado_pedido = 'recibido'` (B7: online orders must be confirmed first)
+8. Orden: primero `en_preparacion`, luego `listo`; dentro de cada grupo por `created_at` ascendente
 
 ### Detail endpoint
 8. GET /api/admin/cocina/pedidos/:id con admin, id existente → 200, retorna pedido con `items`
@@ -131,10 +136,11 @@ FIX retroactivo: `GROUP BY` lista todas las columnas seleccionadas para compatib
 ## Requirements Summary
 
 | Requirement | Scenario Count | Cobertura |
-|---|---|---|---|
+|---|---|---|---|---|
 | Auth gating (admin required) | 3 | 1, 2, 3 |
 | Listado cocina excluye cancelado/entregado | 2 | 5, 6 |
-| Listado cocina ordenado por estado y antigüedad | 1 | 7 |
+| Listado cocina excluye recibido (B7) | 1 | 7 |
+| Listado cocina ordenado por estado y antigüedad | 1 | 8 |
 | Detalle cocina retorna pedido con items | 1 | 8 |
 | Detalle cocina 404 si no existe | 1 | 9 |
 | PATCH transición válida avanza estado | 3 | 11, 12, 13 |

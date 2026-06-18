@@ -51,3 +51,4 @@ La organización actual (14 archivos) **es solo un punto de partida**, inspirada
 | Pregunta | Archivo |
 |---|---|
 | ¿Hay bugs o trampas conocidas? | `GOTCHAS.md` |
+| ¿Qué decisiones arquitectónicas se tomaron y por qué? | `DECISIONES.md` |
