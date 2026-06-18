@@ -3,16 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react'
 
 const mockReplace = vi.fn()
 const mockPathname = vi.fn()
+const mockRouter = {
+  replace: mockReplace,
+  push: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
+  refresh: vi.fn(),
+  prefetch: vi.fn(),
+}
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    replace: mockReplace,
-    push: vi.fn(),
-    back: vi.fn(),
-    forward: vi.fn(),
-    refresh: vi.fn(),
-    prefetch: vi.fn(),
-  }),
+  useRouter: () => mockRouter,
   usePathname: () => mockPathname(),
 }))
 
@@ -88,5 +89,37 @@ describe('AdminSessionProvider — unauthenticated redirect guard', () => {
     })
 
     expect(await screen.findByTestId('login-content')).toBeTruthy()
+  })
+
+  it('authenticated /admin does not render login child and redirects to dashboard', async () => {
+    mockPathname.mockReturnValue('/admin')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeFetchResponse(200, {
+          ok: true,
+          data: {
+            usuario: {
+              name: 'Admin Kermingo',
+              email: 'admin@kermingo.com',
+            },
+          },
+        }),
+      ),
+    )
+
+    render(
+      <AdminSessionProvider>
+        <div data-testid="login-content">Iniciar sesión admin</div>
+      </AdminSessionProvider>,
+    )
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/admin/dashboard')
+    })
+
+    expect(await screen.findByText(/Redirigiendo al panel/i)).toBeTruthy()
+    expect(screen.queryByTestId('login-content')).toBeNull()
   })
 })

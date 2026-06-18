@@ -146,6 +146,12 @@ export function AdminSessionProvider({
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    if (status === 'authenticated' && isLoginRoute) {
+      router.replace('/admin/dashboard')
+    }
+  }, [isLoginRoute, router, status])
+
   // Register 401 callback for api.ts
   useEffect(() => {
     setOnUnauthorized(clearAndRedirect)
@@ -196,6 +202,11 @@ export function AdminSessionProvider({
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#EEF5FF]">
           <Loader2 className="h-8 w-8 animate-spin text-[var(--km-celeste)]" />
           <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Verificando sesión…</p>
+        </div>
+      ) : status === 'authenticated' && isLoginRoute ? (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#EEF5FF] px-6 text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--km-celeste)]" />
+          <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Redirigiendo al panel…</p>
         </div>
       ) : status === 'unauthenticated' && !isLoginRoute ? (
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#EEF5FF] px-6 text-center">
