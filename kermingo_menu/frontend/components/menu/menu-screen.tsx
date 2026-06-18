@@ -7,7 +7,7 @@ import { API_BASE } from '@/lib/config'
 import { useApiResource } from '@/lib/use-api-resource'
 import { mapProducto } from '@/lib/mappers'
 import type { ApiProducto, ApiConfiguracion } from '@/lib/types'
-import type { MealCategory, Product, StockStatus } from '@/lib/products'
+import type { MealCategory, Product } from '@/lib/products'
 import type { SecondaryFilter } from '@/components/menu/menu-filters'
 import { MealTabs, SecondaryFilters } from '@/components/menu/menu-filters'
 import { ProductCard } from '@/components/menu/product-card'
@@ -44,17 +44,6 @@ function matchesFilter(
     default:
       return true
   }
-}
-
-function stockSummary(products: Product[]): Record<StockStatus, number> {
-  const acc: Record<StockStatus, number> = {
-    disponible: 0,
-    bajo: 0,
-    agotado: 0,
-    ilimitado: 0,
-  }
-  for (const p of products) acc[p.stock] += 1
-  return acc
 }
 
 export function MenuScreen() {
@@ -115,8 +104,6 @@ export function MenuScreen() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const summary = useMemo(() => stockSummary(products ?? []), [products])
-
   return (
     <div className="min-h-screen bg-[#EEF5FF] pb-28">
       <MenuHeader backHref="/" backLabel="Volver al inicio" />
@@ -131,13 +118,6 @@ export function MenuScreen() {
             <Store className="h-4 w-4 flex-shrink-0 text-[#75AADB]" strokeWidth={2.2} />
             Pedís acá y retirás en el mostrador de Kermingo.
           </p>
-          {state === 'ready' && (
-            <p className="mt-1 text-[11px] font-medium text-[#3A5675]/80">
-              {products?.length ?? 0} productos · {summary.disponible} disponibles ·{' '}
-              {summary.bajo} con stock bajo · {summary.agotado} agotados
-            </p>
-          )}
-
           {state === 'ready' && storeConfig && (isStoreClosed || isStoreDemo) && (
             <div className="mt-2 rounded-2xl border border-[#003B73]/25 bg-amber-50 px-4 py-3 text-sm text-[#003B73]">
               <div className="flex items-center gap-2">
