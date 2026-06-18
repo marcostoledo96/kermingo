@@ -6,8 +6,6 @@ import {
   Eye,
   CheckCircle2,
   XCircle,
-  FileText,
-  ExternalLink,
   Inbox,
   RotateCcw,
   X,
@@ -15,6 +13,9 @@ import {
   AlertCircle,
   Hash,
   Clock,
+  Receipt,
+  ImageIcon,
+  ExternalLink,
   FilterX,
   ArrowRightLeft,
   Banknote,
@@ -26,6 +27,7 @@ import type { EstadoVisual } from './admin-ui'
 import { useAdminSession } from './admin-session'
 import { apiGet, apiPatch, ApiError } from '@/lib/api'
 import type { ApiPedidoListItem, ApiPedido } from '@/lib/types'
+import { API_BASE } from '@/lib/config'
 
 /* ---------------------------------------------------------------------------
  * Comprobantes Screen — v0-aligned visual revision
@@ -95,9 +97,19 @@ export function ComprobantesScreen() {
   const [acting, setActing] = useState<number | null>(null)
   const [detail, setDetail] = useState<ApiPedido | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null)
-  const [comprobanteError, setComprobanteError] = useState<string | null>(null)
+  const [receiptLoadingId, setReceiptLoadingId] = useState<number | null>(null)
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
+  const [receiptPublicUrl, setReceiptPublicUrl] = useState<string | null>(null)
+  const [receiptMimeType, setReceiptMimeType] = useState<string | null>(null)
+  const [receiptError, setReceiptError] = useState<string | null>(null)
+  const [receiptDetailId, setReceiptDetailId] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  const normalizeProxyUrl = useCallback((rawUrl: string | null | undefined) => {
+    if (!rawUrl) return null
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) return rawUrl
+    return `${API_BASE.replace(/\/$/, '')}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
+  }, [])
 
   const loadOrders = useCallback(async () => {
     setLoading(true)
@@ -181,31 +193,59 @@ export function ComprobantesScreen() {
   const openDetail = async (id: number) => {
     setDetailLoading(true)
     setDetail(null)
-    setComprobanteUrl(null)
-    setComprobanteError(null)
     setActionError(null)
     try {
       const pedido = await apiGet<ApiPedido>(`/api/admin/pedidos/${id}`)
       setDetail(pedido)
-      if (pedido.comprobante_archivo_id) {
-        try {
-          type ComprobanteMeta = { url_publica: string | null; nombre_original: string; mime_type: string }
-          const meta = await apiGet<ComprobanteMeta>(`/api/admin/pedidos/${id}/comprobante`)
-          if (meta.url_publica) {
-            setComprobanteUrl(meta.url_publica)
-          } else {
-            setComprobanteError('El comprobante no tiene enlace público de Drive.')
-          }
-        } catch (err) {
-          setComprobanteError(err instanceof ApiError ? err.message : 'No se pudo obtener el comprobante')
-        }
-      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
       setActionError(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle')
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  const openComprobante = async (id: number) => {
+    setReceiptDetailId(id)
+    setReceiptLoadingId(id)
+    setReceiptUrl(null)
+    setReceiptPublicUrl(null)
+    setReceiptMimeType(null)
+    setReceiptError(null)
+
+    try {
+      type ComprobanteMeta = {
+        url_publica: string | null
+        url_proxy: string | null
+        nombre_original: string
+        mime_type: string
+      }
+
+      const meta = await apiGet<ComprobanteMeta>(`/api/admin/pedidos/${id}/comprobante`)
+      const proxyUrl = normalizeProxyUrl(meta.url_proxy)
+      const sourceUrl = proxyUrl ?? meta.url_publica
+
+      if (!sourceUrl) {
+        setReceiptError('El comprobante no tiene enlace disponible.')
+      } else {
+        setReceiptUrl(sourceUrl)
+        setReceiptPublicUrl(meta.url_publica)
+        setReceiptMimeType(meta.mime_type)
+      }
+    } catch (err) {
+      setReceiptError(err instanceof ApiError ? err.message : 'No se pudo obtener el comprobante')
+    } finally {
+      setReceiptLoadingId(null)
+    }
+  }
+
+  const closeComprobante = () => {
+    setReceiptDetailId(null)
+    setReceiptUrl(null)
+    setReceiptPublicUrl(null)
+    setReceiptMimeType(null)
+    setReceiptError(null)
+    setReceiptLoadingId(null)
   }
 
   /* ---- Render ---- */
@@ -303,6 +343,7 @@ export function ComprobantesScreen() {
               order={order}
               acting={acting === order.id}
               onView={() => openDetail(order.id)}
+              onViewComprobante={() => openComprobante(order.id)}
               onApprove={() => markPaid(order.id)}
               onReject={() => markRejected(order.id)}
               onReapprove={order.estado_pago === 'rechazado' ? () => markPaid(order.id) : undefined}
@@ -316,12 +357,22 @@ export function ComprobantesScreen() {
         <ComprobanteDetailModal
           order={detail}
           loading={detailLoading}
-          comprobanteUrl={comprobanteUrl}
-          comprobanteError={comprobanteError}
+          onViewComprobante={detail?.comprobante_archivo_id ? () => openComprobante(detail.id) : undefined}
           acting={acting === detail?.id}
-          onClose={() => { setDetail(null); setDetailLoading(false); setComprobanteUrl(null); setComprobanteError(null) }}
+          onClose={() => { setDetail(null); setDetailLoading(false) }}
           onApprove={() => detail && markPaid(detail.id)}
           onReject={() => detail && markRejected(detail.id)}
+        />
+      )}
+
+      {receiptDetailId !== null && (
+        <ComprobantePreviewModal
+          url={receiptUrl}
+          publicUrl={receiptPublicUrl}
+          mimeType={receiptMimeType}
+          loading={receiptLoadingId === receiptDetailId}
+          error={receiptError}
+          onClose={closeComprobante}
         />
       )}
     </AdminShell>
@@ -338,6 +389,7 @@ function ComprobanteCard({
   order,
   acting,
   onView,
+  onViewComprobante,
   onApprove,
   onReject,
   onReapprove,
@@ -345,6 +397,7 @@ function ComprobanteCard({
   order: ApiPedidoListItem
   acting: boolean
   onView: () => void
+  onViewComprobante: () => void
   onApprove: () => void
   onReject: () => void
   onReapprove?: () => void
@@ -398,7 +451,15 @@ function ComprobanteCard({
           className="km-focus flex items-center gap-1 rounded-lg border border-[#75AADB]/25 bg-white px-2.5 py-2 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
         >
           <Eye className="h-3.5 w-3.5" strokeWidth={2.2} />
-          Ver
+          Ver pedido
+        </button>
+        <button
+          onClick={onViewComprobante}
+          disabled={!order.comprobante_archivo_id || acting}
+          className="km-focus flex items-center gap-1 rounded-lg border border-[#75AADB]/25 bg-white px-2.5 py-2 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Receipt className="h-3.5 w-3.5" strokeWidth={2.2} />
+          Ver comprobante
         </button>
         {isComprobanteSubido && (
           <>
@@ -477,18 +538,16 @@ function ComprobanteEmptyState({
 function ComprobanteDetailModal({
   order,
   loading,
-  comprobanteUrl,
-  comprobanteError,
   acting,
+  onViewComprobante,
   onClose,
   onApprove,
   onReject,
 }: {
   order: ApiPedido | null
   loading: boolean
-  comprobanteUrl: string | null
-  comprobanteError: string | null
   acting: boolean
+  onViewComprobante?: () => void
   onClose: () => void
   onApprove: () => void
   onReject: () => void
@@ -545,14 +604,6 @@ function ComprobanteDetailModal({
 
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          {/* Error in detail */}
-          {comprobanteError && (
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3 py-2 text-xs font-medium text-[var(--km-peligro-text)]">
-              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
-              {comprobanteError}
-            </div>
-          )}
-
           {/* Customer info */}
           {order && (
             <section>
@@ -580,43 +631,8 @@ function ComprobanteDetailModal({
             </section>
           )}
 
-          {/* Comprobante link */}
-          {order?.comprobante_archivo_id && (
-            <section>
-              <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-[#003B73]/50">
-                Comprobante
-              </h3>
-              {comprobanteUrl ? (
-                <a
-                  href={comprobanteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 rounded-xl border border-[#75AADB]/20 bg-white p-3 text-left transition-colors hover:bg-[#EEF5FF]/60"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]">
-                    <FileText className="h-5 w-5" strokeWidth={2} />
-                  </span>
-                  <span className="flex-1">
-                    <span className="block text-sm font-bold text-[#003B73]">
-                      Abrir en Drive
-                    </span>
-                    <span className="block text-xs text-[var(--km-tinta-suave)]">
-                      Ver comprobante de transferencia
-                    </span>
-                  </span>
-                  <ExternalLink className="h-4 w-4 text-[var(--km-tinta-suave)]" strokeWidth={2.2} />
-                </a>
-              ) : !comprobanteError ? (
-                <div className="flex items-center gap-2 rounded-xl border border-[#75AADB]/15 bg-[#EEF5FF]/40 px-4 py-3 text-xs font-medium text-[var(--km-tinta-suave)]">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.2} />
-                  Cargando comprobante…
-                </div>
-              ) : null}
-            </section>
-          )}
-
-          {/* Items */}
-          {order?.items && order.items.length > 0 && (
+           {/* Items */}
+           {order?.items && order.items.length > 0 && (
             <section>
               <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-[#003B73]/50">
                 Items
@@ -640,6 +656,20 @@ function ComprobanteDetailModal({
         {/* Action footer */}
         {order && (
           <div className="space-y-2 border-t border-[#75AADB]/12 bg-[#EEF5FF]/40 p-4">
+            {order.comprobante_archivo_id ? (
+              <button
+                onClick={onViewComprobante}
+                className="km-focus flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#75AADB]/25 bg-white px-3 py-2.5 text-xs font-semibold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+              >
+                <ImageIcon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Ver comprobante
+              </button>
+            ) : (
+              <p className="rounded-lg border border-[#75AADB]/15 bg-white px-3 py-2 text-xs text-[var(--km-tinta-suave)]">
+                Este pedido no tiene comprobante adjunto.
+              </p>
+            )}
+
             {isComprobanteSubido && (
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -678,6 +708,111 @@ function ComprobanteDetailModal({
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ---- Preview modal for comprobante attachment ---- */
+
+function ComprobantePreviewModal({
+  url,
+  publicUrl,
+  mimeType,
+  loading,
+  error,
+  onClose,
+}: {
+  url: string | null
+  publicUrl: string | null
+  mimeType: string | null
+  loading: boolean
+  error: string | null
+  onClose: () => void
+}) {
+  const [imgError, setImgError] = useState(false)
+  const externalLink = publicUrl || url
+  const isPdf = mimeType === 'application/pdf' || url?.toLowerCase().includes('.pdf')
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
+      <button
+        aria-label="Cerrar vista previa del comprobante"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#003B73]/50 backdrop-blur-sm"
+      />
+
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[#75AADB]/12 bg-[#003B73] px-5 py-3.5">
+          <div className="flex items-center gap-2 text-white">
+            <Receipt className="h-4 w-4 text-[#F6B21A]" strokeWidth={2.2} />
+            <h3 className="text-sm font-bold">Comprobante adjunto</h3>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Cerrar vista previa del comprobante"
+            className="rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {error ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+                <AlertCircle className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-peligro-text)]">{error}</p>
+            </div>
+          ) : url && isPdf ? (
+            <iframe
+              src={url}
+              title="Comprobante de pago adjunto en PDF"
+              className="h-[65vh] w-full rounded-xl border border-[#75AADB]/15 bg-white"
+            />
+          ) : url && !imgError ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- Proxy URL from backend, not statically analyzable */
+            <img
+              src={url}
+              alt="Comprobante de pago adjunto"
+              className="mx-auto max-h-[65vh] w-auto rounded-xl border border-[#75AADB]/15 object-contain"
+              onError={() => setImgError(true)}
+            />
+          ) : imgError ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+                <ImageIcon className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-peligro-text)]">No se pudo cargar la imagen.</p>
+              {externalLink && (
+                <a
+                  href={externalLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60"
+                >
+                  <ExternalLink className="h-3 w-3" strokeWidth={2.2} />
+                  Abrir en otra pestaña
+                </a>
+              )}
+            </div>
+          ) : loading ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#75AADB]">
+                <Loader2 className="h-7 w-7 animate-spin" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-tinta-suave)]">Cargando comprobante…</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF5FF] text-[#75AADB]">
+                <ImageIcon className="h-7 w-7" strokeWidth={1.8} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-tinta-suave)]">No hay comprobante para mostrar.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

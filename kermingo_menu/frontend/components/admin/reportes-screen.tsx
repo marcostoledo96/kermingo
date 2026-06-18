@@ -159,12 +159,6 @@ function buildMetricCards(reportes: AdminReportes): MetricConfig[] {
       icon: Clock3,
       tone: 'amber',
     },
-    {
-      label: 'Monto pendiente',
-      value: formatPrice(reportes.montoPendientePago),
-      icon: Clock3,
-      tone: 'red',
-    },
   ]
 }
 

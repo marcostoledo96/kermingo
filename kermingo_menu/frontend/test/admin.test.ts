@@ -876,17 +876,20 @@ describe('apiToAdminReportes', () => {
         producto_id: 7,
         nombre: 'Empanadas x12',
         cantidad: 12,
+        total_recaudado: 8400,
       },
       ranking_productos: [
         {
           producto_id: 7,
           nombre: 'Empanadas x12',
           cantidad: 12,
+          total_recaudado: 8400,
         },
         {
           producto_id: 8,
           nombre: 'Mini churro',
           cantidad: 9,
+          total_recaudado: 2700,
         },
       ],
       actualizado_en: '2026-06-17T12:00:00.000Z',
@@ -898,9 +901,9 @@ describe('apiToAdminReportes', () => {
     expect(reportes.totalEfectivo).toBe(3000)
     expect(reportes.totalTransferencia).toBe(9800)
     expect(reportes.pedidosPendientesPago).toBe(1)
-    expect(reportes.productoTop).toEqual({ productoId: 7, nombre: 'Empanadas x12', cantidad: 12 })
+    expect(reportes.productoTop).toEqual({ productoId: 7, nombre: 'Empanadas x12', cantidad: 12, totalRecaudado: 8400 })
     expect(reportes.rankingProductos).toHaveLength(2)
-    expect(reportes.rankingProductos[1]).toEqual({ productoId: 8, nombre: 'Mini churro', cantidad: 9 })
+    expect(reportes.rankingProductos[1]).toEqual({ productoId: 8, nombre: 'Mini churro', cantidad: 9, totalRecaudado: 2700 })
   })
 
   it('handles missing ranking entries gracefully', () => {
@@ -913,7 +916,7 @@ describe('apiToAdminReportes', () => {
       pedidos_pendientes_pago: 0,
       monto_pendiente_pago: 0,
       producto_top: null,
-      ranking_productos: [{ producto_id: 1, nombre: 'Sorpresa', cantidad: 0 }],
+      ranking_productos: [{ producto_id: 1, nombre: 'Sorpresa', cantidad: 0, total_recaudado: 0 }],
       actualizado_en: '2026-06-17T12:00:00.000Z',
     } as ApiReportes
 
@@ -921,6 +924,6 @@ describe('apiToAdminReportes', () => {
 
     expect(reportes.productoTop).toBeNull()
     expect(reportes.rankingProductos).toHaveLength(1)
-    expect(reportes.rankingProductos[0]).toEqual({ productoId: 1, nombre: 'Sorpresa', cantidad: 0 })
+    expect(reportes.rankingProductos[0]).toEqual({ productoId: 1, nombre: 'Sorpresa', cantidad: 0, totalRecaudado: 0 })
   })
 })

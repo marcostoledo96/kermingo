@@ -53,6 +53,7 @@ export function CajaScreen() {
   const [customer, setCustomer] = useState('')
   const [phone, setPhone] = useState('')
   const [table, setTable] = useState('')
+  const [notes, setNotes] = useState('')
   const [cartOpenMobile, setCartOpenMobile] = useState(false)
   const [confirmed, setConfirmed] = useState<string | null>(null)
 
@@ -130,6 +131,7 @@ export function CajaScreen() {
     setCustomer('')
     setPhone('')
     setTable('')
+    setNotes('')
     setMethod('efectivo')
     setSubmitError(null)
   }
@@ -144,6 +146,7 @@ export function CajaScreen() {
       nombre_cliente: customer.trim() || 'Caja',
       mesa: table.trim() || undefined,
       telefono_cliente: phone.trim() || undefined,
+      observaciones: notes.trim() || undefined,
       metodo_pago: method,
       estado_pago: method === 'efectivo' ? ('pagado' as const) : ('pendiente' as const),
       estado_pedido: 'en_preparacion' as const,
@@ -338,25 +341,27 @@ export function CajaScreen() {
         {/* ── Panel lateral desktop ──────────────────────────── */}
         <aside className="hidden lg:block">
           <div className="sticky top-24">
-            <OrderPanel
-              lines={lines}
-              count={count}
-              total={total}
-              method={method}
-              customer={customer}
-              phone={phone}
-              table={table}
-              submitting={submitting}
-              submitError={submitError}
-              onMethod={setMethod}
-              onCustomer={setCustomer}
-              onPhone={setPhone}
-              onTable={setTable}
-              onChangeQty={changeQty}
-              onRemove={removeLine}
-              onClear={clearOrder}
-              onConfirm={confirmSale}
-            />
+              <OrderPanel
+                lines={lines}
+                count={count}
+                total={total}
+                method={method}
+                customer={customer}
+                phone={phone}
+                table={table}
+                notes={notes}
+                submitting={submitting}
+                submitError={submitError}
+                onMethod={setMethod}
+                onCustomer={setCustomer}
+                onPhone={setPhone}
+                onTable={setTable}
+                onNotes={setNotes}
+                onChangeQty={changeQty}
+                onRemove={removeLine}
+                onClear={clearOrder}
+                onConfirm={confirmSale}
+              />
           </div>
         </aside>
       </div>
@@ -417,12 +422,14 @@ export function CajaScreen() {
                 customer={customer}
                 phone={phone}
                 table={table}
+                notes={notes}
                 submitting={submitting}
                 submitError={submitError}
                 onMethod={setMethod}
                 onCustomer={setCustomer}
                 onPhone={setPhone}
                 onTable={setTable}
+                onNotes={setNotes}
                 onChangeQty={changeQty}
                 onRemove={removeLine}
                 onClear={clearOrder}
@@ -475,12 +482,14 @@ function OrderPanel({
   customer,
   phone,
   table,
+  notes,
   submitting = false,
   submitError = null,
   onMethod,
   onCustomer,
   onPhone,
   onTable,
+  onNotes,
   onChangeQty,
   onRemove,
   onClear,
@@ -494,12 +503,14 @@ function OrderPanel({
   customer: string
   phone: string
   table: string
+  notes: string
   submitting?: boolean
   submitError?: string | null
   onMethod: (m: PayMethod) => void
   onCustomer: (v: string) => void
   onPhone: (v: string) => void
   onTable: (v: string) => void
+  onNotes: (v: string) => void
   onChangeQty: (id: number, delta: number) => void
   onRemove: (id: number) => void
   onClear: () => void
@@ -664,6 +675,15 @@ function OrderPanel({
             className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
           />
         </div>
+
+        <textarea
+          value={notes}
+          onChange={(e) => onNotes(e.target.value)}
+          placeholder="Nota (opcional)"
+          aria-label="Nota opcional"
+          rows={2}
+          className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
+        />
 
         {/* Total grande — v0-like rounded-2xl */}
         <div className="flex items-end justify-between rounded-2xl bg-[var(--km-papel)] px-4 py-3 shadow-sm">

@@ -6,7 +6,7 @@
  *   payment-verification-gate-and-pedidos-tabs/T2.5 — test product image rendering
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CajaScreen } from '@/components/admin/caja-screen'
 import type { ApiProducto } from '@/lib/types'
 
@@ -25,10 +25,11 @@ vi.mock('@/components/admin/admin-shell', () => ({
 }))
 
 const mockApiGet = vi.fn()
+const mockApiPost = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
-  apiPost: vi.fn().mockResolvedValue({ ok: true }),
+  apiPost: (...args: unknown[]) => mockApiPost(...args),
   ApiError: class ApiError extends Error {
     status: number
     constructor(message: string, status: number) {
@@ -83,6 +84,8 @@ describe('CajaScreen product images', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
+
+    mockApiPost.mockResolvedValue({ numero: 'KMG-9999', id: 77 })
   })
 
   it('renders <img> when product has imagen_url', async () => {
@@ -173,6 +176,39 @@ describe('CajaScreen product images', () => {
       expect(pizzaImg).toBeTruthy()
       // Product without image has icon glyph
       expect(screen.getByTestId('product-icon-glyph')).toBeTruthy()
+    })
+  })
+
+  it('sends optional notes as observaciones when confirming caja sale', async () => {
+    const product = makeProduct({
+      id: 10,
+      nombre: 'Empanadita',
+      imagen_url: '/api/productos/10/imagen?v=10',
+    })
+
+    mockProductList([product])
+
+    render(<CajaScreen />)
+
+    // Add product to cart
+    await waitFor(() => {
+      const productBtn = screen.getByRole('button', { name: /empanadita/i })
+      fireEvent.click(productBtn)
+    })
+
+    const noteInput = await screen.findByLabelText(/nota opcional/i)
+    fireEvent.change(noteInput, { target: { value: 'Cliente habitual' } })
+
+    const confirmButtons = screen.getAllByRole('button', { name: /confirmar venta/i })
+    fireEvent.click(confirmButtons[0])
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/api/admin/pedidos/caja',
+        expect.objectContaining({
+          observaciones: 'Cliente habitual',
+        }),
+      )
     })
   })
 })
