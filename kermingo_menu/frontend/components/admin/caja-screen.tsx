@@ -216,7 +216,7 @@ export function CajaScreen() {
           </div>
 
           {/* Filtros */}
-          <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:px-0">
+          <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 pt-1 lg:mx-0 lg:flex-wrap lg:px-0">
             {FILTERS.map((f) => {
               const active = filter === f.id
               return (

@@ -84,6 +84,7 @@ export type ApiReporteProducto = {
   producto_id: number
   nombre: string
   cantidad: number
+  total_recaudado: number | string
 }
 
 export type ApiReportes = {

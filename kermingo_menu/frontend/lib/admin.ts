@@ -33,6 +33,7 @@ export type AdminReporteProducto = {
   productoId: number
   nombre: string
   cantidad: number
+  totalRecaudado: number
 }
 
 export type AdminReportes = {
@@ -63,6 +64,7 @@ function toRankingProducto(p: ApiReportes['ranking_productos'][number] | null): 
     productoId: toNumber(p.producto_id),
     nombre: p.nombre,
     cantidad: toNumber(p.cantidad),
+    totalRecaudado: toNumber(p.total_recaudado),
   }
 }
 

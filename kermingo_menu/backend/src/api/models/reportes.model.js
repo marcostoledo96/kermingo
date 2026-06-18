@@ -4,7 +4,7 @@ function toNumber(value, fallback = 0) {
   return Number.isNaN(parsed) ? fallback : parsed;
 }
 
-export async function obtenerReportes(pool, { rankingLimit = 10 } = {}) {
+export async function obtenerReportes(pool) {
   const [[metricas]] = await pool.query(`
     SELECT
       COALESCE(SUM(CASE WHEN p.estado_pago = 'pagado' AND p.estado_pedido != 'cancelado' THEN p.total ELSE 0 END), 0) AS total_recaudado,
@@ -25,28 +25,25 @@ export async function obtenerReportes(pool, { rankingLimit = 10 } = {}) {
       AND p.estado_pago = 'pagado'
   `);
 
-  const limit = Math.max(1, Number(rankingLimit) || 10);
-  const [rankingFilas] = await pool.query(
-    `
+  const [rankingFilas] = await pool.query(`
     SELECT
       pd.producto_id AS producto_id,
       MAX(pd.nombre_producto) AS nombre,
-      COALESCE(SUM(pd.cantidad), 0) AS cantidad
+      COALESCE(SUM(pd.cantidad), 0) AS cantidad,
+      COALESCE(SUM(pd.subtotal), 0) AS total_recaudado
     FROM pedido_detalle pd
     INNER JOIN pedido p ON p.id = pd.pedido_id
     WHERE p.estado_pedido != 'cancelado'
       AND p.estado_pago = 'pagado'
     GROUP BY pd.producto_id
     ORDER BY cantidad DESC, pd.producto_id ASC
-    LIMIT ?
-  `,
-    [limit]
-  );
+  `);
 
   const ranking_productos = rankingFilas.map((row) => ({
     producto_id: Number(row.producto_id),
     nombre: row.nombre,
     cantidad: toNumber(row.cantidad, 0),
+    total_recaudado: toNumber(row.total_recaudado, 0),
   }));
 
   return {

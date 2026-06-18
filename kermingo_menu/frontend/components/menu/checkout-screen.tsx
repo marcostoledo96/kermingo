@@ -398,6 +398,12 @@ export function CheckoutScreen() {
                 <p className="text-xs text-[var(--km-tinta-suave)]">Subí el comprobante y te lo verificamos</p>
               </div>
             </div>
+            <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-[var(--km-alerta-text)]/35 bg-[var(--km-alerta-bg)] px-4 py-3">
+              <AlertCircle className="mt-0.5 h-4.5 w-4.5 flex-shrink-0 text-[var(--km-alerta-text)]" strokeWidth={2.2} />
+              <p className="text-xs font-semibold leading-relaxed text-[var(--km-alerta-text)]">
+                Si querés abonar en efectivo, acercate directamente a nuestra caja de ventas.
+              </p>
+            </div>
           </div>
 
           <div className="mt-4 space-y-3">

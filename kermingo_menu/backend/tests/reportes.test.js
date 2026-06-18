@@ -183,13 +183,14 @@ describe('GET /api/admin/reportes (integración + agregados SQL)', () => {
       producto_id: expect.any(Number),
       nombre: `${RUN_ID}-producto-a`,
       cantidad: 5,
+      total_recaudado: 50,
     });
     expect(reportes.producto_top).toEqual(reportes.ranking_productos[0]);
     expect(new Date(reportes.actualizado_en).toString()).not.toBe('Invalid Date');
   });
 
   it('el modelo de reportes devuelve las mismas agregaciones', async () => {
-    const directData = await obtenerReportes(pool, { rankingLimit: 2 });
+    const directData = await obtenerReportes(pool);
     expect(directData.total_recaudado).toBeCloseTo(70);
     expect(directData.total_efectivo).toBeCloseTo(20);
     expect(directData.total_transferencia).toBeCloseTo(50);
@@ -201,6 +202,7 @@ describe('GET /api/admin/reportes (integración + agregados SQL)', () => {
     expect(directData.producto_top).toMatchObject({
       nombre: `${RUN_ID}-producto-a`,
       cantidad: 5,
+      total_recaudado: 50,
     });
     expect(directData.ranking_productos[0].producto_id).toBe(directData.producto_top.producto_id);
     expect(directData.actualizado_en).toEqual(expect.any(String));
