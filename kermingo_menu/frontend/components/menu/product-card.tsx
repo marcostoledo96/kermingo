@@ -20,7 +20,7 @@ const STOCK_CONFIG: Record<
     icon: AlertTriangle,
   },
   ilimitado: {
-    label: 'Siempre hay',
+    label: 'Disponible',
     className: 'bg-[#75AADB]/20 text-[#003B73]',
     icon: InfinityIcon,
   },

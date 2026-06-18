@@ -8,8 +8,7 @@ import { useApiResource } from '@/lib/use-api-resource'
 import { mapProducto } from '@/lib/mappers'
 import type { ApiProducto, ApiConfiguracion } from '@/lib/types'
 import type { MealCategory, Product } from '@/lib/products'
-import type { SecondaryFilter } from '@/components/menu/menu-filters'
-import { MealTabs, SecondaryFilters } from '@/components/menu/menu-filters'
+import { MealTabs } from '@/components/menu/menu-filters'
 import { ProductCard } from '@/components/menu/product-card'
 import { FloatingCartBar } from '@/components/menu/floating-cart'
 import { MenuHeader } from '@/components/menu/menu-header'
@@ -24,28 +23,6 @@ function sortBySoldOut(a: Product, b: Product): number {
   return 0
 }
 
-function matchesFilter(
-  p: Product,
-  meal: MealCategory,
-  filter: SecondaryFilter,
-): boolean {
-  if (!p.meals.includes(meal)) return false
-  const isSoldOut = p.stock === 'agotado'
-  const isNotAvailable = p.stock === 'no_disponible'
-  switch (filter) {
-    case 'comidas':
-      return p.type === 'comida' && !isSoldOut
-    case 'bebidas':
-      return p.type === 'bebida' && !isSoldOut
-    case 'promos':
-      return p.type === 'promo' && !isSoldOut
-    case 'agotados':
-      return isSoldOut || isNotAvailable
-    default:
-      return true
-  }
-}
-
 function MenuLoadingSkeleton() {
   return (
     <div className="mt-5 space-y-4" aria-hidden="true">
@@ -53,16 +30,6 @@ function MenuLoadingSkeleton() {
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#EEF5FF] p-1">
           <div className="h-11 animate-pulse rounded-xl bg-[#003B73]/85" />
           <div className="h-11 animate-pulse rounded-xl bg-white ring-1 ring-[#75AADB]/25" />
-        </div>
-        <div className="mt-3 flex gap-2 overflow-hidden">
-          {[0, 1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className={`h-9 flex-shrink-0 animate-pulse rounded-full ${
-                item === 0 ? 'w-20 bg-[#F6B21A]/70' : 'w-24 bg-[#75AADB]/20'
-              }`}
-            />
-          ))}
         </div>
       </div>
 
@@ -100,7 +67,6 @@ function MenuLoadingSkeleton() {
 
 export function MenuScreen() {
   const [meal, setMeal] = useState<MealCategory>('merienda')
-  const [filter, setFilter] = useState<SecondaryFilter>('todos')
   const [defaultTabApplied, setDefaultTabApplied] = useState(false)
 
   const {
@@ -144,15 +110,14 @@ export function MenuScreen() {
   const visible = useMemo(() => {
     if (!products) return []
     return products
-      .filter((p) => matchesFilter(p, meal, filter))
+      .filter((p) => p.meals.includes(meal))
       .sort(sortBySoldOut)
-  }, [products, meal, filter])
+  }, [products, meal])
 
   const otherMeal: MealCategory = meal === 'merienda' ? 'cena' : 'merienda'
 
   const switchToOtherMeal = () => {
     setMeal(otherMeal)
-    setFilter('todos')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -208,13 +173,10 @@ export function MenuScreen() {
           )}
         </section>
 
-        {/* Tabs + filtros sticky con fondo opaco para tapar contenido al scrollear */}
+        {/* Tabs sticky con fondo opaco para tapar contenido al scrollear */}
         {state === 'ready' && (
           <div className="sticky top-[71px] z-30 -mx-4 border-b border-[#75AADB]/20 bg-[#EEF5FF] px-4 pb-3 pt-4 shadow-[0_4px_8px_-4px_rgba(0,59,115,0.08)]">
             <MealTabs value={meal} onChange={setMeal} />
-            <div className="mt-3">
-              <SecondaryFilters value={filter} onChange={setFilter} />
-            </div>
           </div>
         )}
 
@@ -270,18 +232,9 @@ export function MenuScreen() {
                 Todavía no hay nada acá
               </p>
               <p className="mt-1 text-sm text-[#3A5675]">
-                En {meal} no encontramos productos con ese filtro.
+                En {meal} todavía no hay productos cargados.
               </p>
             </div>
-            {filter !== 'todos' && (
-              <button
-                type="button"
-                onClick={() => setFilter('todos')}
-                className="rounded-full bg-[#003B73] px-5 py-2.5 text-sm font-bold text-white transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#003B73] focus-visible:ring-offset-2"
-              >
-                Ver todo el menú
-              </button>
-            )}
           </div>
         )}
       </main>
