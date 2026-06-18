@@ -470,6 +470,66 @@ describe('OrdersScreen', () => {
       expect(img.src).toContain('/api/admin/pedidos/200/comprobante/imagen')
     })
 
+    it('opens comprobante PDF inside modal when receipt mime type is application/pdf', async () => {
+      const orderWithReceipt = makeApiOrder({
+        id: 205,
+        estado_pedido: 'recibido',
+        estado_pago: 'comprobante_subido',
+        metodo_pago: 'transferencia',
+        comprobante_archivo_id: 57,
+        origen: 'online',
+      })
+      const orderDetail = {
+        ...orderWithReceipt,
+        items: [],
+      }
+
+      mockApiGet.mockImplementation(async (url: string) => {
+        if (url.includes('/comprobante')) {
+          return {
+            url_publica: 'https://drive.google.com/file/d/pdf/view',
+            url_proxy: '/api/admin/pedidos/205/comprobante/imagen',
+            nombre_original: 'comprobante.pdf',
+            mime_type: 'application/pdf',
+          }
+        }
+        if (url.includes('/pedidos/205')) {
+          return orderDetail
+        }
+        return mockPaginatedResponse([orderWithReceipt])
+      })
+
+      render(<OrdersScreen />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/confirmar pago y enviar a cocina/i)).toBeTruthy()
+      })
+
+      const moreButtons = screen.getAllByRole('button', { name: /más acciones/i })
+      fireEvent.click(moreButtons[0])
+
+      await waitFor(() => {
+        expect(screen.getByText(/ver detalle/i)).toBeTruthy()
+      })
+      fireEvent.click(screen.getByText(/ver detalle/i))
+
+      let comprobanteBtn: HTMLElement | undefined
+      await waitFor(() => {
+        const buttons = screen.getAllByRole('button', { name: /ver comprobante adjunto/i })
+        comprobanteBtn = buttons[buttons.length - 1]
+        expect(comprobanteBtn).toBeTruthy()
+      }, { timeout: 5000 })
+      fireEvent.click(comprobanteBtn!)
+
+      await waitFor(() => {
+        const pdfFrame = screen.getByTitle('Comprobante de pago adjunto en PDF') as HTMLIFrameElement
+        expect(pdfFrame).toBeTruthy()
+        expect(pdfFrame.src).toContain('/api/admin/pedidos/205/comprobante/imagen')
+      })
+
+      expect(screen.queryByAltText('Comprobante de pago adjunto')).toBeNull()
+    })
+
     it('shows "Abrir en otra pestaña" fallback link inside the comprobante modal', async () => {
       const orderWithReceipt = makeApiOrder({
         id: 201,

@@ -164,6 +164,7 @@ export function OrdersScreen() {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null)
   const [comprobantePublicUrl, setComprobantePublicUrl] = useState<string | null>(null)
+  const [comprobanteMimeType, setComprobanteMimeType] = useState<string | null>(null)
   const [comprobanteError, setComprobanteError] = useState<string | null>(null)
   const [showComprobanteModal, setShowComprobanteModal] = useState(false)
   const [comprobanteLoading, setComprobanteLoading] = useState(false)
@@ -265,6 +266,7 @@ export function OrdersScreen() {
     setActionError(null)
     setComprobanteUrl(null)
     setComprobantePublicUrl(null)
+    setComprobanteMimeType(null)
     setComprobanteError(null)
     try {
       const full = await apiGet<ApiPedido>(`/api/admin/pedidos/${order.id}`)
@@ -283,8 +285,10 @@ export function OrdersScreen() {
               : meta.url_proxy
             setComprobanteUrl(proxyUrl)
             setComprobantePublicUrl(meta.url_publica)
+            setComprobanteMimeType(meta.mime_type)
           } else if (meta.url_publica) {
             setComprobanteUrl(meta.url_publica)
+            setComprobanteMimeType(meta.mime_type)
           } else {
             setComprobanteError('El comprobante no tiene enlace público de Drive.')
           }
@@ -303,6 +307,7 @@ export function OrdersScreen() {
   async function openComprobante(order: Order) {
     setComprobanteUrl(null)
     setComprobantePublicUrl(null)
+    setComprobanteMimeType(null)
     setComprobanteError(null)
     setShowComprobanteModal(true)
     setComprobanteLoading(true)
@@ -316,8 +321,10 @@ export function OrdersScreen() {
           : meta.url_proxy
         setComprobanteUrl(proxyUrl)
         setComprobantePublicUrl(meta.url_publica)
+        setComprobanteMimeType(meta.mime_type)
       } else if (meta.url_publica) {
         setComprobanteUrl(meta.url_publica)
+        setComprobanteMimeType(meta.mime_type)
       } else {
         setComprobanteError('El comprobante no tiene enlace público de Drive.')
       }
@@ -615,8 +622,6 @@ export function OrdersScreen() {
             </div>
           </>
         )}
-      )
-
       {detail && (
         <OrderDetailModal
           order={detail}
@@ -625,7 +630,7 @@ export function OrdersScreen() {
           confirming={confirming === detail.id}
           comprobanteUrl={comprobanteUrl}
           comprobanteError={comprobanteError}
-          onClose={() => { setDetail(null); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteError(null); setShowComprobanteModal(false) }}
+          onClose={() => { setDetail(null); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteMimeType(null); setComprobanteError(null); setShowComprobanteModal(false) }}
           onAdvance={() => {
             const next = NEXT_STATUS[detail.status]
             if (next) setStatus(detail.id, next)
@@ -640,9 +645,10 @@ export function OrdersScreen() {
         <ComprobanteModal
           url={comprobanteUrl}
           publicUrl={comprobantePublicUrl}
+          mimeType={comprobanteMimeType}
           error={comprobanteError}
           loading={comprobanteLoading}
-          onClose={() => { setShowComprobanteModal(false); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteError(null) }}
+          onClose={() => { setShowComprobanteModal(false); setComprobanteUrl(null); setComprobantePublicUrl(null); setComprobanteMimeType(null); setComprobanteError(null) }}
         />
       )}
     </AdminShell>
@@ -1380,12 +1386,14 @@ function OrderDetailModal({
 function ComprobanteModal({
   url,
   publicUrl,
+  mimeType,
   error,
   loading,
   onClose,
 }: {
   url: string | null
   publicUrl: string | null
+  mimeType: string | null
   error: string | null
   loading: boolean
   onClose: () => void
@@ -1393,6 +1401,7 @@ function ComprobanteModal({
   const [imgError, setImgError] = useState(false)
   // Use the proxy URL for <img>, and the public Drive URL for "Abrir en otra pestaña"
   const externalLink = publicUrl || url
+  const isPdf = mimeType === 'application/pdf' || url?.toLowerCase().includes('.pdf')
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center">
@@ -1429,6 +1438,12 @@ function ComprobanteModal({
               </div>
               <p className="text-sm font-medium text-[var(--km-peligro-text)]">{error}</p>
             </div>
+          ) : url && isPdf ? (
+            <iframe
+              src={url}
+              title="Comprobante de pago adjunto en PDF"
+              className="h-[65vh] w-full rounded-xl border border-[#75AADB]/15 bg-white"
+            />
           ) : url && !imgError ? (
             /* eslint-disable-next-line @next/next/no-img-element -- Proxy URL from backend, not statically analyzable */
             <img
