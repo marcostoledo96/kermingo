@@ -177,6 +177,7 @@ export type Order = {
   payStatus: PayStatus
   status: OrderStatus
   time: string
+  total: number
   notes?: string
   hasReceipt: boolean
   lines: { name: string; icon: ProductIcon; qty: number; price: number }[]
@@ -197,6 +198,7 @@ export function apiToOrder(p: ApiPedido | ApiPedidoListItem): Order {
     payStatus: mapPayStatus(p.estado_pago),
     status: mapOrderStatus(p.estado_pedido),
     time: formatTime(p.created_at),
+    total: typeof p.total === 'string' ? parseFloat(p.total) : (p.total ?? 0),
     notes: p.observaciones ?? undefined,
     hasReceipt: p.comprobante_archivo_id != null,
     lines:

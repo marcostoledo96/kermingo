@@ -20,7 +20,7 @@ function sortBySoldOut(a: Product, b: Product): number {
   const aUnavailable = a.stock === 'agotado' || a.stock === 'no_disponible'
   const bUnavailable = b.stock === 'agotado' || b.stock === 'no_disponible'
   if (aUnavailable && !bUnavailable) return 1
-  if (bUnavailable && !aUnavailable) return 0
+  if (bUnavailable && !aUnavailable) return -1
   return 0
 }
 
@@ -106,6 +106,14 @@ export function MenuScreen() {
       .filter((p) => matchesFilter(p, meal, filter))
       .sort(sortBySoldOut)
   }, [products, meal, filter])
+
+  const otherMeal: MealCategory = meal === 'merienda' ? 'cena' : 'merienda'
+
+  const switchToOtherMeal = () => {
+    setMeal(otherMeal)
+    setFilter('todos')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const summary = useMemo(() => stockSummary(products ?? []), [products])
 
@@ -218,6 +226,13 @@ export function MenuScreen() {
             {visible.map((p) => (
               <ProductCard key={p.id} product={p} disabled={isStoreDisabled} disabledReason={productDisabledMessage} />
             ))}
+            <button
+              type="button"
+              onClick={switchToOtherMeal}
+              className="km-focus mt-2 flex w-full items-center justify-center rounded-2xl border border-[#75AADB]/35 bg-white px-5 py-3 text-sm font-extrabold text-[#003B73] shadow-sm transition-colors hover:bg-[#EEF5FF]"
+            >
+              Ver {otherMeal}
+            </button>
           </div>
         )}
 

@@ -705,11 +705,11 @@ function KdsOrderCard({
         </div>
       </div>
 
-      {/* Observations — uses Kermingo tokens */}
+      {/* Observations — more visible for cocina (urgency channel) */}
       {order.observations && (
-        <div className="mx-4 mt-2 flex items-start gap-2 rounded-lg bg-[var(--km-preparando-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--km-preparando-text)]">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
-          <span>Nota: {order.observations}</span>
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-xl border-2 border-[var(--km-peligro-text)] bg-[var(--km-peligro-bg)] px-3 py-2 text-sm font-bold text-[var(--km-peligro-text)] shadow-sm">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.4} />
+          <span><span className="font-bold">Nota:</span> {order.observations}</span>
         </div>
       )}
 

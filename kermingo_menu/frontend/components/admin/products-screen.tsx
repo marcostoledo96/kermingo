@@ -411,7 +411,7 @@ export function ProductsScreen() {
                           <h3 className="text-sm font-bold text-[#003B73]/70">{group.label}</h3>
                           <span className="text-xs text-[#003B73]/40">({group.products.length})</span>
                         </div>
-                        <div className="overflow-hidden rounded-xl border border-[var(--km-linea)] km-panel p-0">
+                        <div className="rounded-xl border border-[var(--km-linea)] km-panel p-0">
                           <table className="w-full text-sm">
                             <thead>
                               <tr className="border-b border-[var(--km-linea)] bg-[var(--km-fondo)]/60 text-left text-[11px] font-semibold tracking-wide text-[#003B73]/55">
@@ -435,7 +435,7 @@ export function ProductsScreen() {
                     ))
                   ) : (
                     // Flat table (no grouping when filtering by type/meal or viewing non-activo)
-                    <div className="overflow-hidden km-panel">
+                    <div className="km-panel">
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
@@ -679,7 +679,7 @@ function RowActions({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
+            <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[160px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
               {state === 'desactivado' ? (
                 <button
                   onClick={() => { onToggle(); setOpen(false) }}
@@ -832,7 +832,7 @@ function MobileProductCard({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 min-w-[150px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
+              <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[150px] rounded-xl border border-[var(--km-linea)] bg-white py-1.5 shadow-lg">
                 {state === 'desactivado' ? (
                   <button
                     onClick={() => { onToggle(); setMenuOpen(false) }}

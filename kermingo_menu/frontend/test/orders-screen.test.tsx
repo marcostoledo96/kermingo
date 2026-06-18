@@ -247,6 +247,7 @@ describe('OrdersScreen', () => {
       await waitFor(() => {
         expect(screen.getByText(/confirmar pago y enviar a cocina/i)).toBeTruthy()
       })
+      expect(screen.getAllByText('$ 5.000').length).toBeGreaterThanOrEqual(1)
     })
 
     it('calls PATCH /pago then PATCH /estado on confirm payment', async () => {

@@ -356,6 +356,7 @@ describe('apiToOrder', () => {
     expect(o.payStatus).toBe('pendiente')
     expect(o.status).toBe('recibido')
     expect(o.hasReceipt).toBe(false)
+    expect(o.total).toBe(5000)
     expect(o.lines).toHaveLength(1)
     expect(o.lines[0].name).toBe('Pizza')
     expect(o.lines[0].qty).toBe(2)
@@ -430,6 +431,7 @@ describe('apiToOrder', () => {
       items: [],
     }
     const o = apiToOrder(api)
+    expect(o.total).toBe(0)
     expect(o.lines).toEqual([])
     expect(o.table).toBeUndefined()
     expect(o.phone).toBeUndefined()
