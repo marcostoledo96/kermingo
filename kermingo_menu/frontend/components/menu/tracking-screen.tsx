@@ -106,6 +106,8 @@ const TIMELINE: { key: PedidoEstado; label: string; icon: typeof Check }[] = [
 
 const TIMELINE_ORDER: PedidoEstado[] = ['recibido', 'en_preparacion', 'listo', 'entregado']
 
+const AUTO_REFRESH_MS = 60_000
+
 // Step color tokens aligned with STATUS_CONFIG
 const STEP_COLORS: Record<string, { dot: string; line: string; text: string }> = {
   recibido: { dot: 'bg-[var(--km-info-text)]', line: 'bg-[var(--km-info-text)]', text: 'text-[var(--km-info-text)]' },
@@ -289,6 +291,17 @@ export function TrackingScreen() {
     fetchAll(entries)
   }, [entries, fetchAll])
 
+  // Autorefresco para que el seguimiento público se mantenga actualizado sin tocar el botón.
+  useEffect(() => {
+    if (entries.length === 0) return
+
+    const intervalId = window.setInterval(() => {
+      void fetchAll(entries)
+    }, AUTO_REFRESH_MS)
+
+    return () => window.clearInterval(intervalId)
+  }, [entries, fetchAll])
+
   const onRefreshAll = () => {
     fetchAll(entries)
   }
@@ -457,7 +470,7 @@ export function TrackingScreen() {
         </Link>
 
         <p className="pt-1 text-center text-xs leading-relaxed text-[var(--km-tinta-suave)] text-pretty">
-          El estado se actualiza desde la base de datos. Tocá el botón de refresco para ver cambios.
+          El estado se actualiza automáticamente cada 1 minuto. También podés tocar el botón de refresco.
         </p>
       </main>
     </div>

@@ -97,6 +97,7 @@ describe('TrackingScreen — auto-carga desde este celular (S5, S6, S7)', () => 
 
     // Sí debe mostrar la lista de pedidos del dispositivo
     expect(screen.getByText(/Tus pedidos/i)).toBeTruthy()
+    expect(screen.getByText(/automáticamente cada 1 minuto/i)).toBeTruthy()
     expect(screen.getAllByText(/KMG-000/).length).toBeGreaterThanOrEqual(2)
 
     // Las llamadas a la API deben hacerse para cada token
@@ -292,4 +293,5 @@ describe('TrackingScreen — auto-carga desde este celular (S5, S6, S7)', () => 
     // The first rendered order number should be the newer one
     expect(allOrderNumbers[0].textContent).toContain('KMG-0002')
   })
+
 })
