@@ -93,12 +93,13 @@ describe('TicketScreen sin QR (S1, S2, S3 legacy)', () => {
     expect(screen.getByText(/descargar ticket pdf/i)).toBeTruthy()
   })
 
-  it('renderiza el empty state cuando no hay pedido', () => {
+  it('muestra skeleton y luego renderiza el empty state cuando no hay pedido', async () => {
     mockOrderValue = null
 
     render(<TicketScreen />)
 
-    expect(screen.getByText('No hay un pedido reciente')).toBeTruthy()
+    expect(screen.getByText(/Cargando ticket del pedido/i)).toBeTruthy()
+    expect(await screen.findByText('No hay un pedido reciente')).toBeTruthy()
   })
 })
 

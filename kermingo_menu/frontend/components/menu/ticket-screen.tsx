@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import {
   CheckCircle2,
   Clock,
@@ -43,8 +44,18 @@ export function TicketScreen() {
   const [order] = useLocalStorageState<LastOrder | null>(LAST_ORDER_KEY, {
     defaultValue: null,
   })
+  const [showEmptyState, setShowEmptyState] = useState(false)
+
+  useEffect(() => {
+    if (order) return
+
+    const timer = window.setTimeout(() => setShowEmptyState(true), 450)
+    return () => window.clearTimeout(timer)
+  }, [order])
 
   if (!order) {
+    if (!showEmptyState) return <TicketLoadingSkeleton />
+
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--km-azul)] px-6 text-center text-white">
         <TicketIcon className="h-12 w-12 text-[var(--km-dorado)]" />
@@ -234,6 +245,71 @@ export function TicketScreen() {
         <p className="mt-6 text-center text-xs leading-relaxed text-white/55 text-pretty print:hidden">
           {EVENTO.fraseInstitucional}
         </p>
+      </div>
+    </div>
+  )
+}
+
+function TicketLoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-[var(--km-azul)] px-4 pb-10 pt-8" role="status" aria-live="polite">
+      <div className="mx-auto w-full max-w-sm">
+        <header className="mb-6 flex flex-col items-center text-center">
+          <div className="mb-3 h-16 w-16 animate-pulse rounded-full bg-[var(--km-dorado)]/20 ring-4 ring-[var(--km-dorado)]/15" />
+          <div className="h-3 w-24 animate-pulse rounded-full bg-[var(--km-celeste)]/35" />
+          <div className="mt-3 h-7 w-52 animate-pulse rounded-full bg-white/20" />
+          <p className="sr-only">Cargando ticket del pedido…</p>
+        </header>
+
+        <article className="overflow-hidden rounded-[1.75rem] bg-white shadow-2xl shadow-black/30">
+          <ArgentinaStripe className="h-2" />
+          <div className="px-6 pt-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 animate-pulse rounded-xl bg-[var(--km-azul)]/18" />
+                <div>
+                  <div className="h-3 w-28 animate-pulse rounded-full bg-[var(--km-celeste)]/25" />
+                  <div className="mt-2 h-5 w-24 animate-pulse rounded-full bg-[var(--km-azul)]/20" />
+                </div>
+              </div>
+              <div className="h-7 w-20 animate-pulse rounded-full bg-[var(--km-preparando-bg)]" />
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-4 px-6">
+            {[0, 1, 2, 3].map((item) => (
+              <div key={item}>
+                <div className="h-3 w-16 animate-pulse rounded-full bg-[var(--km-linea)]" />
+                <div className="mt-2 h-4 w-24 animate-pulse rounded-full bg-[var(--km-azul)]/18" />
+              </div>
+            ))}
+          </div>
+
+          <Perforation />
+
+          <div className="px-6">
+            <div className="h-3 w-20 animate-pulse rounded-full bg-[var(--km-linea)]" />
+            <div className="mt-3 space-y-3">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="flex items-center gap-3">
+                  <div className="h-5 w-7 animate-pulse rounded-md bg-[var(--km-azul)]/20" />
+                  <div className="h-4 flex-1 animate-pulse rounded-full bg-[var(--km-celeste)]/20" />
+                  <div className="h-4 w-14 animate-pulse rounded-full bg-[var(--km-azul)]/18" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mx-6 mt-4 flex items-end justify-between rounded-2xl bg-[var(--km-azul)] px-4 py-3">
+            <div className="h-4 w-24 animate-pulse rounded-full bg-white/20" />
+            <div className="h-7 w-24 animate-pulse rounded-full bg-[var(--km-dorado)]/55" />
+          </div>
+
+          <Perforation />
+          <div className="px-6 py-4">
+            <div className="h-12 animate-pulse rounded-2xl bg-[var(--km-fondo)]" />
+          </div>
+        </article>
       </div>
     </div>
   )
