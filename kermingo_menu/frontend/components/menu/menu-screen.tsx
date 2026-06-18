@@ -116,9 +116,13 @@ export function MenuScreen() {
 
   const otherMeal: MealCategory = meal === 'merienda' ? 'cena' : 'merienda'
 
-  const switchToOtherMeal = () => {
-    setMeal(otherMeal)
+  const changeMeal = (nextMeal: MealCategory) => {
+    setMeal(nextMeal)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const switchToOtherMeal = () => {
+    changeMeal(otherMeal)
   }
 
   return (
@@ -176,7 +180,7 @@ export function MenuScreen() {
         {/* Tabs sticky con fondo opaco para tapar contenido al scrollear */}
         {state === 'ready' && (
           <div className="sticky top-[71px] z-30 -mx-4 border-b border-[#75AADB]/20 bg-[#EEF5FF] px-4 pb-3 pt-4 shadow-[0_4px_8px_-4px_rgba(0,59,115,0.08)]">
-            <MealTabs value={meal} onChange={setMeal} />
+            <MealTabs value={meal} onChange={changeMeal} />
           </div>
         )}
 
