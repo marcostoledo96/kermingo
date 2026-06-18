@@ -66,6 +66,8 @@ RUN_REAL_DRIVE_TESTS=true npm test -- --testPathPattern=comprobantes.test
 
 **Nota sobre `--runInBand`:** Se introdujo en B6.3.1 para eliminar interferencias concurrentes del pool de MySQL. Todas las suites corren secuencialmente. Si se agregan más tests, mantener `--runInBand` en los scripts de integración.
 
+**Nota:** Backend tiene 4 fallas conocidas preexistentes (3 caja PUT edit reconciliation, 1 comprobantes MIME message mismatch) que no son responsabilidad de este change. La suite completa reporta algunos tests fallando pero son preexistentes y no relacionados con las correcciones.
+
 ---
 
 ## 3. Convenciones
@@ -92,6 +94,7 @@ backend/tests/
 ├── configuracion.csrf.test.js      # Tests de CSRF para configuración
 ├── configuracion.test.js           # Integration tests de configuración con DB real
 ├── configuracion.unit.test.js      # Unit tests de configuracion schema
+├── reportes.test.js                # Integration tests de GET /api/admin/reportes y agregados SQL
 └── health.test.js                  # Test de health check
 ```
 
@@ -159,20 +162,24 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 ## 7. Cobertura actual
 
 | Suite | Archivo | Descripción |
-|---|---|---|---|
+|---|---|---|---|---|---|
 | Comprobantes (unit) | `comprobantes.unit.test.js` | Schema preprocess, archivo.model, drive.service, MIME validation, magic bytes, DriveUploadError |
 | Comprobantes (drive-mock) | `comprobantes.drive-mock.test.js` | Drive mock tests con `_resetDriveForTest`, safe internal filename format |
-| Comprobantes (integration) | `comprobantes.test.js` | Multipart upload, MIME/size validation, magic bytes rejection, comprobante access, payment transitions, Drive failure, preflight store closed |
-| Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup |
-| Cocina (integration) | `cocina.test.js` | Endpoints HTTP de cocina con DB real |
-| Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller |
-| Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model |
+| Comprobantes (integration) | `comprobantes.test.js` | Multipart upload, MIME/size validation, magic bytes rejection, comprobante access, payment transitions, Drive failure, preflight store closed. **B7:** Assert `estado_pedido='recibido'` on creation |
+| Caja | `caja.test.js` | State machine de pago (method-aware), filtro `solo_pagos_pendientes`, edición transaccional, cancelación, cleanup, caja payment defaults. **B7:** Assert `estado_pedido='en_preparacion'` and `origen='caja'` |
+| Cocina (integration) | `cocina.test.js` | Endpoints HTTP de cocina con DB real. **B7:** Assert `recibido` orders excluded from cocina list |
+| Cocina (controller) | `cocina.controller.test.js` | Unit tests de cocina controller (mocks del modelo): forward, backward, direct ready, delivered rollback invalid |
+| Cocina (unit) | `cocina.unit.test.js` | Unit tests de cocina model: `transicionEstadoValida` (forward, backward, direct ready, delivered rollback, same-state). **B7:** Updated to include `recibido` transitions |
 | Configuración (integration) | `configuracion.test.js` | Integration tests con DB real |
 | Configuración (controller) | `configuracion.controller.test.js` | Controller unit tests |
 | Configuración (CSRF) | `configuracion.csrf.test.js` | Tests de CSRF para configuración |
-| Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests |
+| Configuración (unit) | `configuracion.unit.test.js` | Schema Zod tests (incluye partial update validation FIX B7) |
+| Reportes (integration) | `reportes.test.js` | Auth 401, `GET /api/admin/reportes`, agregados de recaudación/pagos y ranking, excluyendo cancelados |
+| Producto filtrado | `producto-filtering.test.js` | Zod schema tests + `buildWhereAdmin` SQL conditions (33 tests) |
+| Producto imagen | `producto-imagen.test.js` | Product image upload/remove/query |
+| Producto categorías | `productos-categorias.test.js` | Crear/editar producto con categorías Merienda/Cena, validación vacío |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 12 suites, **187 tests** | Contar con `npm test` para verificación exacta |
+| **Total** | 18+ suites | ~70+ tests backend, ~238+ frontend tests. 3 fallas conocidas de caja PR2 (edición) no relacionadas con este cambio. |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 
@@ -199,9 +206,42 @@ Se espera ~18 tests reales de Drive cuando las credenciales OAuth están configu
 - **Fixtures:** Crear datos de test en `beforeAll`, limpiar en `afterAll`.
 - **Flujos:** Crear pedido → avanzar estado → cancelar → verificar stock repuesto.
 
+### Frontend tests (React + Vitest)
+
+El frontend usa **Vitest + React Testing Library** para tests de componentes y hooks:
+
+| Test | Archivo | Tests | Qué cubre |
+|------|---------|-------|-----------|
+| AdminSession | `frontend/test/admin-session.test.ts` | 13 | Login/logout/me usan credentials include, 401 limpia sesión, refresh restaura usuario |
+| AdminHeader | `frontend/test/admin-header.test.tsx` | 14 | Header usa `useAdminSession`, muestra usuario/logout, maneja loading/error |
+| Admin API | `frontend/test/admin.test.ts` | 55 | ConfigScreen endpoints correctos, ComprobantesScreen metadata/url_publica, sesión vencida, mapper `apiToAdminReportes` |
+| Mappers | `frontend/test/mappers.test.ts` | 30 | Traducción ApiProducto/ApiPedido a tipos UI, normalización teléfono, adminToApiPayload incluye categorías |
+| TicketScreen QR | `frontend/test/ticket-screen.test.tsx` | 6 | QR codifica URL correcta, no expone datos privados, tamaño 168px |
+| TrackingScreen token | `frontend/test/tracking-screen-token.test.tsx` | 6 | Auto-fetch por `?token=`, missing token muestra form, URL token sobreescribe localStorage |
+| useLocalStorageState | `frontend/test/use-local-storage.test.ts` | 10 | Estabilidad referencial, cache invalidation, evita React #185 |
+| useApiResource | `frontend/test/use-api-resource.test.ts` | 7 | Estabilidad de fetcher, refetch manual, evita loop infinito |
+| Cocina actions | `frontend/test/cocina-actions.test.ts` | 7 | Acciones ágiles por estado: recibido→preparacion|listo, preparacion→recibido|listo, listo→preparacion|entregado, terminal sin acciones |
+| Orders screen (B7) | `frontend/test/orders-screen.test.tsx` | 8+ | Tab switching fetches correct `estado_pedido` param; confirm-payment sequence mocks payment 200 then state 200; payment 400 blocks state call; no generic advance button for `recibido` |
+| Caja screen (B7) | `frontend/test/caja-screen.test.tsx` | 4+ | Product card renders `Image` when `imagen_url` exists; fallback icon when absent |
+| Tracking screen token (B7) | `frontend/test/tracking-screen-token.test.tsx` | 7+ | `recibido` + `comprobante_subido` shows "Estamos comprobando tu pago" |
+| AdminSession provider | `frontend/test/admin-session-provider.test.tsx` | - | Provider renderiza redirect en unauthenticated, no muestra children |
+| Comprobantes query | `frontend/test/comprobantes-screen-query.test.ts` | - | Filtro default pide `estado_pago=comprobante_subido`, rechazados pide `estado_pago=rechazado` |
+| Config screen | `frontend/test/config.test.ts` | 13 | PUT configuración con campos parciales, resolveApiBase production guard, store closed/demo gating |
+| Login screen | `frontend/test/login-screen.test.tsx` | 8 | Login exitoso redirige a dashboard, credenciales demo condicionales |
+| Product form dialog | `frontend/test/product-form-dialog.test.tsx` | 30 | Crear producto con imagen exitosa, error mantiene diálogo abierto, ProductsScreen no cierra antes de upload |
+| Product availability | `frontend/test/product-availability.test.ts` | 20 | `deriveStockStatus` y `mapProducto` — prioridad no_disponible, disponible/orden mapping, activo/agotado alignment |
+
+**Comandos:**
+```bash
+cd frontend
+pnpm test        # Todos los tests (actualmente 238 tests en ~20 files + setup.ts)
+pnpm test -- --coverage  # Con cobertura
+```
+
 ### Lo que NO se testea (todavía)
 
-- Frontend (no hay tests de React todavía).
+- **Layout visual / diseño pixel-perfect**: Los tests de frontend (Vitest + RTL) verifican comportamiento, estado y renderizado lógico, pero **no verifican CSS, espaciado, colores, tipografía, ni distribución visual**. Después de cambios de UI, se requiere verificación manual en browser (desktop y mobile) contra la referencia v0 en `diseno-de-landing-kermingo/`.
+- **Flujo admin completo end-to-end**: No hay tests E2E (Playwright) implementados. El login, navegación entre secciones admin, caja sale, revisión de comprobantes, y flujo completo de pedidos se verifican manualmente.
 
 ### Testing de Drive service
 

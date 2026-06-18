@@ -61,6 +61,8 @@ En producción, si faltan variables de entorno críticas, el proceso lanza error
 - `stock_limitado`: `1` = tiene stock contable, `0` = ilimitado
 - `stock_actual`: `NULL` si `stock_limitado = 0`
 - `disponible_desde`: TIME para horarios de cena
+- `orden`: `INT NOT NULL DEFAULT 0` — orden global de productos, usado por admin y menú público (`ORDER BY orden ASC, id ASC`)
+- `disponible`: `TINYINT(1) NOT NULL DEFAULT 1` — flag de disponibilidad. `activo=1 AND disponible=0` = "Todavía no disponible" (visible en menú público pero no comprable) |
 
 **`pedido`:**
 - `numero`: formato `KMG-XXXX`, UNIQUE
@@ -87,7 +89,7 @@ Datos iniciales:
 | Entidad | Cantidad | Detalle |
 |---|---|---|
 | Categorías | 2 | Merienda, Cena |
-| Configuración | 1 | `id=1`, `estado='cerrada'` |
+| Configuración | 1 | `id=1`, `estado='cerrada'`, `categoria_default='merienda'` |
 | Productos | 24 | 13 comidas, 8 bebidas, 2 promos (sin stock propio) |
 | Producto-Categoría | ~30 | Mapeo N:N |
 | Combo-Producto | 5 | 2 promos con 2-3 componentes cada una |
@@ -104,8 +106,10 @@ Datos iniciales:
 Ejecutar **después** de `schema.sql`, una sola vez.
 
 | Índice | Tabla | Columna(s) | Propósito |
-|---|---|---|---|
+|---|---|---|---|---|
 | `idx_producto_activo` | `producto` | `activo` | Filtrar productos activos |
+| `idx_producto_orden` | `producto` | `orden` | Ordenamiento por orden global |
+| `idx_producto_estado_orden` | `producto` | `(activo, disponible, orden)` | Filtros admin por estado + orden |
 | `idx_pedido_numero` | `pedido` | `numero` | Búsqueda por número KMG |
 | `idx_pedido_token` | `pedido` | `token_seguimiento` | Búsqueda por token |
 | `idx_pedido_estado_pedido` | `pedido` | `estado_pedido` | Filtro de cocina y admin |
@@ -122,8 +126,8 @@ Ejecutar **después** de `schema.sql`, una sola vez.
 La tabla `configuracion_tienda` siempre tiene `id = 1`. No se crean más registros.
 
 Para leer la config:
-- Público: `SELECT estado, mensaje_publico FROM configuracion_tienda WHERE id = 1`
-- Admin: `SELECT estado,mensaje_publico, cena_habilitada_desde FROM configuracion_tienda WHERE id = 1`
+- Público: `SELECT estado, mensaje_publico, categoria_default FROM configuracion_tienda WHERE id = 1`
+- Admin: `SELECT estado, mensaje_publico, cena_habilitada_desde, categoria_default FROM configuracion_tienda WHERE id = 1`
 
 Para actualizar: `UPDATE configuracion_tienda SET ... WHERE id = 1`
 

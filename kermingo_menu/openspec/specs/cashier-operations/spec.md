@@ -27,7 +27,7 @@ efectivo:
 transferencia:
   pendiente → pagado | comprobante_subido
   comprobante_subido → pagado | rechazado
-  rechazado → pendiente | comprobante_subido
+  rechazado → pendiente | comprobante_subido | pagado
   pagado → (terminal)
 ```
 
@@ -42,7 +42,7 @@ export const transitionsByMethod = {
   transferencia: {
     pendiente: ['pagado', 'comprobante_subido'],
     comprobante_subido: ['pagado', 'rechazado'],
-    rechazado: ['pendiente', 'comprobante_subido'],
+    rechazado: ['pendiente', 'comprobante_subido', 'pagado'], // B7: permite reaprobar directo
     pagado: [], // terminal
   },
 };
@@ -159,6 +159,25 @@ Override del filtro `estado_pago` individual si está presente (el filtro de pag
 | Filter solo pendiente/rechazado | 1 | 22 |
 | Filter determinista con fixtures propios | 1 | 23 |
 | Cleanup restaura stock ⭐ FIX | 1 | 24 |
+
+## Caja Rápida Preparation Default
+
+### Requirement: Caja rápida orders enter preparation immediately (added B7)
+
+`POST /api/admin/pedidos/caja` MUST create caja-origin orders with `estado_pedido='en_preparacion'` for both `metodo_pago='efectivo'` and `metodo_pago='transferencia'`, unless a future explicit admin override is separately specified. This endpoint represents in-person confirmed intake and bypasses the online `recibido` verification gate.
+
+#### Scenario: Cash caja sale starts in preparation
+
+- GIVEN an authenticated admin and a valid caja payload with `metodo_pago='efectivo'`
+- WHEN `POST /api/admin/pedidos/caja` succeeds
+- THEN the order has `origen='caja'`, `estado_pago='pagado'`, and `estado_pedido='en_preparacion'`.
+
+#### Scenario: Transfer caja sale starts in preparation
+
+- GIVEN an authenticated admin and a valid caja payload with `metodo_pago='transferencia'`
+- WHEN `POST /api/admin/pedidos/caja` succeeds
+- THEN the order has `origen='caja'` and `estado_pedido='en_preparacion'`
+- AND the payment state follows the caja payload/default payment rules.
 
 ## Out of Scope
 

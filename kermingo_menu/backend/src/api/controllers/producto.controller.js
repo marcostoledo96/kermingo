@@ -5,11 +5,13 @@ import {
   findAllAdmin,
   create,
   update,
+  setProductoCategorias,
   deactivate,
   restore,
   updateStock,
   findByIdAdmin,
   updateImagenArchivoId,
+  updateOrdenes,
 } from '../models/producto.model.js';
 import { findProductImageByProductId, createArchivo } from '../models/archivo.model.js';
 import { processProductImage } from '../services/image.service.js';
@@ -78,9 +80,31 @@ export async function listarAdmin(req, res, next) {
 export async function crear(req, res, next) {
   try {
     const pool = getPool();
-    const insertId = await create(pool, req.body);
-    const producto = await findByIdAdmin(pool, insertId);
-    return respuestaExitosa(res, producto, 'Producto creado correctamente', 201);
+    const conn = await pool.getConnection();
+    const { categorias, ...productoData } = req.body;
+
+    try {
+      await conn.beginTransaction();
+      const insertId = await create(conn, productoData);
+
+      if (typeof categorias !== 'undefined') {
+        await setProductoCategorias(conn, insertId, categorias);
+      }
+
+      await conn.commit();
+
+      const producto = await findByIdAdmin(pool, insertId);
+      return respuestaExitosa(res, producto, 'Producto creado correctamente', 201);
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        // noop
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     next(err);
   }
@@ -93,9 +117,44 @@ export async function crear(req, res, next) {
 export async function actualizar(req, res, next) {
   try {
     const pool = getPool();
-    const affectedRows = await update(pool, req.params.id, req.body);
-    if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
-    const producto = await findByIdAdmin(pool, req.params.id);
+    const conn = await pool.getConnection();
+    const { categorias, ...productoData } = req.body;
+    const { id } = req.params;
+
+    try {
+      await conn.beginTransaction();
+
+      const hasProductoData = Object.keys(productoData).length > 0;
+
+      if (hasProductoData) {
+        const affectedRows = await update(conn, id, productoData);
+        if (affectedRows === 0) {
+          throw new NotFoundError('Producto no encontrado');
+        }
+      } else {
+        const existente = await findByIdAdmin(pool, id);
+        if (!existente) {
+          throw new NotFoundError('Producto no encontrado');
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(req.body, 'categorias')) {
+        await setProductoCategorias(conn, id, categorias);
+      }
+
+      await conn.commit();
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {
+        // noop
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    const producto = await findByIdAdmin(pool, id);
     return respuestaExitosa(res, producto, 'Producto actualizado correctamente');
   } catch (err) {
     next(err);
@@ -142,6 +201,32 @@ export async function ajustarStock(req, res, next) {
     const affectedRows = await updateStock(pool, req.params.id, req.body.stock_actual);
     if (affectedRows === 0) throw new NotFoundError('Producto no encontrado');
     return respuestaExitosa(res, { id: parseInt(req.params.id), stock_actual: req.body.stock_actual }, 'Stock actualizado correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /api/admin/productos/orden
+ * Batch-reorder products. Body: { ordenes: [{ id, orden }] }
+ */
+export async function reordenar(req, res, next) {
+  try {
+    const pool = getPool();
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await updateOrdenes(conn, req.body.ordenes);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    // Return updated list
+    const result = await findAllAdmin(pool, { estado: 'todos', page: 1, limit: 100 });
+    return respuestaExitosa(res, result.productos, 'Orden actualizado correctamente');
   } catch (err) {
     next(err);
   }

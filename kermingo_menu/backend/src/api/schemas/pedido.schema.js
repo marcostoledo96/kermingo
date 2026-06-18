@@ -22,10 +22,10 @@ export const createPedidoSchema = z.object({
 }).strict();
 
 export const createCajaSchema = createPedidoSchema.extend({
-  estado_pago: z.enum(['pendiente', 'pagado']).default('pendiente'),
+  estado_pago: z.enum(['pendiente', 'pagado']).optional(),
   estado_pedido: z
     .enum(['recibido', 'en_preparacion', 'listo', 'entregado'])
-    .default('recibido'),
+    .default('en_preparacion'),
 });
 
 export const pedidoQuerySchema = z.object({

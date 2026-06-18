@@ -23,24 +23,34 @@
 ## 1. State machine de pedido
 
 ```
-recibido → en_preparacion → listo → entregado
-    ↓
-cancelado  (solo desde 'recibido' o 'en_preparacion')
+recibido ──→ en_preparacion ──→ listo ──→ entregado
+   │              │    ↑            │    ↑
+   │              │    │            │    │
+   └──→ listo ────┘    └────────────┘
+   (directo)        (retroceso)  (retroceso)
+     ↓
+ cancelado  (solo desde 'recibido' o 'en_preparacion')
 ```
 
 **Transiciones válidas** (definidas en `pedido.model.js` → `TRANSICIONES_VALIDAS`):
 
-| Estado actual | Puede pasar a |
-|---|---|
-| `recibido` | `en_preparacion` |
-| `en_preparacion` | `listo` |
-| `listo` | `entregado` |
+| Estado actual | Puede pasar a | Propósito |
+|---|---|---|
+| `recibido` | `en_preparacion`, `listo` | Empezar preparación o marcar directo (productos ya listos) |
+| `en_preparacion` | `recibido`, `listo` | Retroceder por error o avanzar a listo |
+| `listo` | `en_preparacion`, `entregado` | Retroceder por error o marcar entregado |
+| `entregado` | *(ninguna — estado terminal)* | No se puede deshacer |
 
 **Reglas:**
-- No se puede retroceder estados.
-- No se puede pasar de `entregado` a nada.
+- `entregado` es terminal: no se puede retroceder ni cambiar.
+- Se permite retroceder un paso (`en_preparacion → recibido`, `listo → en_preparacion`) para corregir errores.
+- Se permite saltar de `recibido → listo` directamente para productos que no necesitan preparación (ej: medialunas, bebidas).
+- No se permite `recibido → entregado` (salto doble).
+- No se permite `en_preparacion → entregado` (salto doble).
+- Same-state transitions siempre son inválidas.
 - `cancelado` solo desde `recibido` o `en_preparacion` (enforce en `cancelWithTransaction`).
 - La cocina usa la misma state machine vía `cocina.controller.js` → `updateEstadoPedido`.
+- **B7 (payment gate):** La cocina (`findKitchenPedidos`) solo lista pedidos en `en_preparacion` y `listo`. Los pedidos online comienzan en `recibido` y deben ser confirmados por un admin desde la solapa "Pendiente de confirmación" en `/admin/pedidos` antes de aparecer en cocina. Los pedidos de caja rápida comienzan en `en_preparacion` y aparecen directamente en cocina.
 - `updateEstadoPedido` es atómico:
   1. Abre transacción (`conn.beginTransaction`).
   2. Bloquea el pedido con `SELECT ... FOR UPDATE`.
@@ -85,7 +95,7 @@ transferencia:
 
 **Reglas:**
 - Pedidos online con `metodo_pago: 'transferencia'` requieren archivo comprobante (multipart/form-data).
-- Pedidos online con `metodo_pago: 'efectivo'` no deben incluir comprobante.
+- Cualquier intento de usar efectivo en el endpoint online se rechaza con 400. Efectivo solo está disponible desde caja rápida (admin).
 - El archivo se sube a Google Drive ANTES de la transacción DB. Si Drive falla → 503, no se crea pedido.
 - Si la transacción DB falla después del upload exitoso, el archivo queda huérfano en Drive (aceptable para MVP).
 - Caja rápida puede crear pedido con `estado_pago: 'pagado'` directamente, sin comprobante.
@@ -199,9 +209,10 @@ La función `normalizarTelefono(raw)` en `pedido.model.js`:
 |---|---|---|
 | Endpoint | `POST /api/pedidos` | `POST /api/admin/pedidos/caja` |
 | Auth | No | `requireAdmin` |
-| `metodo_pago` | Solo `'efectivo'` | `'efectivo'` o `'transferencia'` |
-| `estado_pago` inicial | Siempre `'pendiente'` | Puede ser `'pendiente'` o `'pagado'` |
-| `estado_pedido` inicial | Siempre `'recibido'` | Puede ser `'recibido'`, `'en_preparacion'`, `'listo'` o `'entregado'` |
+| `metodo_pago` | Solo `'transferencia'` | `'efectivo'` o `'transferencia'` |
+| `estado_pago` inicial | Siempre `'comprobante_subido'` tras upload válido | Puede ser `'pendiente'` o `'pagado'` |
+| `estado_pedido` inicial | **`'recibido'` (gate de verificación de pago)** | **`'en_preparacion'`** (caja bypassa el gate). El schema acepta override explícito si se necesita otro estado. |
+| Aparece en cocina | Solo después de confirmar pago desde admin pedidos | Directamente al crearse |
 | Editable | No (solo seguimiento) | Sí (admin puede editar) |
 
 ---
@@ -227,10 +238,11 @@ Proceso (`cancelWithTransaction`):
 La tabla `configuracion_tienda` tiene un solo registro: `id = 1`.
 
 | Campo | Tipo | Valores |
-|---|---|---|
+|---|---|---|---|
 | `estado` | ENUM | `'abierta'`, `'cerrada'`, `'demo'` |
 | `mensaje_publico` | TEXT | Mensaje que se muestra cuando la tienda está cerrada |
 | `cena_habilitada_desde` | TIME | Hora desde la que se habilita la cena (o `NULL`) |
+| `categoria_default` | ENUM | `'merienda'`, `'cena'` — pestaña inicial del menú público (`'merienda'` por defecto) |
 
 - `'abierta'`: pedidos reales se crean normalmente.
 - `'cerrada'`: `createWithTransaction` lanza error.
@@ -238,7 +250,32 @@ La tabla `configuracion_tienda` tiene un solo registro: `id = 1`.
 
 ---
 
-## 10. Validación de tienda abierta
+## 10. Estado de disponibilidad de productos
+
+Cada producto tiene dos flags booleanos que determinan su visibilidad y comprabilidad:
+
+| Flag | Default | Significado |
+|---|---|---|
+| `activo` | `1` | Si `0`, el producto está desactivado (oculto en menú público) |
+| `disponible` | `1` | Si `0` con `activo=1`, el producto está "Todavía no disponible" (visible en menú público pero no comprable) |
+
+**Estados derivados (usados por admin `GET /api/admin/productos?estado=`):**
+
+| Filtro | SQL conditions |
+|---|---|
+| `activo` (default) | `activo=1 AND disponible=1 AND (stock_limitado=0 OR stock_actual IS NULL OR stock_actual > 0)` |
+| `todos` | Sin WHERE de estado (todos los productos) |
+| `desactivado` | `activo=0` |
+| `agotado` | `activo=1 AND disponible=1 AND stock_limitado=1 AND stock_actual=0` |
+| `todavia_no_disponible` | `activo=1 AND disponible=0` |
+
+**Reglas de pedido:** `createWithTransaction` rechaza cualquier producto con `activo=0` o `disponible=0` dentro de la transacción, incluso si el frontend fue bypasseado. Combos/promos también validan disponibilidad de sus componentes.
+
+**Ordenamiento:** Todas las listas de productos (públicas y admin) se ordenan por `orden ASC, id ASC`. El admin puede reordenar vía `PATCH /api/admin/productos/orden`.
+
+---
+
+## 11. Validación de tienda abierta
 
 Existen dos puntos de validación de tienda abierta:
 

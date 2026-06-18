@@ -6,6 +6,37 @@ const port = process.env.PORT || 3001;
 const nodeEnv = process.env.NODE_ENV || 'development';
 const esProduccion = nodeEnv === 'production';
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+const configuredFrontendUrls = (process.env.FRONTEND_URLS || frontendUrl)
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+const devFrontendOriginPatterns = esProduccion
+  ? []
+  : [
+      /^http:\/\/localhost:3000$/,
+      /^http:\/\/127\.0\.0\.1:3000$/,
+      /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:3000$/,
+      /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:3000$/,
+      /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}:3000$/,
+    ];
+
+function normalizeOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return value?.replace(/\/$/, '') || '';
+  }
+}
+
+function isTrustedOrigin(origin) {
+  if (!origin) return false;
+  const normalized = normalizeOrigin(origin);
+  return (
+    configuredFrontendUrls.some((url) => normalizeOrigin(url) === normalized) ||
+    devFrontendOriginPatterns.some((pattern) => pattern.test(normalized))
+  );
+}
 
 const googleDriveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 const googleDriveProductosFolderId = process.env.GOOGLE_DRIVE_PRODUCTOS_FOLDER_ID || '';
@@ -18,8 +49,15 @@ const entorno = {
   nodeEnv,
   esProduccion,
   frontendUrl,
+  frontendUrls: configuredFrontendUrls,
+  isTrustedOrigin,
   cors: {
-    origin: frontendUrl,
+    origin(origin, callback) {
+      if (!origin || isTrustedOrigin(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     credentials: true,
   },
   db: {

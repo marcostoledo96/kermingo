@@ -18,15 +18,13 @@ export function requireTrustedOrigin(req, _res, next) {
 
   const origin = req.get('origin');
   const referer = req.get('referer');
-  const trustedOrigin = safeOriginFromUrl(environments.frontendUrl) || environments.frontendUrl;
-
-  if (origin && origin === trustedOrigin) {
+  if (origin && environments.isTrustedOrigin(origin)) {
     return next();
   }
 
   const refererOrigin = referer ? safeOriginFromUrl(referer) : null;
 
-  if (!origin && refererOrigin === trustedOrigin) {
+  if (!origin && refererOrigin && environments.isTrustedOrigin(refererOrigin)) {
     return next();
   }
 

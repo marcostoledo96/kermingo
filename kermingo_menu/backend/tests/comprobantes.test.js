@@ -114,9 +114,9 @@ describe('B6.3 Comprobantes integration', () => {
       expect(res.body.error).toContain('comprobante');
     });
 
-    it('efectivo with file returns 400', async () => {
+    it('efectivo with file returns 400 (online rejects cash)', async () => {
       // Use a valid JPEG buffer so magic bytes validation passes,
-      // then the controller rejects it for being efectivo with comprobante.
+      // then the controller rejects it because online only accepts transferencia.
       const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46]);
       const res = await request(app)
         .post('/api/pedidos')
@@ -133,20 +133,20 @@ describe('B6.3 Comprobantes integration', () => {
       expect(res.body.error.toLowerCase()).toContain('efectivo');
     });
 
-    it('efectivo without file creates pedido with estado_pago=pendiente', async () => {
+    it('efectivo without file returns 400 (online rejects cash)', async () => {
+      // B7: public orders no longer accept efectivo; must use caja for that.
       const res = await request(app)
         .post('/api/pedidos')
-        .field('nombre_cliente', `${RUN_ID}-efectivo-ok`)
+        .field('nombre_cliente', `${RUN_ID}-efectivo-no-file`)
         .field('metodo_pago', 'efectivo')
         .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]));
 
-      expect(res.statusCode).toBe(201);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.data.estado_pago).toBe('pendiente');
-      expect(res.body.data.comprobante_archivo_id).toBeNull();
+      expect(res.statusCode).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.error.toLowerCase()).toContain('efectivo');
     });
 
-    it('caja transferencia without file creates pedido (bypass comprobante)', async () => {
+    it('caja transferencia without file creates pedido with estado_pedido=en_preparacion (bypass comprobante)', async () => {
       const res = await request(app)
         .post('/api/admin/pedidos/caja')
         .set('Cookie', adminCookie())
@@ -160,6 +160,8 @@ describe('B6.3 Comprobantes integration', () => {
       expect(res.statusCode).toBe(201);
       expect(res.body.ok).toBe(true);
       expect(res.body.data.comprobante_archivo_id).toBeNull();
+      expect(res.body.data.estado_pedido).toBe('en_preparacion');
+      expect(res.body.data.origen).toBe('caja');
     });
   });
 
@@ -255,6 +257,7 @@ describe('B6.3 Comprobantes integration', () => {
       if (DRIVE_READY) {
         expect(res.statusCode).toBe(201);
         expect(res.body.data.estado_pago).toBe('comprobante_subido');
+        expect(res.body.data.estado_pedido).toBe('recibido');
         expect(res.body.data.comprobante_archivo_id).toBeDefined();
         expect(res.body.data.comprobante_archivo_id).not.toBeNull();
       } else {
@@ -290,12 +293,16 @@ describe('B6.3 Comprobantes integration', () => {
     });
 
     it('pedido without comprobante returns 404', async () => {
-      // Create efectivo order (no comprobante)
+      // B7: public route rejects efectivo; use caja route to create efectivo order.
       const efectivoRes = await request(app)
-        .post('/api/pedidos')
-        .field('nombre_cliente', `${RUN_ID}-no-comp-access`)
-        .field('metodo_pago', 'efectivo')
-        .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]));
+        .post('/api/admin/pedidos/caja')
+        .set('Cookie', adminCookie())
+        .set('Origin', ORIGIN)
+        .send({
+          nombre_cliente: `${RUN_ID}-no-comp-access`,
+          metodo_pago: 'efectivo',
+          items: [{ producto_id: 5, cantidad: 1 }],
+        });
       const pedidoId = efectivoRes.body.data.id;
 
       const res = await request(app)
@@ -325,11 +332,77 @@ describe('B6.3 Comprobantes integration', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.ok).toBe(true);
-        expect(res.body.data.drive_id).toBeDefined();
+        expect(res.body.data).not.toHaveProperty('drive_id');
         expect(res.body.data.nombre_original).toBeDefined();
         expect(res.body.data.mime_type).toBeDefined();
         expect(res.body.data.tamanio_bytes).toBeDefined();
+        expect(res.body.data.url_publica).toBeDefined();
+        expect(res.body.data.url_proxy).toBeDefined();
+        expect(res.body.data.url_proxy).toContain('/comprobante/imagen');
         expect(res.body.data.buffer).toBeUndefined(); // No file bytes
+      });
+    }
+  });
+
+  // ── Admin comprobante image proxy ──────────────────────────────
+
+  describe('GET /api/admin/pedidos/:id/comprobante/imagen', () => {
+    it('unauthenticated request returns 401', async () => {
+      const res = await request(app)
+        .get('/api/admin/pedidos/1/comprobante/imagen');
+
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('non-existent pedido returns 404', async () => {
+      const res = await request(app)
+        .get('/api/admin/pedidos/999999/comprobante/imagen')
+        .set('Cookie', adminCookie());
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('pedido without comprobante returns 404', async () => {
+      // Create an efectivo pedido (no comprobante)
+      const efectivoRes = await request(app)
+        .post('/api/admin/pedidos/caja')
+        .set('Cookie', adminCookie())
+        .set('Origin', ORIGIN)
+        .send({
+          nombre_cliente: `${RUN_ID}-no-comp-proxy`,
+          metodo_pago: 'efectivo',
+          items: [{ producto_id: 5, cantidad: 1 }],
+        });
+      const pedidoId = efectivoRes.body.data.id;
+
+      const res = await request(app)
+        .get(`/api/admin/pedidos/${pedidoId}/comprobante/imagen`)
+        .set('Cookie', adminCookie());
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    if (DRIVE_CONFIGURED) {
+      it('proxies comprobante image bytes from Drive → 200 with Content-Type', async () => {
+        const createRes = await request(app)
+          .post('/api/pedidos')
+          .field('nombre_cliente', `${RUN_ID}-comp-proxy`)
+          .field('metodo_pago', 'transferencia')
+          .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]))
+          .attach('comprobante', Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46]), {
+            filename: 'receipt.jpg',
+            contentType: 'image/jpeg',
+          });
+        const pedidoId = createRes.body.data.id;
+
+        const res = await request(app)
+          .get(`/api/admin/pedidos/${pedidoId}/comprobante/imagen`)
+          .set('Cookie', adminCookie());
+
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['content-type']).toMatch(/^image\//);
+        expect(res.headers['content-disposition']).toContain('inline');
+        expect(res.body.length).toBeGreaterThan(0);
       });
     }
   });
@@ -524,7 +597,7 @@ describe('B6.3 Comprobantes integration', () => {
       }
     });
 
-    it('insufficient stock rejects order → 409', async () => {
+    it('insufficient stock rejects order → 409 (via caja)', async () => {
       const [prods] = await pool.query(
         'SELECT id, nombre, stock_actual FROM producto WHERE stock_limitado = 1 ORDER BY id LIMIT 1'
       );
@@ -535,13 +608,30 @@ describe('B6.3 Comprobantes integration', () => {
       const prod = prods[0];
       const impossibleQty = (prod.stock_actual || 0) + 100;
 
+      // B7: public route rejects efectivo, so use caja for stock check
       const res = await request(app)
-        .post('/api/pedidos')
-        .field('nombre_cliente', `${RUN_ID}-no-stock`)
-        .field('metodo_pago', 'efectivo')
-        .field('items', JSON.stringify([{ producto_id: prod.id, cantidad: impossibleQty }]));
+        .post('/api/admin/pedidos/caja')
+        .set('Cookie', adminCookie())
+        .set('Origin', ORIGIN)
+        .send({
+          nombre_cliente: `${RUN_ID}-no-stock`,
+          metodo_pago: 'efectivo',
+          items: [{ producto_id: prod.id, cantidad: impossibleQty }],
+        });
 
       expect(res.statusCode).toBe(409);
+    });
+
+    it('public route rejects efectivo before stock check → 400', async () => {
+      const res = await request(app)
+        .post('/api/pedidos')
+        .field('nombre_cliente', `${RUN_ID}-cash-rejected`)
+        .field('metodo_pago', 'efectivo')
+        .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]));
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.error.toLowerCase()).toContain('efectivo');
     });
   });
 });

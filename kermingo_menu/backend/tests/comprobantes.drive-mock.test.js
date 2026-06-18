@@ -311,7 +311,7 @@ describe('POST /api/pedidos — transferencia with mocked Drive (success path)',
 
     expect(compRes.statusCode).toBe(200);
     expect(compRes.body.ok).toBe(true);
-    expect(compRes.body.data.drive_id).toBe('mock-drive-file-id-456');
+    expect(compRes.body.data).not.toHaveProperty('drive_id');
     expect(compRes.body.data.nombre_original).toBe('receipt_mock.pdf');
     expect(compRes.body.data.mime_type).toBe('application/pdf');
     expect(compRes.body.data.tamanio_bytes).toBeDefined();
@@ -385,4 +385,9 @@ describe('POST /api/pedidos — transferencia with Drive API error', () => {
     );
     expect(pedRows.length).toBe(0);
   });
+});
+
+// Pool cleanup — must be last afterAll to close the mysql2 TCP connection
+afterAll(async () => {
+  try { await pool.end(); } catch (_) { /* pool already closed by another suite */ }
 });

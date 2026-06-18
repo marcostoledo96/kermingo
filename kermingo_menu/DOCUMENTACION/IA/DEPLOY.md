@@ -65,7 +65,18 @@
 
 ## 4. Variables de entorno
 
-### Backend (`.env` en `backend/`)
+### Frontend (Vercel)
+
+| Variable | Valor dev | Valor prod | Descripción |
+|---|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | URL pública del backend en Railway | URL base del backend que consume el frontend (ver `frontend/lib/config.ts`). En producción **es obligatoria**: si falta o viene vacía, el frontend queda sin `API_BASE` y las rutas de imágenes/API no se resuelven correctamente. |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS` | No definida | `false` o no definir | Si se setea a `'true'`, muestra credenciales demo (`admin@kermingo.com` / `admin123`) en el login. En producción no debe estar definida o debe ser `'false'`. Ver `frontend/components/admin/login-screen.tsx`. |
+
+**Template:** `frontend/.env.local.example`.
+
+**Regla adicional:** en entorno `production`, validar antes del deploy que `NEXT_PUBLIC_API_URL` esté definida. El `prebuild` script (`scripts/check-env.mjs`) falla si `NODE_ENV=production` y `NEXT_PUBLIC_API_URL` no está definida, bloqueando el build.
+
+### Backend (`.env` en `backend/` o vars en Railway)
 
 | Variable | Ambiente | Producción | Descripción |
 |---|---|---|---|---|
@@ -127,7 +138,10 @@ Railway puede usar este endpoint para verificar que el servidor está vivo.
 
 - **Desarrollo:** MySQL local o Docker.
 - **Producción:** MySQL en Railway (mismo proyecto que el backend).
-- **Migraciones:** Ejecutar `schema.sql` + `indexes.sql` + `seed.sql` en orden la primera vez.
+- **Migraciones nuevas:** Ejecutar `schema.sql` + `indexes.sql` + `seed.sql` en orden la primera vez.
+- **Migraciones manuales:** cambios de esquema con datos existentes (ej: agregar columnas con backfill) se ejecutan via scripts en `backend/src/api/database/migrations/manual/`. Ejemplo: `2026-06-17-product-admin-filtering-grouping-ordering.sql` agrega `producto.orden`, `producto.disponible`, `configuracion_tienda.categoria_default` con backfill.
+- **Procedimiento de migración manual:** aplicar ALTER TABLE con columnas nullable → backfill datos (UPDATE) → ALTER a NOT NULL → crear índices. Este orden evita restricciones durante el backfill.
+- **Rollback de migración manual:** revertir código primero, luego DROP COLUMN de las nuevas columnas e índices. Los datos existentes no se pierden.
 - **Reset completo:** `DROP DATABASE` + `CREATE DATABASE` + `schema.sql` + `indexes.sql` + `seed.sql`.
 
 **Conexión desde tests:** Los tests de integración usan la misma DB configurada en `.env`. Se recomienda una DB separada para testing si es posible.

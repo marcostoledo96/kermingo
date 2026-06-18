@@ -1,68 +1,43 @@
-import { Dices, Tent, Trophy, Sparkles } from 'lucide-react'
+import { Tent, Sparkles, Shirt } from 'lucide-react'
 
 export function Activities() {
-  const activities = [
-    {
-      icon: Dices,
-      label: 'Bingo',
-      desc: 'Cartones con grandes premios',
-      iconBg: 'bg-[#003B73]',
-      iconColor: 'text-white',
-      cardBg: 'bg-white',
-    },
-    {
-      icon: Tent,
-      label: 'Kermesse',
-      desc: 'Juegos y puestos para toda la familia',
-      iconBg: 'bg-[#F6B21A]',
-      iconColor: 'text-[#003B73]',
-      cardBg: 'bg-white',
-    },
-    {
-      icon: Sparkles,
-      label: 'Tradeo de figuritas',
-      desc: 'Completá tu álbum del Mundial',
-      iconBg: 'bg-[#75AADB]',
-      iconColor: 'text-white',
-      cardBg: 'bg-white',
-    },
-    {
-      icon: Trophy,
-      label: 'Concurso de disfraces',
-      desc: 'Temática Argentina y Mundial',
-      iconBg: 'bg-[#003B73]',
-      iconColor: 'text-white',
-      cardBg: 'bg-white',
-    },
-  ]
-
   return (
-    <section className="px-4 mt-10 max-w-md mx-auto">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="h-px flex-1 bg-[#75AADB]/30" />
-        <h2 className="text-[#003B73] text-sm font-extrabold uppercase tracking-[0.14em] whitespace-nowrap">
-          También vas a encontrar
+    <section className="mt-12 px-4 sm:mt-14">
+      <div className="mx-auto max-w-xl">
+        <h2 className="font-display text-xl font-extrabold text-[#003B73]">
+          Toda la tarde, en familia
         </h2>
-        <div className="h-px flex-1 bg-[#75AADB]/30" />
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {activities.map((activity) => (
-          <div
-            key={activity.label}
-            className={`${activity.cardBg} rounded-3xl p-4 border border-[#75AADB]/15 shadow-sm shadow-[#003B73]/5 hover:shadow-md hover:-translate-y-0.5 transition-all`}
-          >
-            <div className={`w-12 h-12 rounded-2xl ${activity.iconBg} flex items-center justify-center mb-3 shadow-sm`}>
-              <activity.icon className={`w-6 h-6 ${activity.iconColor}`} strokeWidth={2.2} />
-            </div>
-            <h3 className="font-extrabold text-[#003B73] text-[15px] leading-tight text-balance">
-              {activity.label}
+        {/* Kermesse: bloque acompañante */}
+        <div className="mt-4 flex items-center gap-4 rounded-3xl bg-white p-5 ring-1 ring-[#75AADB]/20">
+          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-[#F6B21A]">
+            <Tent className="h-7 w-7 text-[#003B73]" strokeWidth={2.2} />
+          </div>
+          <div>
+            <h3 className="font-display text-lg font-bold leading-tight text-[#003B73]">
+              Kermesse
             </h3>
-            <p className="text-[#6B7280] text-xs mt-1 leading-relaxed">
-              {activity.desc}
+            <p className="mt-0.5 text-sm leading-relaxed text-[#3A5675] text-pretty">
+              Juegos y puestos para todas las edades durante toda la jornada.
             </p>
           </div>
-        ))}
+        </div>
+
+        {/* Menciones secundarias compactas */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2.5 rounded-2xl bg-[#75AADB]/12 px-3.5 py-3">
+            <Sparkles className="h-5 w-5 flex-shrink-0 text-[#003B73]" strokeWidth={2.2} />
+            <span className="text-sm font-semibold leading-tight text-[#003B73]">
+              Tradeo de figuritas
+            </span>
+          </div>
+          <div className="flex items-center gap-2.5 rounded-2xl bg-[#75AADB]/12 px-3.5 py-3">
+            <Shirt className="h-5 w-5 flex-shrink-0 text-[#003B73]" strokeWidth={2.2} />
+            <span className="text-sm font-semibold leading-tight text-[#003B73]">
+              Concurso de disfraces
+            </span>
+          </div>
+        </div>
       </div>
     </section>
   )

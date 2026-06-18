@@ -15,8 +15,9 @@
 6. [Endpoints admin — Cocina](#6-endpoints-admin--cocina)
 7. [Endpoints admin — Productos](#7-endpoints-admin--productos)
 8. [Endpoints admin — Configuración](#8-endpoints-admin--configuración)
-9. [Schemas Zod](#9-schemas-zod)
-10. [Errores HTTP](#10-errores-http)
+9. [Endpoints admin — Reportes](#9-endpoints-admin--reportes)
+10. [Schemas Zod](#10-schemas-zod)
+11. [Errores HTTP](#11-errores-http)
 
 ---
 
@@ -57,6 +58,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | Admin cocina | `/api/admin/cocina` | `requireAdmin`, `requireTrustedOrigin` (PATCH), `validateParams` |
 | Admin productos | `/api/admin/productos` | `requireAdmin`, `requireTrustedOrigin` (POST/PUT/PATCH), `validateBody`, `validateParams` |
 | Admin config | `/api/admin/configuracion-tienda` | `requireAdmin`, `requireTrustedOrigin` (PUT), `validateBody` |
+| Admin reportes | `/api/admin/reportes` | `requireAdmin` |
 | Público config | `/api/configuracion-tienda` | Ninguno (GET público) |
 
 ---
@@ -66,10 +68,10 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | Método | Ruta | Handler | Descripción |
 |---|---|---|---|
 | `GET` | `/api/health` | inline | Health check |
-| `GET` | `/api/productos` | `producto.listar` | Lista productos activos. Query: `?categoria=`, `?tipo=`, `?buscar=` |
+| `GET` | `/api/productos` | `producto.listar` | Lista productos activos (excluye `activo=0`). Ordenado por `orden ASC, id ASC`. No retorna desactivados. Incluye `disponible=0` (todavía no disponible) pero marcados como no comprables. Query: `?categoria=`, `?tipo=`, `?buscar=` |
 | `GET` | `/api/productos/:id` | `producto.obtener` | Detalle de un producto activo |
-| `GET` | `/api/configuracion-tienda` | `configuracion.obtenerPublico` | Estado de la tienda (solo `estado`, `mensaje_publico`) |
-| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online. `efectivo` (JSON) o `transferencia` (multipart con `comprobante`). Body/fields: `nombre_cliente`, `items`, `metodo_pago`. Middleware chain: `uploadComprobante.single()` → `validateBody` → `assertMagicBytes` (magic bytes post-Multer) → `crear` (preflight `assertStoreOpen` antes de Drive upload) |
+| `GET` | `/api/configuracion-tienda` | `configuracion.obtenerPublico` | Estado de la tienda (`estado`, `mensaje_publico`, `categoria_default`) |
+| `POST` | `/api/pedidos` | `pedido.crear` | Crear pedido online **solo transferencia** (multipart con `comprobante`). Body/fields: `nombre_cliente`, `items`, `metodo_pago='transferencia'`. `metodo_pago='efectivo'` devuelve 400; efectivo solo está disponible en caja admin. **Default `estado_pedido='recibido'`** (online payment gate). Transfer con comprobante válido → `estado_pago='comprobante_subido'`. El pedido debe ser confirmado por admin desde la solapa "Pendiente de confirmación" en `/admin/pedidos` antes de pasar a `en_preparacion`. Middleware chain: `uploadComprobante.single()` → `validateBody` → `assertMagicBytes` (magic bytes post-Multer) → `crear` (preflight `assertStoreOpen` antes de Drive upload) |
 | `GET` | `/api/pedidos/seguimiento/:token` | `pedido.seguimiento` | Estado público del pedido por token |
 
 ---
@@ -90,10 +92,11 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 
 | Método | Ruta | Handler | Descripción |
 |---|---|---|---|
-| `POST` | `/admin/pedidos/caja` | `pedido.crearCaja` | Crear pedido desde caja rápida. Puede setear `estado_pago` y `estado_pedido` iniciales. |
+| `POST` | `/admin/pedidos/caja` | `pedido.crearCaja` | Crear pedido desde caja rápida. **Default `estado_pedido='en_preparacion'`** (caja bypasses `recibido` gate). Puede setear `estado_pago` y `estado_pedido` explícitamente si se necesita override. |
 | `GET` | `/admin/pedidos` | `pedido.listarAdmin` | Lista pedidos con filtros y paginación. Query: `page`, `limit`, `estado_pedido`, `estado_pago`, `metodo_pago`, `origen`, `buscar` |
 | `GET` | `/admin/pedidos/:id` | `pedido.obtenerAdmin` | Detalle completo de un pedido |
-| `GET` | `/admin/pedidos/:id/comprobante` | `pedido.obtenerComprobante` | Metadatos del comprobante de pago (Drive). No proxea bytes. B7 inicial: mostrar metadata + botón "Abrir en Drive" si `url_publica` existe. Acceso depende de permisos Drive del usuario OAuth. Futuro: proxy autenticado si la experiencia admin lo requiere. |
+| `GET` | `/admin/pedidos/:id/comprobante` | `pedido.obtenerComprobante` | Metadatos del comprobante de pago (Drive). Retorna `{ nombre_original, mime_type, tamanio_bytes, url_publica, url_proxy, created_at }`. `url_publica` es el enlace público de Drive (para "Abrir en otra pestaña"). `url_proxy` es el endpoint `/api/admin/pedidos/:id/comprobante/imagen` para embeber la imagen vía proxy backend. Acceso: admin autenticado. |
+| `GET` | `/admin/pedidos/:id/comprobante/imagen` | `pedido.obtenerComprobanteImagen` | Proxy autenticado que devuelve los bytes del comprobante desde Google Drive. Usa el mismo patrón que `GET /api/productos/:id/imagen`. Retorna el stream con `Content-Type`, `Content-Disposition: inline` y `Cache-Control: private, max-age=300`. Acceso: admin autenticado. |
 | `PATCH` | `/admin/pedidos/:id/estado` | `pedido.cambiarEstado` | Avanzar estado del pedido. Valida transición |
 | `PATCH` | `/admin/pedidos/:id/pago` | `pedido.cambiarPago` | Cambiar estado de pago |
 | `PATCH` | `/admin/pedidos/:id/cancelar` | `pedido.cancelar` | Cancelar pedido y reponer stock |
@@ -115,30 +118,45 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 
 | Método | Ruta | Handler | Descripción |
 |---|---|---|---|
-| `GET` | `/admin/cocina/pedidos` | `cocina.listarCocina` | Pedidos operativos (excluye `cancelado` y `entregado`). Orden: `recibido → en_preparacion → listo`, luego antigüedad |
+| `GET` | `/admin/cocina/pedidos` | `cocina.listarCocina` | Pedidos operativos (excluye `recibido`, `cancelado` y `entregado`). Solo retorna `en_preparacion` y `listo`. Los pedidos online en `recibido` deben ser confirmados desde la solapa "Pendiente de confirmación" en `/admin/pedidos` antes de aparecer aquí. Orden: `en_preparacion → listo`, luego antigüedad |
 | `GET` | `/admin/cocina/pedidos/:id` | `cocina.obtenerCocina` | Detalle de un pedido para cocina |
-| `PATCH` | `/admin/cocina/pedidos/:id/estado` | `cocina.cambiarEstadoCocina` | Avanzar estado vía cocina. Valida transición |
+| `PATCH` | `/admin/cocina/pedidos/:id/estado` | `cocina.cambiarEstadoCocina` | Cambiar estado vía cocina. Valida transición |
 
 **Schema:** `updateEstadoPedidoCocinaSchema`: `{ estado_pedido }` enum `recibido|en_preparacion|listo|entregado`
+
+**Transiciones válidas (Cocina):**
+
+| Estado actual | Puede pasar a | Caso de uso |
+|---|---|---|
+| `recibido` | `en_preparacion` | Empezar a preparar |
+| `recibido` | `listo` | Producto ya listo (ej: medialunas, bebidas) |
+| `en_preparacion` | `recibido` | Retroceso: se marcó por error |
+| `en_preparacion` | `listo` | Terminó la preparación |
+| `listo` | `en_preparacion` | Retroceso: se marcó listo por error |
+| `listo` | `entregado` | Confirmar entrega (con confirmación en frontend) |
+| `entregado` | *(ninguna)* | Estado terminal |
 
 ---
 
 ## 7. Endpoints admin — Productos
 
 | Método | Ruta | Handler | Descripción |
-|---|---|---|---|
-| `GET` | `/admin/productos` | `producto.listarAdmin` | Lista todos (incluye inactivos). Query: `page`, `limit`, `estado`, `tipo` |
-| `POST` | `/admin/productos` | `producto.crear` | Crear producto |
-| `PUT` | `/admin/productos/:id` | `producto.actualizar` | Actualizar producto completo |
-| `PATCH` | `/admin/productos/:id/desactivar` | `producto.desactivar` | Soft-delete |
-| `PATCH` | `/admin/productos/:id/recuperar` | `producto.recuperar` | Reactivar |
+|---|---|---|---|---|
+| `GET` | `/admin/productos` | `producto.listarAdmin` | Lista productos con filtros. **Query:** `page`, `limit`, `tipo`, `estado` (`activo`\|`todos`\|`desactivado`\|`agotado`\|`todavia_no_disponible`, **default `activo`**). SQL por filtro: `activo` → `activo=1 AND disponible=1 AND (stock_limitado=0 OR stock_actual>0)`; `todos` → sin WHERE; `desactivado` → `activo=0`; `agotado` → `activo=1 AND disponible=1 AND stock_limitado=1 AND stock_actual=0`; `todavia_no_disponible` → `activo=1 AND disponible=0`. Ordenado por `orden ASC, id ASC`. |
+| `POST` | `/admin/productos` | `producto.crear` | Crear producto. Schema incluye `orden` y `disponible`. |
+| `PUT` | `/admin/productos/:id` | `producto.actualizar` | Actualizar producto completo. Schema incluye `orden` y `disponible`. |
+| `PATCH` | `/admin/productos/:id/desactivar` | `producto.desactivar` | Soft-delete (setea `activo=0`) |
+| `PATCH` | `/admin/productos/:id/recuperar` | `producto.recuperar` | Reactivar (setea `activo=1`) |
 | `PATCH` | `/admin/productos/:id/stock` | `producto.ajustarStock` | Ajustar stock |
+| `PATCH` | `/admin/productos/orden` | `producto.reordenar` | Reordenar productos (batch). Body: `{ ordenes: [{ id, orden }] }`. Protegido + trusted origin. Transacción que solo actualiza `orden`. |
 
 **Schemas:**
 
-- `createProductoSchema`: `{ nombre, descripcion?, precio, tipo, stock_limitado, stock_actual?, stock_minimo_alerta?, activo? }`
-- `updateProductoSchema`: `createProductoSchema.partial()`
+- `createProductoSchema`: `{ nombre, descripcion?, precio, tipo, stock_limitado, stock_actual?, stock_minimo_alerta?, activo?, disponible?, orden?, categorias }` — `categorias` es array de `('Merienda' | 'Cena')` con mínimo 1 elemento (obligatorio).
+- `updateProductoSchema`: schema explícito con todos los campos `.optional()` (no `partial()`) — evita que `.default()` sobre `stock_minimo_alerta`/`activo` sobrescriba silenciosamente. Incluye `orden` y `disponible`. `categorias` opcional, si viene no puede estar vacío.
 - `stockAdjustmentSchema`: `{ stock_actual: number }`
+- `reordenarSchema`: `{ ordenes: z.array({ id: z.number(), orden: z.number().int().min(0) }).min(1) }`
+- `adminProductoQuerySchema`: incluye `estado` enum con los 5 valores, default `activo`.
 
 ---
 
@@ -147,12 +165,22 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | Método | Ruta | Auth | Handler | Descripción |
 |---|---|---|---|---|
 | `GET` | `/configuracion-tienda` | No | `configuracion.obtenerPublico` | Estado público de la tienda |
-| `GET` | `/admin/configuracion-tienda` | Cookie | `configuracion.obtenerAdmin` | Config completa (incluye `cena_habilitada_desde`) |
-| `PUT` | `/admin/configuracion-tienda` | Cookie + Origin | `configuracion.actualizarAdmin` | Actualizar config. Schema: `{ estado, mensaje_publico?, cena_habilitada_desde? }` |
+| `GET` | `/admin/configuracion-tienda` | Cookie | `configuracion.obtenerAdmin` | Config completa (incluye `cena_habilitada_desde`, `categoria_default`) |
+| `PUT` | `/admin/configuracion-tienda` | Cookie + Origin | `configuracion.actualizarAdmin` | Actualizar config. Schema: `{ estado?, mensaje_publico?, cena_habilitada_desde?, categoria_default? }` — todos los campos son opcionales, pero al menos uno debe estar presente. `categoria_default` es `ENUM('merienda','cena')`. |
 
 ---
 
-## 9. Schemas Zod
+## 9. Endpoints admin — Reportes
+
+| Método | Ruta | Auth | Handler | Descripción |
+|---|---|---|---|---|
+| `GET` | `/admin/reportes` | Cookie | `reportes.obtenerReportesAdmin` | Resumen agregado para `/admin/reportes`: `total_recaudado`, `total_efectivo`, `total_transferencia`, `pedidos_pagados`, `productos_vendidos`, `pedidos_pendientes_pago`, `monto_pendiente_pago`, `producto_top`, `ranking_productos`, `actualizado_en`. Excluye pedidos `cancelado` y calcula ventas/ranking solo con pagos `pagado`. |
+
+No requiere schema Zod porque no recibe body, params ni query pública.
+
+---
+
+## 10. Schemas Zod
 
 Todos los schemas están en `backend/src/api/schemas/`. Usan `z.object(...).strict()` que rechaza campos extra.
 
@@ -168,11 +196,11 @@ Middleware de validación: `validateBody`, `validateQuery`, `validateParams` (en
 
 ---
 
-## 10. Errores HTTP
+## 11. Errores HTTP
 
 | Código | Clase | Cuándo |
 |---|---|---|
-| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida, MIME no soportado, efectivo con comprobante |
+| `400` | `ValidationError` | Schema Zod falla, tienda cerrada, transición inválida, MIME no soportado, pedido online en efectivo, transferencia sin comprobante |
 | `401` | `AuthError` | Token ausente/inválido, cuenta inactiva |
 | `403` | `ForbiddenError` | Origen no permitido (CSRF — `requireTrustedOrigin`) |
 | `404` | `NotFoundError` | Recurso no encontrado (pedido, producto, comprobante sin archivo) |

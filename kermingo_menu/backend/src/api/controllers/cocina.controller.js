@@ -11,7 +11,7 @@ import { NotFoundError, ValidationError } from '../utils/errors.js';
 /**
  * GET /api/admin/cocina/pedidos
  * Lista pedidos operativos para cocina (excluye cancelado y entregado).
- * Ordenados por estado (recibido -> en_preparacion -> listo) y luego por antigüedad.
+ * Ordenados por estado (en_preparacion -> listo) y luego por antigüedad.
  */
 export async function listarCocina(req, res, next) {
   try {
@@ -40,8 +40,11 @@ export async function obtenerCocina(req, res, next) {
 
 /**
  * PATCH /api/admin/cocina/pedidos/:id/estado
- * Avanza el estado del pedido por la ruta de cocina
- * (recibido -> en_preparacion -> listo -> entregado).
+ * Cambia el estado del pedido en cocina.
+ * Transiciones permitidas por TRANSICIONES_VALIDAS:
+ *   en_preparacion → listo
+ *   listo → en_preparacion | entregado
+ *   entregado: estado terminal (sin transiciones)
  * Reutiliza updateEstadoPedido del modelo pedido.
  */
 export async function cambiarEstadoCocina(req, res, next) {

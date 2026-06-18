@@ -23,6 +23,7 @@ import {
   cancelar,
   editar,
   obtenerComprobante,
+  obtenerComprobanteImagen,
 } from '../controllers/pedido.controller.js';
 
 const publicRouter = Router();
@@ -38,6 +39,7 @@ publicRouter.get('/seguimiento/:token', seguimiento);
 adminRouter.post('/caja', requireAdmin, requireTrustedOrigin, validateBody(createCajaSchema), crearCaja);
 adminRouter.get('/', requireAdmin, validateQuery(pedidoQuerySchema), listarAdmin);
 adminRouter.get('/:id/comprobante', requireAdmin, validateParams(idParamSchema), obtenerComprobante);
+adminRouter.get('/:id/comprobante/imagen', requireAdmin, validateParams(idParamSchema), obtenerComprobanteImagen);
 adminRouter.get('/:id', requireAdmin, validateParams(idParamSchema), obtenerAdmin);
 adminRouter.patch(
   '/:id/estado',

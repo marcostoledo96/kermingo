@@ -87,7 +87,7 @@ The system MUST provide `GET /api/admin/pedidos/:id/comprobante` that returns sa
 
 - GIVEN a pedido exists with `comprobante_archivo_id` populated
 - AND an authenticated admin sends `GET /api/admin/pedidos/:id/comprobante`
-- THEN the server responds 200 with `{ drive_id, nombre_original, mime_type, tamanio_bytes, url_publica (if set), created_at }`
+- THEN the server responds 200 with `{ nombre_original, mime_type, tamanio_bytes, url_publica (if set), created_at }` — `drive_id` ya no se expone (B7 fix P2-5)
 - AND the response does NOT include the file bytes
 
 #### Scenario: Admin requests comprobante for pedido without comprobante

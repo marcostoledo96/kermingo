@@ -44,10 +44,19 @@ export async function assertStoreOpen(pool) {
   }
 }
 
+/**
+ * Transiciones válidas del state machine de pedidos.
+ *
+ * Online orders start as `recibido` and must be confirmed before reaching
+ * `en_preparacion`. Caja orders skip `recibido` and go directly to
+ * `en_preparacion`. Cocina KDS only shows `en_preparacion` and `listo`.
+ * `entregado` is terminal; `cancelado` is handled by cancelWithTransaction.
+ */
 export const TRANSICIONES_VALIDAS = {
-  recibido: ['en_preparacion'],
-  en_preparacion: ['listo'],
-  listo: ['entregado'],
+  recibido: ['en_preparacion', 'listo'],
+  en_preparacion: ['listo', 'recibido'],
+  listo: ['en_preparacion', 'entregado'],
+  entregado: [],
 };
 
 export function transicionEstadoValida(actual, siguiente) {
@@ -60,7 +69,7 @@ export function transicionEstadoValida(actual, siguiente) {
  * efectivo: pendiente -> pagado; pagado terminal.
  * transferencia: pendiente -> pagado|comprobante_subido;
  *   comprobante_subido -> pagado|rechazado;
- *   rechazado -> pendiente|comprobante_subido; pagado terminal.
+ *   rechazado -> pendiente|comprobante_subido|pagado; pagado terminal.
  */
 export const transitionsByMethod = {
   efectivo: {
@@ -70,7 +79,7 @@ export const transitionsByMethod = {
   transferencia: {
     pendiente: ['pagado', 'comprobante_subido'],
     comprobante_subido: ['pagado', 'rechazado'],
-    rechazado: ['pendiente', 'comprobante_subido'],
+    rechazado: ['pendiente', 'comprobante_subido', 'pagado'],
     pagado: [], // terminal
   },
 };
@@ -121,11 +130,12 @@ export async function createWithTransaction(pool, data) {
 
     for (const item of data.items) {
       const [prodRows] = await conn.query(
-        'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual FROM producto WHERE id = ? AND activo = 1',
+        'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual, activo, disponible FROM producto WHERE id = ? AND activo = 1',
         [item.producto_id]
       );
       const producto = prodRows[0];
       if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
+      if (!producto.disponible) throw new Error(`Producto "${producto.nombre}" no está disponible todavía`);
 
       itemsExpandidos.push({
         producto_id: producto.id,
@@ -158,7 +168,7 @@ export async function createWithTransaction(pool, data) {
     if (idsRequeridos.length > 0) {
       const placeholders = idsRequeridos.map(() => '?').join(',');
       const [stockRows] = await conn.query(
-        `SELECT id, nombre, stock_limitado, stock_actual FROM producto WHERE id IN (${placeholders}) ORDER BY id FOR UPDATE`,
+        `SELECT id, nombre, stock_limitado, stock_actual, disponible FROM producto WHERE id IN (${placeholders}) ORDER BY id FOR UPDATE`,
         idsRequeridos
       );
 
@@ -167,6 +177,7 @@ export async function createWithTransaction(pool, data) {
       for (const id of idsRequeridos) {
         const producto = stockMap.get(id);
         if (!producto) throw new Error(`Producto ${id} no encontrado`);
+        if (!producto.disponible) throw new Error(`Producto "${producto.nombre}" no está disponible todavía`);
         const necesario = requerimientos.get(id);
         if (producto.stock_limitado && producto.stock_actual < necesario) {
           throw new Error(
@@ -197,6 +208,8 @@ export async function createWithTransaction(pool, data) {
     // 4. INSERT pedido
     const token = generarToken();
     const estadoPago = data.estado_pago || (data.archivo ? 'comprobante_subido' : 'pendiente');
+    // Origin-aware default: online orders start as recibido; caja orders start as en_preparacion.
+    const defaultEstadoPedido = data.origen === 'caja' ? 'en_preparacion' : 'recibido';
     const [pedidoResult] = await conn.query(
       `INSERT INTO pedido
        (token_seguimiento, origen, nombre_cliente, mesa, telefono_cliente,
@@ -212,7 +225,7 @@ export async function createWithTransaction(pool, data) {
         data.observaciones || null,
         data.metodo_pago,
         estadoPago,
-        data.estado_pedido || 'recibido',
+        data.estado_pedido || defaultEstadoPedido,
         total,
         comprobanteArchivoId,
       ]
@@ -260,6 +273,10 @@ export async function createWithTransaction(pool, data) {
   }
 }
 
+/**
+ * Find pedidos visible to the cocina/KDS. Only shows en_preparacion and listo;
+ * recibido orders are excluded because they await payment verification.
+ */
 export async function findKitchenPedidos(pool) {
   const [rows] = await pool.query(
     `SELECT p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
@@ -267,10 +284,10 @@ export async function findKitchenPedidos(pool) {
             COUNT(pd.id) AS cantidad_items
      FROM pedido p
      LEFT JOIN pedido_detalle pd ON pd.pedido_id = p.id
-     WHERE p.estado_pedido IN ('recibido', 'en_preparacion', 'listo')
+     WHERE p.estado_pedido IN ('en_preparacion', 'listo')
      GROUP BY p.id, p.numero, p.nombre_cliente, p.mesa, p.estado_pedido,
               p.estado_pago, p.observaciones, p.created_at, p.total
-     ORDER BY FIELD(p.estado_pedido, 'recibido', 'en_preparacion', 'listo'), p.created_at ASC`
+     ORDER BY FIELD(p.estado_pedido, 'en_preparacion', 'listo'), p.created_at ASC`
   );
   return rows;
 }
@@ -312,8 +329,13 @@ export async function findById(pool, id) {
 
   const [detalles] = await pool.query(
     `SELECT pd.id, pd.producto_id, pd.nombre_producto, pd.precio_unitario,
-            pd.cantidad, pd.subtotal
-     FROM pedido_detalle pd WHERE pd.pedido_id = ?`,
+            pd.cantidad, pd.subtotal,
+            CASE WHEN p.imagen_archivo_id IS NOT NULL
+                 THEN CONCAT('/api/productos/', p.id, '/imagen?v=', p.imagen_archivo_id)
+                 ELSE NULL END AS imagen_url
+     FROM pedido_detalle pd
+     INNER JOIN producto p ON p.id = pd.producto_id
+     WHERE pd.pedido_id = ?`,
     [id]
   );
   pedido.items = detalles;
@@ -461,7 +483,7 @@ export async function cancelWithTransaction(pool, id) {
       await conn.rollback();
       return 0;
     }
-    if (!['recibido', 'en_preparacion'].includes(pedido.estado_pedido)) {
+    if (!['en_preparacion', 'recibido'].includes(pedido.estado_pedido)) {
       await conn.rollback();
       return -1;
     }
@@ -613,11 +635,12 @@ export async function editWithTransaction(pool, id, data) {
 
       for (const item of data.items) {
         const [prodRows] = await conn.query(
-          'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual FROM producto WHERE id = ? AND activo = 1',
+          'SELECT id, nombre, precio, tipo, stock_limitado, stock_actual, activo, disponible FROM producto WHERE id = ? AND activo = 1',
           [item.producto_id]
         );
         const producto = prodRows[0];
         if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
+        if (!producto.disponible) throw new Error(`Producto "${producto.nombre}" no está disponible todavía`);
 
         itemsExpandidos.push({
           producto_id: producto.id,
