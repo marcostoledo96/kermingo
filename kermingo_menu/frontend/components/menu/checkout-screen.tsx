@@ -29,12 +29,9 @@ import { useApiResource } from '@/lib/use-api-resource'
 import { addMyOrder } from '@/lib/my-orders'
 
 const BANK_DETAILS: { label: string; value: string; copyable?: boolean }[] = [
-  { label: 'Nombre completo', value: 'Julieta Mallol' },
-  { label: 'Banco', value: 'Brubank' },
-  { label: 'CBU', value: '1430001713038182530011', copyable: true },
-  { label: 'Alias', value: 'kermingo', copyable: true },
-  { label: 'Nº de cuenta', value: '1303818253001', copyable: true },
-  { label: 'CUIT', value: '27-45689712-1', copyable: true },
+  { label: 'Nombre completo', value: 'Marcos Toledo' },
+  { label: 'Alias', value: 'marcosezequieltol.mp', copyable: true },
+  { label: 'CUIT', value: '233993243', copyable: true },
 ]
 
 const LAST_ORDER_KEY = 'kermingo:lastOrder'
