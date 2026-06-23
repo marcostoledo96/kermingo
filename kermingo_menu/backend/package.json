@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "pretest": "node scripts/forbid-only.mjs",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "test:unit": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --testPathPattern='(unit|controller|csrf|health)'",
     "test:integration": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand"

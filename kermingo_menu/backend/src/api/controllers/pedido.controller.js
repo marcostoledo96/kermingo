@@ -8,6 +8,7 @@ import {
   updateEstadoPago,
   cancelWithTransaction,
   editWithTransaction,
+  aprobarComprobanteConTransaccion,
   assertStoreOpen,
 } from '../models/pedido.model.js';
 import { findArchivoById } from '../models/archivo.model.js';
@@ -178,6 +179,30 @@ export async function cambiarEstado(req, res, next) {
     if (result === -1) throw new ValidationError('Transición de estado no válida');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Estado actualizado correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /api/admin/pedidos/:id/comprobante/aprobar (admin)
+ * Approves a transferencia comprobante transactionally: sets estado_pago=pagado
+ * and, if the order is still recibido, moves it to en_preparacion so it shows
+ * up in cocina. Rejected comprobantes can be re-approved. Never regresses
+ * orders already in en_preparacion/listo/entregado. Rejects efectivo and
+ * cancelled orders.
+ */
+export async function aprobarComprobante(req, res, next) {
+  try {
+    const pool = getPool();
+    const result = await aprobarComprobanteConTransaccion(pool, req.params.id);
+    if (result === 0) throw new NotFoundError('Pedido no encontrado');
+    if (result === -1) throw new ValidationError('El comprobante no está en estado aprobable');
+    if (result === -2) throw new ValidationError('Solo se aprueban comprobantes de transferencia');
+    if (result === -3) throw new ValidationError('No se puede aprobar un pedido cancelado');
+    if (result === -4) throw new ValidationError('El pedido no tiene comprobante adjunto');
+    const pedido = await findById(pool, req.params.id);
+    return respuestaExitosa(res, pedido, 'Comprobante aprobado y pedido enviado a cocina');
   } catch (err) {
     next(err);
   }

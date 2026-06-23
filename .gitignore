@@ -1,0 +1,46 @@
+# Root-level .gitignore for the Kermingo monorepo workspace.
+# Child projects keep their own .gitignore; this catches secrets and
+# generated artifacts at the workspace root and in sibling paths that
+# are not covered by a project-scoped .gitignore.
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Credentials and secrets
+*.pem
+*.key
+credentials/
+drive-credentials.json
+secrets/
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+.next/
+dist/
+build/
+coverage/
+out/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# Local archives and generated artifacts
+*.zip
+*.tar
+*.gz
+
+# Local operational records (not source)
+OPERACIONES_MANUALES_PROD.md
+
+# Backups (never commit DB dumps)
+backup-*.sql

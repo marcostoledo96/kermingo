@@ -350,6 +350,10 @@ export async function findAllAdmin(pool, filters = {}) {
     conditions.push('AND p.estado_pedido = ?');
     values.push(filters.estado_pedido);
   }
+  if (filters.excluir_estado_pedido) {
+    conditions.push('AND p.estado_pedido != ?');
+    values.push(filters.excluir_estado_pedido);
+  }
   if (filters.metodo_pago) {
     conditions.push('AND p.metodo_pago = ?');
     values.push(filters.metodo_pago);
@@ -359,8 +363,10 @@ export async function findAllAdmin(pool, filters = {}) {
     values.push(filters.origen);
   }
   if (filters.buscar) {
-    conditions.push('AND (p.nombre_cliente LIKE ? OR p.numero LIKE ? OR p.telefono_cliente LIKE ?)');
-    values.push(`%${filters.buscar}%`, `%${filters.buscar}%`, `%${filters.buscar}%`);
+    // Tables use utf8mb4_unicode_ci collation, so LIKE is case/accent insensitive
+    // for nombre_cliente / numero / telefono_cliente / mesa.
+    conditions.push('AND (p.nombre_cliente LIKE ? OR p.numero LIKE ? OR p.telefono_cliente LIKE ? OR p.mesa LIKE ?)');
+    values.push(`%${filters.buscar}%`, `%${filters.buscar}%`, `%${filters.buscar}%`, `%${filters.buscar}%`);
   }
 
   // unpaid/caja filter: overrides estado_pago if present
@@ -417,6 +423,77 @@ export async function updateEstadoPedido(pool, id, nuevoEstado) {
 
     await conn.commit();
     return result.affectedRows;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Approves a transferencia comprobante transactionally.
+ * Sets estado_pago='pagado'. If estado_pedido='recibido', moves it to
+ * 'en_preparacion' so the order appears in cocina. Does not regress
+ * pedidos already in en_preparacion/listo/entregado.
+ *
+ * @returns {Promise<number>} 1 ok, 0 not found, -1 not approvable (estado_pago),
+ *   -2 not transferencia, -3 cancelled, -4 no comprobante file attached.
+ */
+export async function aprobarComprobanteConTransaccion(pool, id) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      'SELECT id, metodo_pago, estado_pago, estado_pedido, comprobante_archivo_id FROM pedido WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    const pedido = rows[0];
+    if (!pedido) {
+      await conn.rollback();
+      return 0;
+    }
+    // Only transferencia orders carry a comprobante worth approving.
+    if (pedido.metodo_pago !== 'transferencia') {
+      await conn.rollback();
+      return -2;
+    }
+    // Allow approving freshly uploaded or previously rejected comprobantes.
+    if (!['comprobante_subido', 'rechazado'].includes(pedido.estado_pago)) {
+      await conn.rollback();
+      return -1;
+    }
+    // Never approve a cancelled pedido.
+    if (pedido.estado_pedido === 'cancelado') {
+      await conn.rollback();
+      return -3;
+    }
+    // Require an actual comprobante file to be attached before approving.
+    if (!pedido.comprobante_archivo_id) {
+      await conn.rollback();
+      return -4;
+    }
+
+    const updates = ['estado_pago = ?'];
+    const values = ['pagado'];
+
+    // Only move recibido → en_preparacion; never regress advanced states.
+    if (pedido.estado_pedido === 'recibido') {
+      updates.push('estado_pedido = ?');
+      values.push('en_preparacion');
+    }
+
+    values.push(id);
+
+    await conn.query(
+      `UPDATE pedido SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    await conn.commit();
+    return 1;
   } catch (err) {
     await conn.rollback();
     throw err;

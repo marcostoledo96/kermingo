@@ -44,6 +44,12 @@ export const pedidoQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  // Exclude orders in a given estado_pedido (e.g. 'cancelado'). Used by the
+  // comprobantes screen to push cancelado exclusion server-side instead of
+  // filtering client-side after a capped limit=100 fetch.
+  excluir_estado_pedido: z
+    .enum(['recibido', 'en_preparacion', 'listo', 'entregado', 'cancelado'])
+    .optional(),
 }).strict();
 
 export const updateEstadoPedidoSchema = z.object({

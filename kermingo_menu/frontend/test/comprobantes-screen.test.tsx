@@ -143,4 +143,82 @@ describe('ComprobantesScreen', () => {
       expect(frame.src).toContain('/api/admin/pedidos/22/comprobante/imagen')
     })
   })
+
+  describe('Approve (markPaid) action', () => {
+    it('calls PATCH /comprobante/aprobar and removes the order from the list', async () => {
+      const order = makeOrder({ id: 50, estado_pago: 'comprobante_subido' })
+      mockOrdersResponse([order])
+      mockApiPatch.mockResolvedValue({ id: 50, estado_pago: 'pagado', estado_pedido: 'en_preparacion' })
+
+      render(<ComprobantesScreen />)
+
+      // The card renders the stripped number (0101) and customer name (Marcos),
+      // not the full KMG-0101 code. Assert a real marker before acting.
+      const customerMarker = await screen.findByText('Marcos')
+      expect(customerMarker).toBeTruthy()
+
+      const approveBtn = await screen.findByRole('button', { name: /aprobar/i })
+      fireEvent.click(approveBtn)
+
+      await waitFor(() => {
+        expect(mockApiPatch).toHaveBeenCalledWith(
+          '/api/admin/pedidos/50/comprobante/aprobar',
+          {},
+        )
+      })
+
+      // The order should be removed from the list: the rendered marker disappears
+      await waitFor(() => {
+        expect(screen.queryByText('Marcos')).toBeNull()
+      })
+    })
+  })
+
+  describe('Cancelar y reponer stock (cancel) action', () => {
+    it('calls PATCH /cancelar and removes the order from the list', async () => {
+      const order = makeOrder({ id: 60, estado_pago: 'comprobante_subido' })
+      mockOrdersResponse([order])
+      mockApiPatch.mockResolvedValue({ ok: true })
+      // Auto-confirm the window.confirm dialog
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      render(<ComprobantesScreen />)
+
+      // Assert a real rendered marker before acting (card shows stripped number + name)
+      const customerMarker = await screen.findByText('Marcos')
+      expect(customerMarker).toBeTruthy()
+
+      const cancelarBtn = await screen.findByRole('button', { name: /cancelar y reponer stock/i })
+      fireEvent.click(cancelarBtn)
+
+      await waitFor(() => {
+        expect(mockApiPatch).toHaveBeenCalledWith(
+          '/api/admin/pedidos/60/cancelar',
+          {},
+        )
+      })
+
+      // The order should be removed from the list: the rendered marker disappears
+      await waitFor(() => {
+        expect(screen.queryByText('Marcos')).toBeNull()
+      })
+    })
+
+    it('confirm dialog warns about stock restore and bulk cleanup', async () => {
+      const order = makeOrder({ id: 61, estado_pago: 'comprobante_subido' })
+      mockOrdersResponse([order])
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      render(<ComprobantesScreen />)
+
+      await screen.findByText('Marcos')
+      const cancelarBtn = await screen.findByRole('button', { name: /cancelar y reponer stock/i })
+      fireEvent.click(cancelarBtn)
+
+      const confirmMsg = confirmSpy.mock.calls[0][0] as string
+      expect(confirmMsg).toMatch(/repondr/i)
+      expect(confirmMsg).toMatch(/limpieza masiva|masiva/i)
+      expect(mockApiPatch).not.toHaveBeenCalled()
+    })
+  })
 })

@@ -22,6 +22,7 @@ import {
   cambiarPago,
   cancelar,
   editar,
+  aprobarComprobante,
   obtenerComprobante,
   obtenerComprobanteImagen,
 } from '../controllers/pedido.controller.js';
@@ -56,6 +57,15 @@ adminRouter.patch(
   validateParams(idParamSchema),
   validateBody(updateEstadoPagoSchema),
   cambiarPago
+);
+// Approve comprobante transactionally: pagado + recibido→en_preparacion.
+// Must be registered before /:id to avoid being shadowed by the generic route.
+adminRouter.patch(
+  '/:id/comprobante/aprobar',
+  requireAdmin,
+  requireTrustedOrigin,
+  validateParams(idParamSchema),
+  aprobarComprobante
 );
 adminRouter.patch('/:id/cancelar', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), cancelar);
 adminRouter.put(

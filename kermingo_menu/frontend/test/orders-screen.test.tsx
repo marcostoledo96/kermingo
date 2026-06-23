@@ -92,7 +92,7 @@ describe('OrdersScreen', () => {
   })
 
   describe('Tab switching', () => {
-    it('renders 4 status tabs with correct aria-labels', async () => {
+    it('renders 5 status tabs with correct aria-labels', async () => {
       mockApiGet.mockResolvedValue(mockPaginatedResponse([]))
 
       render(<OrdersScreen />)
@@ -102,6 +102,7 @@ describe('OrdersScreen', () => {
         expect(screen.getByRole('button', { name: /ver: en preparación/i })).toBeTruthy()
         expect(screen.getByRole('button', { name: /ver: listo/i })).toBeTruthy()
         expect(screen.getByRole('button', { name: /ver: entregado/i })).toBeTruthy()
+        expect(screen.getByRole('button', { name: /ver: cancelados/i })).toBeTruthy()
       })
     })
 
@@ -227,6 +228,77 @@ describe('OrdersScreen', () => {
             (c[1] as Record<string, unknown>)?.estado_pedido === 'entregado',
         )
         expect(entregadoCall).toBeTruthy()
+      })
+    })
+
+    it('fetches with estado_pedido=cancelado after switching to cancelados tab', async () => {
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([]))
+
+      render(<OrdersScreen />)
+
+      await waitFor(() => {
+        expect(mockApiGet.mock.calls.length).toBeGreaterThanOrEqual(1)
+      })
+
+      const initialCallCount = mockApiGet.mock.calls.length
+
+      const canceladosTab = screen.getByRole('button', { name: /ver: cancelados/i })
+      fireEvent.click(canceladosTab)
+
+      await waitFor(() => {
+        const newCalls = mockApiGet.mock.calls.slice(initialCallCount)
+        const canceladoCall = newCalls.find(
+          (c: unknown[]) =>
+            typeof c[0] === 'string' &&
+            (c[0] as string).includes('/api/admin/pedidos') &&
+            (c[1] as Record<string, unknown>)?.estado_pedido === 'cancelado',
+        )
+        expect(canceladoCall).toBeTruthy()
+      })
+    })
+  })
+
+  describe('Pagination (limit=30 + page param)', () => {
+    it('requests limit=30 on initial load', async () => {
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([]))
+
+      render(<OrdersScreen />)
+
+      await waitFor(() => {
+        const calls = mockApiGet.mock.calls
+        const pedidosCall = calls.find(
+          (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/api/admin/pedidos'),
+        )
+        expect(pedidosCall).toBeTruthy()
+        const queryArg = pedidosCall![1] as Record<string, unknown>
+        expect(queryArg.limit).toBe(30)
+      })
+    })
+
+    it('sends page=2 after clicking Siguiente when multiple pages exist', async () => {
+      // Simulate a response with 2 pages worth of data
+      mockApiGet.mockResolvedValue({
+        pedidos: [],
+        paginacion: { total: 60, page: 1, limit: 30, totalPages: 2 },
+      })
+
+      render(<OrdersScreen />)
+
+      // Wait for initial load and pagination controls to appear
+      const nextBtn = await screen.findByRole('button', { name: /página siguiente/i })
+      fireEvent.click(nextBtn)
+
+      await waitFor(() => {
+        const calls = mockApiGet.mock.calls
+        const page2Call = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === 'string' &&
+            (c[0] as string).includes('/api/admin/pedidos') &&
+            (c[1] as Record<string, unknown>)?.page === 2,
+        )
+        expect(page2Call).toBeTruthy()
+        const queryArg = page2Call![1] as Record<string, unknown>
+        expect(queryArg.limit).toBe(30)
       })
     })
   })

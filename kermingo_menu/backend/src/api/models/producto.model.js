@@ -24,6 +24,7 @@ const SQL_BASE_PUBLIC = `
   LEFT JOIN categoria c ON c.id = pc.categoria_id
   LEFT JOIN archivo_drive ai ON ai.id = p.imagen_archivo_id
   WHERE p.activo = 1
+    AND (p.tipo <> 'promo' OR EXISTS (SELECT 1 FROM combo_producto cp WHERE cp.combo_id = p.id))
 `;
 
 const SQL_GROUP_ORDER_PUBLIC = `
@@ -223,6 +224,23 @@ export async function updateStock(pool, id, stock) {
 export async function updateImagenArchivoId(conn, productoId, archivoId) {
   const [result] = await conn.query('UPDATE producto SET imagen_archivo_id = ? WHERE id = ?', [archivoId, productoId]);
   return result.affectedRows;
+}
+
+/**
+ * Returns true when the promo (combo) has at least one component configured.
+ * Non-promo products always return true (no components required).
+ * @param {import('mysql2/promise').PoolConnection} conn
+ * @param {number} productoId
+ * @param {string} tipo
+ * @returns {Promise<boolean>}
+ */
+export async function promoTieneComponentes(conn, productoId, tipo) {
+  if (tipo !== 'promo') return true;
+  const [rows] = await conn.query(
+    'SELECT COUNT(*) AS n FROM combo_producto WHERE combo_id = ?',
+    [productoId]
+  );
+  return (rows[0]?.n ?? 0) > 0;
 }
 
 /**

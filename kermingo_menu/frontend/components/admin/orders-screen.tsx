@@ -125,13 +125,14 @@ const PRIMARY_ACTION: Partial<
 
 /* ---- View tabs ---- */
 
-type ViewTab = 'recibido' | 'preparacion' | 'listo' | 'entregado'
+type ViewTab = 'recibido' | 'preparacion' | 'listo' | 'entregado' | 'cancelado'
 
 const VIEW_TABS: { id: ViewTab; label: string; shortLabel: string; icon: typeof Clock }[] = [
   { id: 'recibido', label: 'Pendiente', shortLabel: 'Pend.', icon: CircleDot },
   { id: 'preparacion', label: 'En preparación', shortLabel: 'Prep.', icon: Flame },
   { id: 'listo', label: 'Listo', shortLabel: 'Listo', icon: Bell },
   { id: 'entregado', label: 'Entregado', shortLabel: 'Entr.', icon: CircleCheck },
+  { id: 'cancelado', label: 'Cancelados', shortLabel: 'Canc.', icon: CircleX },
 ]
 
 /* ---- Status & payment filter options ---- */
@@ -153,6 +154,8 @@ export function OrdersScreen() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [viewTab, setViewTab] = useState<ViewTab>('recibido')
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<ApiPedidoPaginada['paginacion'] | null>(null)
   const [detail, setDetail] = useState<Order | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -169,20 +172,13 @@ export function OrdersScreen() {
     preparacion: 0,
     listo: 0,
     entregado: 0,
+    cancelado: 0,
   })
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => setDebouncedSearch(search), 300)
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    }
-  }, [search])
-
   const buildQuery = useCallback(() => {
-    const q: Record<string, string | number> = { limit: 24 }
+    const q: Record<string, string | number> = { limit: 30, page }
     q.estado_pedido = orderStatusToApi(viewTab)
     if (viewTab === 'recibido') {
       q.origen = 'online'
@@ -190,7 +186,7 @@ export function OrdersScreen() {
     }
     if (debouncedSearch.trim()) q.buscar = debouncedSearch.trim()
     return q
-  }, [viewTab, debouncedSearch])
+  }, [viewTab, debouncedSearch, page])
 
   const {
     data: orders,
@@ -201,6 +197,7 @@ export function OrdersScreen() {
     setData: setOrders,
   } = useApiResource<Order[]>(async () => {
     const data = await apiGet<ApiPedidoPaginada>('/api/admin/pedidos', buildQuery())
+    setPagination(data.paginacion)
     const mapped = data.pedidos.map(apiToOrder)
     if (viewTab === 'recibido') {
       return mapped.filter((order) => order.origen === 'online')
@@ -208,16 +205,42 @@ export function OrdersScreen() {
     return mapped
   })
 
-  // Re-fetch orders when tab or search filter changes
+  // Re-fetch when tab, search filter or page changes. Tab/search changes also
+  // reset page to 1 (done in the setters, not in an effect, to avoid cascading renders).
   useEffect(() => {
     refetch({ silent: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewTab, debouncedSearch])
+  }, [viewTab, debouncedSearch, page])
+
+  const changeViewTab = useCallback((tab: ViewTab) => {
+    setViewTab(tab)
+    setPage(1)
+  }, [])
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    // Reset to page 1 when the debounced search actually changes.
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch((prev) => {
+        if (prev !== search) setPage(1)
+        return search
+      })
+    }, 300)
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    }
+  }, [search])
 
   // Fetch tab counts (limit=1 for each status to get total without loading all data)
   const refreshTabCounts = useCallback(async () => {
-    const statuses: ViewTab[] = ['recibido', 'preparacion', 'listo', 'entregado']
-    const counts: Record<ViewTab, number> = { recibido: 0, preparacion: 0, listo: 0, entregado: 0 }
+    const statuses: ViewTab[] = ['recibido', 'preparacion', 'listo', 'entregado', 'cancelado']
+    const counts: Record<ViewTab, number> = {
+      recibido: 0,
+      preparacion: 0,
+      listo: 0,
+      entregado: 0,
+      cancelado: 0,
+    }
     const results = await Promise.allSettled(
       statuses.map(async (tab) => {
         const data = await apiGet<ApiPedidoPaginada>('/api/admin/pedidos', {
@@ -488,7 +511,7 @@ export function OrdersScreen() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setViewTab(tab.id)}
+                  onClick={() => changeViewTab(tab.id)}
                   aria-label={`Ver: ${tab.label}`}
                   className={`km-focus flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
                     isActive
@@ -498,7 +521,9 @@ export function OrdersScreen() {
                           ? 'bg-[var(--km-preparando-bg)] text-[var(--km-preparando-text)]'
                           : tab.id === 'listo'
                             ? 'bg-[var(--km-listo-bg)] text-[var(--km-listo-text)]'
-                            : 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
+                            : tab.id === 'entregado'
+                              ? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
+                              : 'bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]'
                       : 'text-[var(--km-tinta-suave)] hover:bg-[#EEF5FF]/60'
                   }`}
                 >
@@ -617,6 +642,36 @@ export function OrdersScreen() {
               ))}
             </div>
           </>
+        )}
+
+        {/* Pagination controls — especially useful for Entregado with many old orders */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="km-panel flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+            <div className="flex items-center gap-2 text-[var(--km-tinta-suave)]">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || loading}
+                aria-label="Página anterior"
+                className="km-focus rounded-lg border border-[#75AADB]/25 bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span className="km-tabular text-xs font-semibold text-[#003B73]">
+                Página {page} de {pagination.totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                disabled={page >= pagination.totalPages || loading}
+                aria-label="Página siguiente"
+                className="km-focus rounded-lg border border-[#75AADB]/25 bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+            <span className="km-tabular text-xs font-medium text-[var(--km-tinta-suave)]">
+              Total {pagination.total} {pagination.total === 1 ? 'pedido' : 'pedidos'}
+            </span>
+          </div>
         )}
       {detail && (
         <OrderDetailModal
@@ -1052,6 +1107,32 @@ function EmptyState({
           {hasFilters
             ? 'Probá ajustar la búsqueda.'
             : 'Los pedidos online aparecerán acá para que confirmes el pago.'}
+        </p>
+        {hasFilters && (
+          <button
+            onClick={onClearFilters}
+            className="mt-1 rounded-lg border border-[#003B73] bg-white px-3 py-1.5 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60"
+          >
+            Limpiar búsqueda
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  if (viewTab === 'cancelado') {
+    return (
+      <div className="km-panel flex flex-col items-center gap-3 px-6 py-14 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--km-peligro-bg)] text-[var(--km-peligro-text)]">
+          <CircleX className="h-7 w-7" strokeWidth={1.8} />
+        </div>
+        <p className="font-bold text-[#003B73]">
+          {hasFilters ? 'Ningún pedido cancelado con esos filtros' : 'No hay pedidos cancelados'}
+        </p>
+        <p className="text-sm text-[var(--km-tinta-suave)]">
+          {hasFilters
+            ? 'Probá ajustar la búsqueda.'
+            : 'Los pedidos cancelados se listan acá como historial.'}
         </p>
         {hasFilters && (
           <button

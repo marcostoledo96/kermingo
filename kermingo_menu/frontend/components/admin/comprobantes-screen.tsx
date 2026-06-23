@@ -72,6 +72,9 @@ export function buildComprobantesQuery(filter: ComprobanteFilter): Record<string
     metodo_pago: 'transferencia',
     origen: 'online',
     limit: 100,
+    // Push cancelado exclusion server-side so a page full of cancelled orders
+    // never hides valid pending/rechazado comprobantes behind the limit cap.
+    excluir_estado_pedido: 'cancelado',
   }
 
   if (filter === 'comprobante_subido') {
@@ -104,6 +107,7 @@ export function ComprobantesScreen() {
   const [receiptError, setReceiptError] = useState<string | null>(null)
   const [receiptDetailId, setReceiptDetailId] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
 
   const normalizeProxyUrl = useCallback((rawUrl: string | null | undefined) => {
     if (!rawUrl) return null
@@ -134,7 +138,9 @@ export function ComprobantesScreen() {
   }, [loadOrders])
 
   const filtered = useMemo(() => {
-    let list = orders.filter((o) => o.origen === 'online' && o.metodo_pago === 'transferencia')
+    let list = orders.filter(
+      (o) => o.origen === 'online' && o.metodo_pago === 'transferencia' && o.estado_pedido !== 'cancelado',
+    )
     if (filter === 'comprobante_subido') {
       list = list.filter((o) => o.estado_pago === 'comprobante_subido')
     } else if (filter === 'rechazado') {
@@ -163,13 +169,24 @@ export function ComprobantesScreen() {
   const markPaid = async (id: number) => {
     setActing(id)
     setActionError(null)
+    setActionSuccess(null)
     try {
-      await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'pagado' })
-      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, estado_pago: 'pagado' } : o)))
-      if (detail?.id === id) setDetail({ ...detail, estado_pago: 'pagado' })
+      const updated = await apiPatch<ApiPedido>(`/api/admin/pedidos/${id}/comprobante/aprobar`, {})
+      // Approved comprobantes leave the pending/rejected list.
+      setOrders((prev) => prev.filter((o) => o.id !== id))
+      // Reflect both estado_pago and estado_pedido in the open detail modal
+      // so the UI stays consistent if the approval happens with the modal open.
+      if (detail?.id === id) {
+        setDetail({
+          ...detail,
+          estado_pago: 'pagado',
+          estado_pedido: updated?.estado_pedido ?? detail.estado_pedido,
+        })
+      }
+      setActionSuccess('Comprobante aprobado. Pedido enviado a cocina.')
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
-      setActionError(err instanceof ApiError ? err.message : 'No se pudo marcar como pagado')
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo aprobar el comprobante')
     } finally {
       setActing(null)
     }
@@ -178,6 +195,7 @@ export function ComprobantesScreen() {
   const markRejected = async (id: number) => {
     setActing(id)
     setActionError(null)
+    setActionSuccess(null)
     try {
       await apiPatch(`/api/admin/pedidos/${id}/pago`, { estado_pago: 'rechazado' })
       setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, estado_pago: 'rechazado' } : o)))
@@ -185,6 +203,38 @@ export function ComprobantesScreen() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expireSession()
       setActionError(err instanceof ApiError ? err.message : 'No se pudo rechazar')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  /**
+   * Cancel/descartar a comprobante (typically an old/test order) without
+   * deleting it from the DB. Uses the existing cancelar endpoint which
+   * reposes stock, then removes it from the operational list.
+   * NOTE: cancelling restores stock. Do NOT use this for bulk cleanup if
+   * stock was already manually compensated, or totals will drift.
+   */
+  const cancelOrder = async (id: number) => {
+    if (
+      !window.confirm(
+        '¿Cancelar este pedido? Se repondrá el stock automáticamente.\n\n' +
+          'No usar para limpieza masiva si el stock ya fue compensado manualmente ' +
+          '(generaría un descuadre en el inventario).',
+      )
+    )
+      return
+    setActing(id)
+    setActionError(null)
+    setActionSuccess(null)
+    try {
+      await apiPatch(`/api/admin/pedidos/${id}/cancelar`, {})
+      setOrders((prev) => prev.filter((o) => o.id !== id))
+      if (detail?.id === id) setDetail(null)
+      setActionSuccess('Pedido cancelado y oculto de comprobantes.')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) expireSession()
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo cancelar el pedido')
     } finally {
       setActing(null)
     }
@@ -260,6 +310,20 @@ export function ComprobantesScreen() {
           <button
             onClick={() => setActionError(null)}
             className="rounded-lg border border-[var(--km-peligro-bg)] bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
+      {/* Success banner */}
+      {actionSuccess && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[var(--km-listo-bg)] bg-[var(--km-listo-bg)] px-4 py-3 text-sm text-[var(--km-listo-text)]">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+          <span className="flex-1 font-medium">{actionSuccess}</span>
+          <button
+            onClick={() => setActionSuccess(null)}
+            className="rounded-lg border border-[var(--km-listo-bg)] bg-white px-2.5 py-1 text-xs font-bold text-[var(--km-listo-text)] hover:bg-[var(--km-listo-bg)]"
           >
             Cerrar
           </button>
@@ -346,6 +410,7 @@ export function ComprobantesScreen() {
               onViewComprobante={() => openComprobante(order.id)}
               onApprove={() => markPaid(order.id)}
               onReject={() => markRejected(order.id)}
+              onCancel={() => cancelOrder(order.id)}
               onReapprove={order.estado_pago === 'rechazado' ? () => markPaid(order.id) : undefined}
             />
           ))}
@@ -392,6 +457,7 @@ function ComprobanteCard({
   onViewComprobante,
   onApprove,
   onReject,
+  onCancel,
   onReapprove,
 }: {
   order: ApiPedidoListItem
@@ -400,6 +466,7 @@ function ComprobanteCard({
   onViewComprobante: () => void
   onApprove: () => void
   onReject: () => void
+  onCancel: () => void
   onReapprove?: () => void
 }) {
   const estado = PAYMENT_ESTADO_MAP[order.estado_pago] || 'pendiente'
@@ -491,6 +558,16 @@ function ComprobanteCard({
             Reaprobar
           </button>
         )}
+        {/* Cancelar y reponer stock: cancela el pedido y repone stock (no borrar DB) */}
+        <button
+          onClick={onCancel}
+          disabled={acting}
+          className="km-focus flex items-center gap-1 rounded-lg border border-[#75AADB]/25 bg-white px-2.5 py-2 text-xs font-semibold text-[var(--km-tinta-suave)] transition-colors hover:bg-[#EEF5FF]/60 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Cancelar y reponer stock (no usar para limpieza masiva)"
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+          Cancelar y reponer stock
+        </button>
       </div>
     </div>
   )

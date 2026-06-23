@@ -507,3 +507,19 @@ items: z.preprocess((val) => {
 **Helper:** `ABSOLUTE_IMAGE_URL(path)` en `lib/config.ts`. Toma un string relativo o `null/undefined`, antepone `API_BASE` (en dev: `http://localhost:3001`; en producción exige `NEXT_PUBLIC_API_URL`). Si el path ya es absoluto (`http://...`), lo devuelve sin cambios. Si es null/undefined, devuelve `undefined`.
 
 **Regla:** Cualquier mapper o componente que consuma `imagen_url` de la API debe pasarlo por `ABSOLUTE_IMAGE_URL()`. No asumir que el path es absoluto ni que el navegador lo resuelve contra el backend.
+
+## 33. Cancelar repone stock: no usar para limpieza masiva tras compensación manual
+
+**Síntoma:** Si un admin usa el botón "Cancelar y reponer stock" (ex "Descartar") en comprobantes para limpiar muchos pedidos de prueba, el stock se repone automáticamente para cada uno.
+
+**Causa:** El endpoint `PATCH /api/admin/pedidos/:id/cancelar` ejecuta `cancelWithTransaction`, que repone el stock de cada producto del pedido. Si el stock ya fue compensado manualmente (porque el pedido se canceló en producción pero el estado no se actualizó), una cancelación masiva genera un descuadre: el inventario queda inflado.
+
+**Regla:** El botón de cancelación en comprobantes muestra un `window.confirm` que advierte explícitamente: no usar para limpieza masiva si el stock ya fue compensado manualmente. La cancelación es operativa (un pedido real que se cancela), no una herramienta de mantenimiento.
+
+**Aprobar comprobante requiere archivo adjunto:** `aprobarComprobanteConTransaccion` valida que `comprobante_archivo_id` no sea NULL. Un pedido transferencia en estado `comprobante_subido` o `rechazado` pero sin archivo adjunto (caso edge de caja manual sin comprobante) retorna 400 con "El pedido no tiene comprobante adjunto". La aprobación solo procede con un comprobante real subido a Drive.
+
+## 34. Pedidos cancelados visibles históricamente en /admin/pedidos
+
+**Síntoma:** Antes, los pedidos cancelados solo eran visibles por exclusión (no aparecían en comprobantes ni en tabs operativos de pedidos).
+
+**Regla:** La pantalla `/admin/pedidos` (OrdersScreen) incluye una tab "Cancelados" que consulta `estado_pedido=cancelado`. Esto es un historial de solo lectura — no permite reabrir pedidos. La exclusión de cancelados en comprobantes (`excluir_estado_pedido=cancelado`) sigue activa y no se altera.

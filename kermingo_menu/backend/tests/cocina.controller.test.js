@@ -44,6 +44,7 @@ jest.unstable_mockModule('../src/api/models/pedido.model.js', () => ({
   validatePaymentTransition: jest.fn(),
   cancelWithTransaction: jest.fn(),
   editWithTransaction: jest.fn(),
+  aprobarComprobanteConTransaccion: jest.fn(),
   assertStoreOpen: jest.fn().mockResolvedValue(undefined),
 }));
 

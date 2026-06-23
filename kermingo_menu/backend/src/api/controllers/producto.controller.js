@@ -12,12 +12,13 @@ import {
   findByIdAdmin,
   updateImagenArchivoId,
   updateOrdenes,
+  promoTieneComponentes,
 } from '../models/producto.model.js';
 import { findProductImageByProductId, createArchivo } from '../models/archivo.model.js';
 import { processProductImage } from '../services/image.service.js';
 import { uploadFile, downloadFile } from '../services/drive.service.js';
 import { respuestaExitosa } from '../utils/respuesta.utils.js';
-import { NotFoundError } from '../utils/errors.js';
+import { NotFoundError, ValidationError } from '../utils/errors.js';
 import environments from '../config/environments.js';
 
 /**
@@ -83,6 +84,12 @@ export async function crear(req, res, next) {
     const conn = await pool.getConnection();
     const { categorias, ...productoData } = req.body;
 
+    // Safe promo guard: a brand-new promo cannot have components yet, so it must
+    // start as no disponible until components are configured.
+    if (productoData.tipo === 'promo' && productoData.disponible === 1) {
+      productoData.disponible = 0;
+    }
+
     try {
       await conn.beginTransaction();
       const insertId = await create(conn, productoData);
@@ -120,6 +127,15 @@ export async function actualizar(req, res, next) {
     const conn = await pool.getConnection();
     const { categorias, ...productoData } = req.body;
     const { id } = req.params;
+
+    // Safe promo guard: refuse to set disponible=1 on a promo without components.
+    if (productoData.disponible === 1) {
+      const tipo = productoData.tipo ?? (await findByIdAdmin(pool, id))?.tipo;
+      if (tipo === 'promo' && !(await promoTieneComponentes(conn, id, 'promo'))) {
+        conn.release();
+        return next(new ValidationError('La promo no tiene componentes configurados. Agregalos antes de habilitarla.'));
+      }
+    }
 
     try {
       await conn.beginTransaction();
