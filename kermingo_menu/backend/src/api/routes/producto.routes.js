@@ -11,6 +11,7 @@ import {
   stockAdjustmentSchema,
   reordenarSchema,
   idParamSchema,
+  componentesSchema,
 } from '../schemas/producto.schema.js';
 import {
   listar,
@@ -25,6 +26,8 @@ import {
   obtenerImagen,
   subirImagen,
   quitarImagen,
+  obtenerComponentes,
+  setComponentesController,
 } from '../controllers/producto.controller.js';
 
 const publicRouter = Router();
@@ -39,6 +42,9 @@ publicRouter.get('/:id', validateParams(idParamSchema), obtener);
 adminRouter.get('/', requireAdmin, validateQuery(adminProductoQuerySchema), listarAdmin);
 adminRouter.patch('/orden', requireAdmin, requireTrustedOrigin, validateBody(reordenarSchema), reordenar);
 adminRouter.post('/', requireAdmin, requireTrustedOrigin, validateBody(createProductoSchema), crear);
+// Component routes MUST be before /:id to avoid route collision
+adminRouter.get('/:id/componentes', requireAdmin, validateParams(idParamSchema), obtenerComponentes);
+adminRouter.put('/:id/componentes', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), validateBody(componentesSchema), setComponentesController);
 adminRouter.put('/:id', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), validateBody(updateProductoSchema), actualizar);
 adminRouter.patch('/:id/desactivar', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), desactivar);
 adminRouter.patch('/:id/recuperar', requireAdmin, requireTrustedOrigin, validateParams(idParamSchema), recuperar);

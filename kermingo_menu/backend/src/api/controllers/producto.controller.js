@@ -13,6 +13,8 @@ import {
   updateImagenArchivoId,
   updateOrdenes,
   promoTieneComponentes,
+  findComponentes,
+  setComponentes,
 } from '../models/producto.model.js';
 import { findProductImageByProductId, createArchivo } from '../models/archivo.model.js';
 import { processProductImage } from '../services/image.service.js';
@@ -338,6 +340,99 @@ export async function quitarImagen(req, res, next) {
 
     const updatedProducto = await findByIdAdmin(pool, id);
     return respuestaExitosa(res, updatedProducto, 'Imagen de producto quitada correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/admin/productos/:id/componentes
+ * Returns the component list for a promo product.
+ */
+export async function obtenerComponentes(req, res, next) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const producto = await findByIdAdmin(pool, id);
+    if (!producto) throw new NotFoundError('Producto no encontrado');
+    if (producto.tipo !== 'promo') throw new ValidationError('El producto no es una promo');
+    const componentes = await findComponentes(pool, id);
+    return respuestaExitosa(res, componentes, 'Componentes obtenidos correctamente');
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /api/admin/productos/:id/componentes
+ * Atomically replace the components of a promo.
+ * Body: { componentes: [{ producto_id: number, cantidad: number >= 1 }] }
+ */
+export async function setComponentesController(req, res, next) {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+    const { componentes } = req.body;
+
+    const producto = await findByIdAdmin(pool, id);
+    if (!producto) throw new NotFoundError('Producto no encontrado');
+    if (producto.tipo !== 'promo') throw new ValidationError('El producto no es una promo');
+
+    // Validate no self-reference
+    if (componentes.some((c) => c.producto_id === Number(id))) {
+      throw new ValidationError('Una promo no puede ser componente de sí misma');
+    }
+
+    // Validate no duplicates
+    const seenIds = new Set();
+    for (const c of componentes) {
+      if (seenIds.has(c.producto_id)) {
+        throw new ValidationError('No se pueden repetir productos en los componentes');
+      }
+      seenIds.add(c.producto_id);
+    }
+
+    // Validate all components exist, are active, and are not promos
+    if (componentes.length > 0) {
+      const componentIds = componentes.map((c) => c.producto_id);
+      const ph = componentIds.map(() => '?').join(',');
+      const [componentProducts] = await pool.query(
+        `SELECT id, tipo, activo FROM producto WHERE id IN (${ph})`,
+        componentIds
+      );
+
+      if (componentProducts.length !== componentIds.length) {
+        throw new ValidationError('Uno o más componentes no existen');
+      }
+
+      for (const cp of componentProducts) {
+        if (!cp.activo) {
+          throw new ValidationError('Uno o más componentes están desactivados');
+        }
+        if (cp.tipo === 'promo') {
+          throw new ValidationError('Una promo no puede tener otra promo como componente');
+        }
+      }
+    }
+
+    // Atomic replace within transaction
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await setComponentes(conn, id, componentes);
+      if (componentes.length === 0) {
+        await conn.query('UPDATE producto SET disponible = 0 WHERE id = ?', [id]);
+      }
+      await conn.commit();
+    } catch (err) {
+      try { await conn.rollback(); } catch { /* noop */ }
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    const result = await findComponentes(pool, id);
+    return respuestaExitosa(res, result, 'Componentes actualizados correctamente');
   } catch (err) {
     next(err);
   }

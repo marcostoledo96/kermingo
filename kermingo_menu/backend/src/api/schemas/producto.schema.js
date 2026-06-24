@@ -59,3 +59,12 @@ export const reordenarSchema = z.object({
 export const idParamSchema = z.object({
   id: z.coerce.number().int().min(1),
 });
+
+export const componentesSchema = z.object({
+  componentes: z.array(
+    z.object({
+      producto_id: z.number().int().min(1),
+      cantidad: z.number().int().min(1),
+    })
+  ),
+}).strict();

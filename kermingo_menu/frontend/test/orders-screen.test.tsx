@@ -6,8 +6,9 @@
  *   payment-verification-gate-and-pedidos-tabs/T2.4 — confirm-payment action
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { OrdersScreen } from '@/components/admin/orders-screen'
+import { ApiError } from '@/lib/api'
 
 // --- Mock dependencies ---
 
@@ -27,10 +28,12 @@ vi.mock('@/components/admin/admin-shell', () => ({
 
 const mockApiGet = vi.fn()
 const mockApiPatch = vi.fn()
+const mockApiPut = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
   apiPatch: (...args: unknown[]) => mockApiPatch(...args),
+  apiPut: (...args: unknown[]) => mockApiPut(...args),
   ApiError: class ApiError extends Error {
     status: number
     constructor(message: string, status: number) {
@@ -148,6 +151,24 @@ describe('OrdersScreen', () => {
         expect(screen.getAllByText(/pedido online/i).length).toBeGreaterThan(0)
       })
       expect(screen.queryByText(/venta caja/i)).toBeNull()
+    })
+
+    it('opens the desktop actions menu downward so the first row is not clipped at the top', async () => {
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([
+        makeApiOrder({ id: 13, nombre_cliente: 'Primer pedido', origen: 'online' }),
+      ]))
+
+      render(<OrdersScreen />)
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/primer pedido/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+
+      const menu = await screen.findByRole('button', { name: /editar pedido/i })
+      expect(menu.parentElement?.className).toContain('top-full')
+      expect(menu.parentElement?.className).not.toContain('bottom-full')
     })
 
     it('fetches with estado_pedido=en_preparacion after switching to preparacion tab', async () => {
@@ -1089,6 +1110,608 @@ describe('OrdersScreen', () => {
           '/api/admin/pedidos/500/estado',
           { estado_pedido: 'en_preparacion' },
         )
+      })
+    })
+  })
+
+  describe('Edit order modal foundation', () => {
+    it('exposes edit from the mobile card for delivered orders but not cancelled ones', async () => {
+      const deliveredOrder = makeApiOrder({
+        id: 620,
+        numero: 'KMG-0620',
+        nombre_cliente: 'Pedido Entregado',
+        estado_pedido: 'entregado',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        origen: 'caja',
+      })
+      const cancelledOrder = makeApiOrder({
+        id: 621,
+        numero: 'KMG-0621',
+        nombre_cliente: 'Pedido Cancelado',
+        estado_pedido: 'cancelado',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        origen: 'caja',
+      })
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([deliveredOrder, cancelledOrder]))
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: entregado/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/pedido entregado/i).length).toBeGreaterThan(0)
+      })
+
+      const deliveredCards = screen.getAllByText(/pedido entregado/i)
+      const deliveredCard = deliveredCards[deliveredCards.length - 1].closest('.km-panel') as HTMLElement
+      fireEvent.click(within(deliveredCard).getByRole('button', { name: /más acciones/i }))
+      fireEvent.click(await within(deliveredCard).findByRole('button', { name: /editar pedido/i }))
+
+      expect(await screen.findByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+
+      const cancelledCards = screen.getAllByText(/pedido cancelado/i)
+      const cancelledCard = cancelledCards[cancelledCards.length - 1].closest('.km-panel') as HTMLElement
+      expect(within(cancelledCard).queryByRole('button', { name: /más acciones/i })).toBeNull()
+      expect(within(cancelledCard).queryByRole('button', { name: /editar pedido/i })).toBeNull()
+    })
+
+    it('opens an edit modal with selected order data and closes it', async () => {
+      const order = makeApiOrder({
+        id: 610,
+        numero: 'KMG-0610',
+        nombre_cliente: 'María Scout',
+        mesa: '12',
+        telefono_cliente: '2915551234',
+        estado_pedido: 'recibido',
+        estado_pago: 'comprobante_subido',
+        metodo_pago: 'transferencia',
+        observaciones: 'Sin sal',
+        origen: 'online',
+      })
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([order]))
+
+      render(<OrdersScreen />)
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/maría scout/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      const dialog = await screen.findByRole('dialog', { name: /editar pedido/i })
+      expect(dialog).toBeTruthy()
+      expect(screen.getByDisplayValue('María Scout')).toBeTruthy()
+      expect(screen.getByDisplayValue('12')).toBeTruthy()
+      expect(screen.getByDisplayValue('2915551234')).toBeTruthy()
+      expect(screen.getByDisplayValue('Sin sal')).toBeTruthy()
+      expect(screen.getByText(/transferencia/i)).toBeTruthy()
+      expect(screen.getByText(/comprobante subido/i)).toBeTruthy()
+
+      const closeButtons = screen.getAllByRole('button', { name: /^cerrar edición$/i })
+      fireEvent.click(closeButtons[closeButtons.length - 1])
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /editar pedido/i })).toBeNull()
+      })
+    })
+
+    it('saves metadata only, closes the modal, and updates the visible order', async () => {
+      const order = makeApiOrder({
+        id: 710,
+        numero: 'KMG-0710',
+        nombre_cliente: 'Cliente original',
+        mesa: '4',
+        telefono_cliente: '2911111111',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        observaciones: 'Nota original',
+        origen: 'caja',
+      })
+      const updatedOrder = {
+        ...order,
+        nombre_cliente: 'Cliente corregido',
+        mesa: '9',
+        telefono_cliente: '2912222222',
+        observaciones: 'Nota corregida',
+        items: [],
+      }
+
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([order]))
+      mockApiPut.mockImplementation(async () => {
+        mockApiGet.mockResolvedValue(mockPaginatedResponse([updatedOrder]))
+        return updatedOrder
+      })
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente original/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      fireEvent.change(screen.getByLabelText(/cliente/i), { target: { value: 'Cliente corregido' } })
+      fireEvent.change(screen.getByLabelText(/mesa/i), { target: { value: '9' } })
+      fireEvent.change(screen.getByLabelText(/teléfono/i), { target: { value: '2912222222' } })
+      fireEvent.change(screen.getByLabelText(/observaciones/i), { target: { value: 'Nota corregida' } })
+
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/710', {
+        nombre_cliente: 'Cliente corregido',
+        mesa: '9',
+        telefono_cliente: '2912222222',
+        observaciones: 'Nota corregida',
+      })
+      expect((mockApiPut.mock.calls[0][1] as Record<string, unknown>).items).toBeUndefined()
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /editar pedido/i })).toBeNull()
+        expect(screen.getAllByText(/cliente corregido/i).length).toBeGreaterThan(0)
+      })
+    })
+
+    it('keeps the edit modal open and shows the API error when metadata save is rejected', async () => {
+      const order = makeApiOrder({
+        id: 720,
+        numero: 'KMG-0720',
+        nombre_cliente: 'Cliente original',
+        mesa: '4',
+        telefono_cliente: '2911111111',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        observaciones: 'Nota original',
+        origen: 'caja',
+      })
+
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([order]))
+      mockApiPut.mockRejectedValueOnce(new ApiError('El backend rechazó la corrección.', 409))
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente original/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      fireEvent.change(screen.getByLabelText(/cliente/i), { target: { value: 'Cliente rechazado' } })
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/720', {
+          nombre_cliente: 'Cliente rechazado',
+          mesa: '4',
+          telefono_cliente: '2911111111',
+          observaciones: 'Nota original',
+        })
+      })
+
+      expect(await screen.findByText(/el backend rechazó la corrección/i)).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      expect(screen.getByDisplayValue('Cliente rechazado')).toBeTruthy()
+    })
+
+    it('saves payment correction with metadata only, closes, refetches, and updates visible payment', async () => {
+      const order = makeApiOrder({
+        id: 730,
+        numero: 'KMG-0730',
+        nombre_cliente: 'Cliente pago',
+        mesa: '8',
+        telefono_cliente: '2913333333',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pendiente',
+        metodo_pago: 'transferencia',
+        observaciones: 'Pago a corregir',
+        origen: 'caja',
+      })
+      const updatedOrder = {
+        ...order,
+        metodo_pago: 'efectivo',
+        estado_pago: 'pagado',
+        items: [],
+      }
+
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([order]))
+      mockApiPut.mockImplementation(async () => {
+        mockApiGet.mockResolvedValue(mockPaginatedResponse([updatedOrder]))
+        return updatedOrder
+      })
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente pago/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      fireEvent.change(screen.getByLabelText(/método de pago/i), { target: { value: 'efectivo' } })
+      fireEvent.change(screen.getByLabelText(/estado de pago/i), { target: { value: 'pagado' } })
+      const getCallsBeforeSave = mockApiGet.mock.calls.length
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/730', {
+        nombre_cliente: 'Cliente pago',
+        mesa: '8',
+        telefono_cliente: '2913333333',
+        observaciones: 'Pago a corregir',
+        metodo_pago: 'efectivo',
+        estado_pago: 'pagado',
+      })
+      expect((mockApiPut.mock.calls[0][1] as Record<string, unknown>).items).toBeUndefined()
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /editar pedido/i })).toBeNull()
+        expect(mockApiGet.mock.calls.length).toBeGreaterThan(getCallsBeforeSave)
+      })
+
+      const updatedCard = screen
+        .getAllByText(/cliente pago/i)
+        .find((node) => node.closest('.km-panel'))
+        ?.closest('.km-panel') as HTMLElement | null
+      expect(updatedCard).toBeTruthy()
+      expect(within(updatedCard as HTMLElement).getByText('Efectivo')).toBeTruthy()
+      expect(within(updatedCard as HTMLElement).getByText('Pagado')).toBeTruthy()
+      expect(within(updatedCard as HTMLElement).queryByText(/pago pendiente/i)).toBeNull()
+    })
+
+    it('keeps transfer receipt intact when backend rejects changing payment method to cash', async () => {
+      const order = makeApiOrder({
+        id: 740,
+        numero: 'KMG-0740',
+        nombre_cliente: 'Cliente comprobante',
+        mesa: '10',
+        telefono_cliente: '2914444444',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'comprobante_subido',
+        metodo_pago: 'transferencia',
+        observaciones: 'Tiene comprobante',
+        comprobante_archivo_id: 777,
+        origen: 'online',
+      })
+
+      mockApiGet.mockResolvedValue(mockPaginatedResponse([order]))
+      mockApiPut.mockRejectedValueOnce(new ApiError('No se puede cambiar a efectivo porque el pedido tiene comprobante adjunto.', 400))
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente comprobante/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      const methodSelect = screen.getByLabelText(/método de pago/i) as HTMLSelectElement
+      fireEvent.change(methodSelect, { target: { value: 'efectivo' } })
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+
+      const payload = mockApiPut.mock.calls[0][1] as Record<string, unknown>
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/740', {
+        nombre_cliente: 'Cliente comprobante',
+        mesa: '10',
+        telefono_cliente: '2914444444',
+        observaciones: 'Tiene comprobante',
+        metodo_pago: 'efectivo',
+      })
+      expect(payload.items).toBeUndefined()
+
+      expect(await screen.findByText(/no se puede cambiar a efectivo/i)).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      expect(methodSelect.value).toBe('efectivo')
+      expect(screen.getByText(/el comprobante adjunto se conserva/i)).toBeTruthy()
+    })
+
+    it('saves edited item quantities/removals with an items array, closes, refetches, and updates total', async () => {
+      const order = makeApiOrder({
+        id: 750,
+        numero: 'KMG-0750',
+        nombre_cliente: 'Cliente items',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        total: '5000.00',
+        origen: 'caja',
+      })
+      const detailOrder = {
+        ...order,
+        items: [
+          { producto_id: 10, nombre_producto: 'Pizza', precio_unitario: '2000.00', cantidad: 2, subtotal: '4000.00' },
+          { producto_id: 11, nombre_producto: 'Agua', precio_unitario: '1000.00', cantidad: 1, subtotal: '1000.00' },
+        ],
+      }
+      const updatedOrder = {
+        ...detailOrder,
+        total: '6000.00',
+        items: [
+          { producto_id: 10, nombre_producto: 'Pizza', precio_unitario: '2000.00', cantidad: 3, subtotal: '6000.00' },
+        ],
+      }
+
+      mockApiGet.mockImplementation(async (url: string) => {
+        if (url.includes('/pedidos/750')) return detailOrder
+        return mockPaginatedResponse([order])
+      })
+      mockApiPut.mockImplementation(async () => {
+        mockApiGet.mockResolvedValue(mockPaginatedResponse([updatedOrder]))
+        return updatedOrder
+      })
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente items/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      expect(await screen.findByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      fireEvent.change(await screen.findByLabelText(/cantidad de pizza/i), { target: { value: '3' } })
+      fireEvent.click(await screen.findByRole('button', { name: /quitar agua/i }))
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/750', {
+        nombre_cliente: 'Cliente items',
+        mesa: '',
+        telefono_cliente: '',
+        observaciones: '',
+        items: [{ producto_id: 10, cantidad: 3 }],
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /editar pedido/i })).toBeNull()
+        expect(screen.getAllByText('$ 6.000').length).toBeGreaterThan(0)
+      })
+    })
+
+    it('prevents saving when all items are removed and does not call PUT', async () => {
+      const order = makeApiOrder({
+        id: 760,
+        numero: 'KMG-0760',
+        nombre_cliente: 'Cliente sin items',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        origen: 'caja',
+      })
+      const detailOrder = {
+        ...order,
+        items: [
+          { producto_id: 20, nombre_producto: 'Empanada', precio_unitario: '1500.00', cantidad: 1, subtotal: '1500.00' },
+        ],
+      }
+
+      mockApiGet.mockImplementation(async (url: string) => {
+        if (url.includes('/pedidos/760')) return detailOrder
+        return mockPaginatedResponse([order])
+      })
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente sin items/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      expect(await screen.findByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      fireEvent.click(await screen.findByRole('button', { name: /quitar empanada/i }))
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      expect((await screen.findAllByText(/el pedido debe tener al menos un producto/i)).length).toBeGreaterThan(0)
+      expect(mockApiPut).not.toHaveBeenCalled()
+    })
+
+    it('keeps item draft open with backend stock error and does not refetch as success', async () => {
+      const order = makeApiOrder({
+        id: 770,
+        numero: 'KMG-0770',
+        nombre_cliente: 'Cliente stock',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        total: '2000.00',
+        origen: 'caja',
+      })
+      const detailOrder = {
+        ...order,
+        items: [
+          { producto_id: 30, nombre_producto: 'Pizza', precio_unitario: '2000.00', cantidad: 1, subtotal: '2000.00' },
+        ],
+      }
+
+      mockApiGet.mockImplementation(async (url: string) => {
+        if (url.includes('/pedidos/770')) return detailOrder
+        return mockPaginatedResponse([order])
+      })
+      mockApiPut.mockRejectedValueOnce(new ApiError('Stock insuficiente para Pizza.', 409))
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente stock/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      expect(await screen.findByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      const qtyInput = await screen.findByLabelText(/cantidad de pizza/i)
+      fireEvent.change(qtyInput, { target: { value: '99' } })
+
+      const getCallsBeforeSave = mockApiGet.mock.calls.length
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/770', {
+        nombre_cliente: 'Cliente stock',
+        mesa: '',
+        telefono_cliente: '',
+        observaciones: '',
+        items: [{ producto_id: 30, cantidad: 99 }],
+      })
+
+      expect(await screen.findByText(/stock insuficiente para pizza/i)).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      expect(screen.getByLabelText(/cantidad de pizza/i)).toHaveProperty('value', '99')
+      expect(mockApiGet.mock.calls.length).toBe(getCallsBeforeSave)
+      expect(screen.getAllByText('$ 2.000').length).toBeGreaterThan(0)
+    })
+
+    it('adds a product to the order edit draft and saves existing plus added items', async () => {
+      const order = makeApiOrder({
+        id: 780,
+        numero: 'KMG-0780',
+        nombre_cliente: 'Cliente agrega producto',
+        estado_pedido: 'en_preparacion',
+        estado_pago: 'pagado',
+        metodo_pago: 'efectivo',
+        total: '2000.00',
+        origen: 'caja',
+      })
+      const detailOrder = {
+        ...order,
+        items: [
+          { producto_id: 40, nombre_producto: 'Pizza', precio_unitario: '2000.00', cantidad: 1, subtotal: '2000.00' },
+        ],
+      }
+      const updatedOrder = {
+        ...detailOrder,
+        total: '3500.00',
+        items: [
+          { producto_id: 40, nombre_producto: 'Pizza', precio_unitario: '2000.00', cantidad: 1, subtotal: '2000.00' },
+          { producto_id: 41, nombre_producto: 'Agua', precio_unitario: '1500.00', cantidad: 1, subtotal: '1500.00' },
+        ],
+      }
+
+      mockApiGet.mockImplementation(async (url: string) => {
+        if (url.includes('/pedidos/780')) return detailOrder
+        if (url.includes('/productos')) {
+          return {
+            productos: [
+              {
+                id: 40,
+                nombre: 'Pizza',
+                descripcion: null,
+                precio: '2000.00',
+                tipo: 'comida',
+                stock_limitado: 1,
+                stock_actual: 10,
+                stock_minimo_alerta: 2,
+                activo: 1,
+                disponible: 1,
+                orden: 1,
+                imagen_archivo_id: null,
+                imagen_nombre_original: null,
+                imagen_mime_type: null,
+                imagen_tamanio_bytes: null,
+                imagen_url: null,
+                categorias: 'Cena',
+              },
+              {
+                id: 41,
+                nombre: 'Agua',
+                descripcion: null,
+                precio: '1500.00',
+                tipo: 'bebida',
+                stock_limitado: 1,
+                stock_actual: 10,
+                stock_minimo_alerta: 2,
+                activo: 1,
+                disponible: 1,
+                orden: 2,
+                imagen_archivo_id: null,
+                imagen_nombre_original: null,
+                imagen_mime_type: null,
+                imagen_tamanio_bytes: null,
+                imagen_url: null,
+                categorias: 'Cena',
+              },
+            ],
+            paginacion: { total: 2, page: 1, limit: 100, totalPages: 1 },
+          }
+        }
+        return mockPaginatedResponse([order])
+      })
+      mockApiPut.mockImplementation(async () => {
+        mockApiGet.mockResolvedValue(mockPaginatedResponse([updatedOrder]))
+        return updatedOrder
+      })
+
+      render(<OrdersScreen />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /ver: en preparación/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/cliente agrega producto/i).length).toBeGreaterThan(0)
+      })
+
+      fireEvent.click(screen.getAllByRole('button', { name: /más acciones/i })[0])
+      fireEvent.click(await screen.findByRole('button', { name: /editar pedido/i }))
+
+      expect(await screen.findByRole('dialog', { name: /editar pedido/i })).toBeTruthy()
+      fireEvent.change(await screen.findByLabelText(/agregar producto/i), { target: { value: '41' } })
+      fireEvent.click(screen.getByRole('button', { name: /agregar al pedido/i }))
+      fireEvent.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+      await waitFor(() => {
+        expect(mockApiPut).toHaveBeenCalledTimes(1)
+      })
+      expect(mockApiPut).toHaveBeenCalledWith('/api/admin/pedidos/780', {
+        nombre_cliente: 'Cliente agrega producto',
+        mesa: '',
+        telefono_cliente: '',
+        observaciones: '',
+        items: [
+          { producto_id: 40, cantidad: 1 },
+          { producto_id: 41, cantidad: 1 },
+        ],
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /editar pedido/i })).toBeNull()
+        expect(screen.getAllByText('$ 3.500').length).toBeGreaterThan(0)
       })
     })
   })

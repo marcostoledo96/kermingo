@@ -21,6 +21,7 @@ import {
   Globe,
   MoreHorizontal,
   ArrowRight,
+  Plus,
   Flame,
   Bell,
   CircleDot,
@@ -31,6 +32,7 @@ import {
   Loader2,
   ZoomIn,
   ImageIcon,
+  PencilLine,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
@@ -45,10 +47,13 @@ import {
   type PayMethod,
   type PayStatus,
   apiToOrder,
+  apiToAdminProduct,
+  type AdminProduct,
+  editOrderMetadata,
   orderStatusToApi,
 } from '@/lib/admin'
 import { useApiResource } from '@/lib/use-api-resource'
-import type { ApiPedido, ApiPedidoPaginada } from '@/lib/types'
+import type { ApiPedido, ApiPedidoPaginada, ApiProductoPaginada } from '@/lib/types'
 
 /* ---------------------------------------------------------------------------
  * Orders Screen — Prompt 5 redesign
@@ -157,6 +162,7 @@ export function OrdersScreen() {
   const [page, setPage] = useState(1)
   const [pagination, setPagination] = useState<ApiPedidoPaginada['paginacion'] | null>(null)
   const [detail, setDetail] = useState<Order | null>(null)
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [acting, setActing] = useState<string | null>(null)
@@ -415,6 +421,19 @@ export function OrdersScreen() {
     }
   }
 
+  async function openEdit(order: Order) {
+    setEditingOrder(order)
+    setActionError(null)
+    try {
+      const full = await apiGet<ApiPedido>(`/api/admin/pedidos/${order.id}`)
+      if (full && typeof full === 'object' && 'items' in full) {
+        setEditingOrder(apiToOrder(full))
+      }
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'No se pudo cargar el pedido para editar')
+    }
+  }
+
   async function cancelOrder(id: string) {
     if (!window.confirm('¿Cancelar el pedido? Se repondrá el stock.')) return
     const previous = orders?.find((o) => o.id === id)?.status
@@ -430,6 +449,22 @@ export function OrdersScreen() {
     } finally {
       setActing(null)
     }
+  }
+
+  function handleEditSaved(updated: Order) {
+    updateOrderLocal(updated.id, {
+      customer: updated.customer,
+      table: updated.table,
+      phone: updated.phone,
+      notes: updated.notes,
+      method: updated.method,
+      payStatus: updated.payStatus,
+      total: updated.total,
+      lines: updated.lines,
+    })
+    setEditingOrder(null)
+    refetch({ silent: true })
+    refreshTabCounts()
   }
 
   return (
@@ -486,7 +521,7 @@ export function OrdersScreen() {
         )}
 
         {/* Search + Status tabs */}
-        <div className="km-panel overflow-hidden">
+          <div className="km-panel overflow-hidden">
           {/* Search bar */}
           <div className="border-b border-[#75AADB]/12 px-4 py-3">
             <div className="relative">
@@ -604,6 +639,7 @@ export function OrdersScreen() {
                             confirming={confirming === o.id}
                             variant="table"
                             onDetail={() => openDetail(o)}
+                            onEdit={() => openEdit(o)}
                             onAdvance={() => {
                               const next = NEXT_STATUS[o.status]
                               if (next) setStatus(o.id, next)
@@ -630,6 +666,7 @@ export function OrdersScreen() {
                   acting={acting === o.id}
                   confirming={confirming === o.id}
                   onDetail={() => openDetail(o)}
+                  onEdit={() => openEdit(o)}
                   onAdvance={() => {
                     const next = NEXT_STATUS[o.status]
                     if (next) setStatus(o.id, next)
@@ -692,6 +729,9 @@ export function OrdersScreen() {
           onViewComprobante={() => setShowComprobanteModal(true)}
         />
       )}
+      {editingOrder && (
+        <OrderEditModal order={editingOrder} onClose={() => setEditingOrder(null)} onSaved={handleEditSaved} />
+      )}
       {showComprobanteModal && (comprobanteUrl || comprobanteError || comprobanteLoading) && (
         <ComprobanteModal
           url={comprobanteUrl}
@@ -751,6 +791,7 @@ function OrderCard({
   acting,
   confirming,
   onDetail,
+  onEdit,
   onAdvance,
   onMarkPaid,
   onConfirmPayment,
@@ -761,6 +802,7 @@ function OrderCard({
   acting: boolean
   confirming: boolean
   onDetail: () => void
+  onEdit: () => void
   onAdvance: () => void
   onMarkPaid: () => void
   onConfirmPayment: () => void
@@ -770,6 +812,7 @@ function OrderCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const closed = order.status === 'entregado' || order.status === 'cancelado'
+  const canEdit = order.status !== 'cancelado'
   const primary = PRIMARY_ACTION[order.status]
   const needsPayment = order.payStatus === 'pendiente'
 
@@ -901,7 +944,7 @@ function OrderCard({
         )}
 
         {/* Secondary actions dropdown */}
-        {!closed && (
+        {canEdit && (
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
@@ -913,6 +956,13 @@ function OrderCard({
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[160px] overflow-hidden rounded-lg border border-[#75AADB]/15 bg-white shadow-lg">
+                <button
+                  onClick={() => { setMenuOpen(false); onEdit() }}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
+                >
+                  <PencilLine className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Editar pedido
+                </button>
                 <button
                   onClick={() => { setMenuOpen(false); onDetail() }}
                   className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
@@ -929,13 +979,15 @@ function OrderCard({
                     Ver comprobante adjunto
                   </button>
                 )}
-                <button
-                  onClick={() => { setMenuOpen(false); onCancel() }}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
-                >
-                  <XCircle className="h-3.5 w-3.5" strokeWidth={2.2} />
-                  Cancelar pedido
-                </button>
+                {!closed && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onCancel() }}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-xs font-semibold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+                  >
+                    <XCircle className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    Cancelar pedido
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -953,6 +1005,7 @@ function OrderActions({
   confirming,
   variant: _variant,
   onDetail,
+  onEdit,
   onAdvance,
   onMarkPaid,
   onConfirmPayment,
@@ -964,6 +1017,7 @@ function OrderActions({
   confirming: boolean
   variant: 'table'
   onDetail: () => void
+  onEdit: () => void
   onAdvance: () => void
   onMarkPaid: () => void
   onConfirmPayment: () => void
@@ -1050,7 +1104,16 @@ function OrderActions({
           <MoreHorizontal className="h-3.5 w-3.5" strokeWidth={2.2} />
         </button>
         {menuOpen && (
-          <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[150px] overflow-hidden rounded-lg border border-[#75AADB]/15 bg-white shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-1 min-w-[150px] overflow-hidden rounded-lg border border-[#75AADB]/15 bg-white shadow-lg">
+            {order.status !== 'cancelado' && (
+              <button
+                onClick={() => { setMenuOpen(false); onEdit() }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
+              >
+                <PencilLine className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Editar pedido
+              </button>
+            )}
             <button
               onClick={() => { setMenuOpen(false); onDetail() }}
               className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold text-[#003B73] hover:bg-[#EEF5FF]/60"
@@ -1167,6 +1230,330 @@ function EmptyState({
           Limpiar búsqueda
         </button>
       )}
+    </div>
+  )
+}
+
+/* ====================================================================== */
+/* Order edit modal foundation                                             */
+/* ====================================================================== */
+
+function OrderEditModal({
+  order,
+  onClose,
+  onSaved,
+}: {
+  order: Order
+  onClose: () => void
+  onSaved: (updated: Order) => void
+}) {
+  const [customer, setCustomer] = useState(order.customer)
+  const [table, setTable] = useState(order.table ?? '')
+  const [phone, setPhone] = useState(order.phone ?? '')
+  const [notes, setNotes] = useState(order.notes ?? '')
+  const [method, setMethod] = useState<PayMethod>(order.method)
+  const [payStatus, setPayStatus] = useState<PayStatus>(order.payStatus)
+  const [itemDraft, setItemDraft] = useState(order.lines)
+  const [products, setProducts] = useState<AdminProduct[]>([])
+  const [productToAdd, setProductToAdd] = useState('')
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setCustomer(order.customer)
+    setTable(order.table ?? '')
+    setPhone(order.phone ?? '')
+    setNotes(order.notes ?? '')
+    setMethod(order.method)
+    setPayStatus(order.payStatus)
+    setItemDraft(order.lines)
+  }, [order])
+
+  useEffect(() => {
+    let alive = true
+    setProductsLoading(true)
+    apiGet<ApiProductoPaginada>('/api/admin/productos', { estado: 'activo', limit: 100 })
+      .then((data) => {
+        if (alive) setProducts(data.productos.map(apiToAdminProduct))
+      })
+      .catch(() => {
+        if (alive) setProducts([])
+      })
+      .finally(() => {
+        if (alive) setProductsLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const itemsChanged =
+    itemDraft.length !== order.lines.length ||
+    itemDraft.some((item, index) => {
+      const original = order.lines[index]
+      return !original || original.productId !== item.productId || original.qty !== item.qty
+    })
+
+  function setItemQty(productId: number, qty: number) {
+    setItemDraft((items) =>
+      items.map((item) =>
+        item.productId === productId ? { ...item, qty: Math.max(1, Number.isFinite(qty) ? qty : 1) } : item,
+      ),
+    )
+  }
+
+  function addSelectedProduct() {
+    const product = products.find((p) => p.id === productToAdd)
+    if (!product) return
+    setItemDraft((items) => {
+      if (items.some((item) => item.productId === Number(product.id))) return items
+      return [
+        ...items,
+        { productId: Number(product.id), name: product.name, icon: product.icon, qty: 1, price: product.price },
+      ]
+    })
+    setProductToAdd('')
+  }
+
+  async function saveChanges() {
+    if (!customer.trim()) {
+      setError('El cliente es obligatorio.')
+      return
+    }
+    if (itemsChanged && itemDraft.length === 0) {
+      setError('El pedido debe tener al menos un producto.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const payload = {
+        nombre_cliente: customer.trim(),
+        mesa: table.trim(),
+        telefono_cliente: phone.trim(),
+        observaciones: notes.trim(),
+        ...(method !== order.method ? { metodo_pago: method } : {}),
+        ...(payStatus !== order.payStatus ? { estado_pago: payStatus } : {}),
+        ...(itemsChanged
+          ? { items: itemDraft.map((item) => ({ producto_id: item.productId, cantidad: item.qty })) }
+          : {}),
+      }
+      const updated = await editOrderMetadata(order.id, payload)
+      onSaved(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo guardar la corrección.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center">
+      <button
+        aria-label="Cerrar edición"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#003B73]/40 backdrop-blur-sm"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-edit-title"
+        className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
+      >
+        <div className="border-b border-[#75AADB]/12 bg-[#003B73] px-5 py-4 pr-14 text-white">
+          <p className="flex items-center gap-1.5 km-tabular text-xs font-bold uppercase tracking-wide text-white/65">
+            <Hash className="h-3.5 w-3.5 text-[#F6B21A]" strokeWidth={2.4} />
+            {order.code}
+          </p>
+          <h3 id="order-edit-title" className="mt-1 text-lg font-extrabold">
+            Editar pedido
+          </h3>
+          <p className="mt-1 text-xs font-medium text-white/70">
+            Corregí datos del cliente, pago o productos del pedido.
+          </p>
+        </div>
+
+        <button
+          onClick={onClose}
+          aria-label="Cerrar edición"
+          className="absolute right-4 top-4 rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <section className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73]">
+              Cliente
+              <input
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                className="w-full rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73]">
+              Mesa
+              <input
+                value={table}
+                onChange={(e) => setTable(e.target.value)}
+                placeholder="Sin mesa"
+                className="w-full rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73] sm:col-span-2">
+              Teléfono
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Sin teléfono"
+                className="w-full rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73] sm:col-span-2">
+              Observaciones
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Sin observaciones"
+                rows={3}
+                className="w-full resize-none rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              />
+            </label>
+          </section>
+
+          {error && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3.5 py-3 text-sm font-medium text-[var(--km-peligro-text)]">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+              {error}
+            </div>
+          )}
+
+          <section className="grid gap-3 rounded-xl bg-[#EEF5FF]/60 p-3.5 text-sm text-[#003B73] sm:grid-cols-2">
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73]">
+              Método de pago
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value as PayMethod)}
+                className="w-full rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              >
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-[#003B73]">
+              Estado de pago
+              <select
+                value={payStatus}
+                onChange={(e) => setPayStatus(e.target.value as PayStatus)}
+                className="w-full rounded-xl border border-[#75AADB]/25 bg-white px-3 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+              >
+                <option value="pendiente">Pendiente</option>
+                <option value="comprobante_subido">Comprobante subido</option>
+                <option value="pagado">Pagado</option>
+                <option value="rechazado">Rechazado</option>
+              </select>
+            </label>
+            {order.method === 'transferencia' && order.hasReceipt && method === 'efectivo' && (
+              <p className="sm:col-span-2 rounded-lg bg-[var(--km-preparando-bg)] px-3 py-2 text-xs font-semibold text-[var(--km-preparando-text)]">
+                El comprobante adjunto se conserva. Si el backend rechaza este cambio, se mostrará el error.
+              </p>
+            )}
+          </section>
+
+          <section className="space-y-2 rounded-xl border border-[#75AADB]/15 p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-[#003B73]/60">Productos</h4>
+              <span className="text-xs font-semibold text-[var(--km-tinta-suave)]">
+                {itemDraft.length} {itemDraft.length === 1 ? 'ítem' : 'ítems'}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <label className="sr-only" htmlFor={`order-add-product-${order.id}`}>
+                Agregar producto
+              </label>
+              <select
+                id={`order-add-product-${order.id}`}
+                value={productToAdd}
+                onChange={(e) => setProductToAdd(e.target.value)}
+                disabled={productsLoading}
+                className="min-w-0 flex-1 rounded-lg border border-[#75AADB]/25 bg-white px-2.5 py-2 text-sm font-semibold text-[#003B73] focus:border-[#003B73] focus:outline-none disabled:opacity-60"
+              >
+                <option value="">{productsLoading ? 'Cargando productos…' : 'Agregar producto…'}</option>
+                {products
+                  .filter((product) => !itemDraft.some((item) => item.productId === Number(product.id)))
+                  .map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} · {formatPrice(product.price)}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                onClick={addSelectedProduct}
+                disabled={!productToAdd}
+                className="km-focus inline-flex items-center gap-1.5 rounded-lg border border-[#75AADB]/25 bg-white px-3 py-2 text-xs font-bold text-[#003B73] hover:bg-[#EEF5FF]/60 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Agregar al pedido
+              </button>
+            </div>
+            {itemDraft.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3 py-2 text-sm font-medium text-[var(--km-peligro-text)]">
+                El pedido debe tener al menos un producto.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {itemDraft.map((item) => (
+                  <li key={item.productId} className="flex items-center gap-2 rounded-lg bg-[#EEF5FF]/60 p-2">
+                    <span className="flex-1 text-sm font-semibold text-[#003B73]">{item.name}</span>
+                    <label className="sr-only" htmlFor={`order-item-${order.id}-${item.productId}`}>
+                      Cantidad de {item.name}
+                    </label>
+                    <input
+                      id={`order-item-${order.id}-${item.productId}`}
+                      type="number"
+                      min={1}
+                      value={item.qty}
+                      onChange={(e) => setItemQty(item.productId, Number.parseInt(e.target.value, 10))}
+                      className="w-16 rounded-lg border border-[#75AADB]/25 bg-white px-2 py-1.5 text-center text-sm font-bold text-[#003B73] focus:border-[#003B73] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setItemDraft((items) => items.filter((draftItem) => draftItem.productId !== item.productId))}
+                      aria-label={`Quitar ${item.name}`}
+                      className="km-focus rounded-lg border border-[var(--km-peligro-bg)] bg-white px-2 py-1.5 text-xs font-bold text-[var(--km-peligro-text)] hover:bg-[var(--km-peligro-bg)]"
+                    >
+                      Quitar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <div className="border-t border-[#75AADB]/12 bg-[#EEF5FF]/40 p-4">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="km-focus flex-1 rounded-lg border border-[#75AADB]/25 bg-white px-4 py-2.5 text-sm font-bold text-[#003B73] transition-colors hover:bg-[#EEF5FF]/60 disabled:opacity-50"
+            >
+              Cerrar edición
+            </button>
+            <button
+              type="button"
+              onClick={saveChanges}
+              disabled={saving}
+              className="km-focus flex-1 rounded-lg bg-[#003B73] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#00305e] disabled:opacity-50"
+            >
+              {saving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

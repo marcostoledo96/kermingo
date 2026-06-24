@@ -53,7 +53,8 @@ const SQL_BASE_ADMIN = `
     ai.mime_type AS imagen_mime_type,
     ai.tamanio_bytes AS imagen_tamanio_bytes,
     CASE WHEN ai.id IS NOT NULL THEN CONCAT('/api/productos/', p.id, '/imagen?v=', ai.id) ELSE NULL END AS imagen_url,
-    GROUP_CONCAT(c.nombre ORDER BY c.nombre SEPARATOR ', ') AS categorias
+    GROUP_CONCAT(c.nombre ORDER BY c.nombre SEPARATOR ', ') AS categorias,
+    (SELECT COUNT(*) FROM combo_producto cp WHERE cp.combo_id = p.id) AS componentes_count
   FROM producto p
   LEFT JOIN producto_categoria pc ON pc.producto_id = p.id
   LEFT JOIN categoria c ON c.id = pc.categoria_id
@@ -252,4 +253,47 @@ export async function updateOrdenes(conn, ordenes) {
   for (const item of ordenes) {
     await conn.query('UPDATE producto SET orden = ? WHERE id = ?', [item.orden, item.id])
   }
+}
+
+/**
+ * Get all components of a promo, joined with product info for names/stock.
+ * @param {import('mysql2/promise').Pool} pool
+ * @param {number} comboId - The promo product ID
+ * @returns {Promise<Array<{producto_id: number, nombre: string, cantidad: number, activo: number, disponible: number, stock_limitado: number, stock_actual: number|null}>>}
+ */
+export async function findComponentes(pool, comboId) {
+  const [rows] = await pool.query(
+    `SELECT
+       cp.producto_id,
+       p.nombre,
+       cp.cantidad,
+       p.activo,
+       p.disponible,
+       p.stock_limitado,
+       p.stock_actual
+     FROM combo_producto cp
+     JOIN producto p ON p.id = cp.producto_id
+     WHERE cp.combo_id = ?
+     ORDER BY cp.producto_id`,
+    [comboId]
+  );
+  return rows;
+}
+
+/**
+ * Atomically replace all components of a promo within a transaction.
+ * Caller must validate that the target is a promo and that each component is valid
+ * BEFORE calling this function.
+ * @param {import('mysql2/promise').PoolConnection} conn - Active transaction connection
+ * @param {number} comboId - The promo product ID
+ * @param {Array<{producto_id: number, cantidad: number}>} componentes
+ */
+export async function setComponentes(conn, comboId, componentes) {
+  await conn.query('DELETE FROM combo_producto WHERE combo_id = ?', [comboId]);
+  if (componentes.length === 0) return;
+  const rows = componentes.map((c) => [comboId, c.producto_id, c.cantidad]);
+  await conn.query(
+    'INSERT INTO combo_producto (combo_id, producto_id, cantidad) VALUES ?',
+    [rows]
+  );
 }

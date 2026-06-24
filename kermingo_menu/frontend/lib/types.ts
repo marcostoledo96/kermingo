@@ -16,6 +16,17 @@ export type ApiProducto = {
   imagen_tamanio_bytes: number | null
   imagen_url: string | null
   categorias: string | null
+  componentes_count?: number
+}
+
+export type ApiComponente = {
+  producto_id: number
+  nombre: string
+  cantidad: number
+  activo: number
+  disponible: number
+  stock_limitado: number
+  stock_actual: number | null
 }
 
 export type ApiConfiguracion = {

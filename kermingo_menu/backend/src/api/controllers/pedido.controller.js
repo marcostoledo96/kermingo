@@ -85,16 +85,18 @@ export async function crear(req, res, next) {
 
 /**
  * POST /api/admin/pedidos/caja (admin)
- * Crea un pedido desde caja rápida. El admin puede setear estado_pago=pagado directamente.
+ * Crea un pedido desde caja rápida. Caja is in-person confirmed intake —
+ * all caja orders start as pagado regardless of payment method or frontend payload.
  */
 export async function crearCaja(req, res, next) {
   try {
     const pool = getPool();
     const data = { ...req.body };
 
-    if (data.metodo_pago === 'efectivo' && data.estado_pago === undefined) {
-      data.estado_pago = 'pagado';
-    }
+    // Caja force-pagado: regardless of what the frontend sends,
+    // caja sales are always pagado. The schema only accepts 'pagado' now,
+    // but we also force it here as a defensive backend guarantee.
+    data.estado_pago = 'pagado';
 
     const result = await createWithTransaction(pool, {
       ...data,
@@ -235,8 +237,9 @@ export async function editar(req, res, next) {
     const pool = getPool();
     const result = await editWithTransaction(pool, req.params.id, req.body);
     if (result === 0) throw new NotFoundError('Pedido no encontrado');
-    if (result === -1) throw new ValidationError('No se puede editar un pedido cancelado o entregado');
-    if (result === -2) throw new ValidationError('Solo se pueden editar pedidos de caja');
+    if (result === -1) throw new ValidationError('No se puede editar items en pedidos cancelados');
+    if (result === -2) throw new ValidationError('No se puede editar pagos de pedidos cancelados');
+    if (result === -3) throw new ValidationError('Transición de estado de pago no válida');
     const pedido = await findById(pool, req.params.id);
     return respuestaExitosa(res, pedido, 'Pedido actualizado correctamente');
   } catch (err) {

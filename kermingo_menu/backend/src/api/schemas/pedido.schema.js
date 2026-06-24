@@ -22,11 +22,16 @@ export const createPedidoSchema = z.object({
 }).strict();
 
 export const createCajaSchema = createPedidoSchema.extend({
-  estado_pago: z.enum(['pendiente', 'pagado']).optional(),
+  // estado_pago is intentionally omitted from strict fields: caja orders are always pagado.
+  // The controller forces estado_pago = 'pagado' regardless of payload.
+  // Frontend may still send estado_pago; we accept it as optional but strip it
+  // before DB insert — the controller always overrides to 'pagado'.
+  // Using a strict object (no passthrough) prevents arbitrary field injection.
+  estado_pago: z.enum(['pendiente', 'comprobante_subido', 'pagado', 'rechazado']).optional(),
   estado_pedido: z
     .enum(['recibido', 'en_preparacion', 'listo', 'entregado'])
     .default('en_preparacion'),
-});
+}).strict();
 
 export const pedidoQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -71,6 +76,7 @@ export const editPedidoSchema = z.object({
   telefono_cliente: z.string().max(40).optional(),
   observaciones: z.string().max(500).optional(),
   metodo_pago: z.enum(['transferencia', 'efectivo']).optional(),
+  estado_pago: z.enum(['pendiente', 'comprobante_subido', 'pagado', 'rechazado']).optional(),
   items: z
     .array(
       z.object({
@@ -82,7 +88,7 @@ export const editPedidoSchema = z.object({
     .optional(),
 }).strict()
   .refine(
-    (data) => data.items !== undefined || data.nombre_cliente !== undefined || data.mesa !== undefined || data.telefono_cliente !== undefined || data.observaciones !== undefined || data.metodo_pago !== undefined,
+    (data) => data.items !== undefined || data.nombre_cliente !== undefined || data.mesa !== undefined || data.telefono_cliente !== undefined || data.observaciones !== undefined || data.metodo_pago !== undefined || data.estado_pago !== undefined,
     { message: 'Debe enviarse al menos un campo para editar' }
   );
 

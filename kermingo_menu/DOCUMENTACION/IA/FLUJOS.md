@@ -10,7 +10,7 @@
 1. [Compra online](#1-compra-online)
 2. [Caja rápida](#2-caja-rápida)
 3. [Cancelación con reposición](#3-cancelación-con-reposición)
-4. [Edición de caja](#4-edición-de-caja)
+4. [Edición de pedidos](#4-edición-de-pedidos)
 5. [Administración de productos](#5-administración-de-productos)
 6. [Configuración de tienda](#6-configuración-de-tienda)
 7. [Flujo de cocina](#7-flujo-de-cocina)
@@ -73,21 +73,17 @@
     │   └── Cookie httpOnly con JWT.
     │
     ├── POST /api/admin/pedidos/caja
-    │   ├── Body: { nombre_cliente, items, metodo_pago, estado_pago?, estado_pedido? }
+    │   ├── Body: { nombre_cliente, items, metodo_pago, estado_pago? }
     │   ├── Requiere: requireAdmin + requireTrustedOrigin
-    │   ├── Default estado_pago según método:
-    │   │   ├── efectivo sin estado_pago → 'pagado' (backend coercion)
-    │   │   └── transferencia sin estado_pago → 'pendiente'
+    │   ├── Backend ignora `estado_pago` legacy y fuerza `pagado`
     │   ├── **B7:** Default `estado_pedido='en_preparacion'` (caja bypassa el gate `recibido`)
-    │   ├── Puede setear estado_pago='pagado' explícitamente.
-    │   ├── Puede setear estado_pedido inicial (override del default).
     │   ├── Backend valida stock con transacción.
     │   └── Crea pedido con origen='caja'.
     │
     └── PATCH /api/admin/pedidos/:id/pago
         └── Marca como pagado si fue efectivo y ya se cobró.
 
-**Ventaja:** El admin puede crear un pedido ya pagado y con estado avanzado, ideal para ventas presenciales. **Fix B7:** efectivo sin `estado_pago` explícito queda `'pagado'` por defecto en el backend; transferencia sin `estado_pago` queda `'pendiente'`. Los pedidos de caja saltan el gate `recibido` y van directo a `en_preparacion`.
+**Ventaja:** El admin crea un pedido presencial ya pagado. Efectivo y transferencia quedan `pagado` por autoridad del backend; los pedidos de caja saltan el gate `recibido` y van directo a `en_preparacion`.
 
 ---
 
@@ -114,15 +110,27 @@
 
 ---
 
-## 4. Edición de caja
+## 4. Edición de pedidos
 
-Los pedidos creados desde caja (`origen='caja'`) son editables por el admin. Los pedidos online no se pueden editar, solo cancelar.
+Los pedidos de caja y online son editables por admin desde `/admin/pedidos`.
 
-La edición de items (agregar/quitar productos) no está implementada todavía en el MVP actual. El admin puede:
+```txt
+[Admin logueado]
+    │
+    ├── Abre "Editar pedido" en un pedido no cancelado
+    │   ├── GET /api/admin/pedidos/:id para detalle completo
+    │   ├── GET /api/admin/productos?estado=activo para agregar productos
+    │   └── Modal permite metadata, pago, cantidades, quitar y agregar items
+    │
+    └── PUT /api/admin/pedidos/:id
+        ├── Sin `items`: corrige metadata/pago sin tocar stock
+        ├── Con `items`: reemplaza productos y reconcilia stock en transacción
+        ├── `items: []` se rechaza
+        ├── 400/409 mantiene modal abierto con borrador intacto
+        └── Éxito cierra modal y refetchea la lista
+```
 
-1. Cambiar estado del pedido.
-2. Cambiar estado de pago.
-3. Cancelar el pedido (que repone stock).
+**Restricciones:** cancelados son históricos para cambios de stock/pago; entregados admiten correcciones metadata/pago sin mover estado.
 
 ---
 

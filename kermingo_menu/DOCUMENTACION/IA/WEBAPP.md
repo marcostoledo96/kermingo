@@ -186,6 +186,7 @@ Componentes esperados (alineados con la referencia v0):
 | `ConfigScreen` | Configuración de tienda: banner de estado con `IconBox` y botones abrir/cerrar, mensaje público con contador y guardado, campo `cena_habilitada_desde` (input type=time), selector de categoría por defecto (Merienda/Cena). Usa `GET /api/configuracion-tienda` (público) y `PUT /api/admin/configuracion-tienda` (admin) |
 | `ReportesScreen` | Reportes admin. Consume `GET /api/admin/reportes`, muestra KPIs de recaudación/pagos/productos, producto estrella, ranking y descarga CSV local de resumen/ranking |
 | `ComprobantesScreen` | Revisión de comprobantes de transferencia. Fetch metadata de `GET /api/admin/pedidos/:id/comprobante` y abre `url_publica` de Drive |
+| `OrderEditModal` | Modal dentro de `OrdersScreen`: corrige datos del cliente, método/estado de pago y productos. Carga detalle completo del pedido, permite cambiar cantidades, quitar productos y agregar productos activos desde `GET /api/admin/productos?estado=activo`. Al guardar envía `PUT /api/admin/pedidos/:id` y bloquea `items` vacío en cliente. |
 | `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |
 | `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=`. **B7:** Cuando `estado_pedido='recibido'` y `estado_pago!='pagado'` muestra "Estamos comprobando tu pago. En cuanto lo verifiquemos, lo mandamos a cocina." |
 
@@ -318,6 +319,8 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | `GET /api/admin/productos` | Lista de productos admin con filtro `?estado=` (activo/todos/desactivado/agotado/todavia_no_disponible). Default `activo`. |
 | `POST /api/admin/productos` | Crear producto (incluye `orden`, `disponible`) |
 | `PUT /api/admin/productos/:id` | Actualizar producto (incluye `orden`, `disponible`) |
+| `GET /api/admin/productos/:id/componentes` | Cargar componentes de una promo en el formulario de producto |
+| `PUT /api/admin/productos/:id/componentes` | Reemplazar componentes de una promo; `[]` limpia componentes y deshabilita la promo |
 | `PATCH /api/admin/productos/:id/stock` | Ajustar stock |
 | `PATCH /api/admin/productos/orden` | Reordenar productos (batch) — body `{ ordenes: [{ id, orden }] }` |
 | `GET /api/admin/configuracion-tienda` | Config actual (incluye `categoria_default`) |
@@ -345,6 +348,8 @@ Todas las llamadas usan `credentials: 'include'` para enviar la cookie `kermingo
 | `GET /api/admin/productos` | Lista de productos admin con filtro `?estado=` (activo/todos/desactivado/agotado/todavia_no_disponible). Default `activo`. |
 | `POST /api/admin/productos` | Crear producto (incluye `orden`, `disponible`) |
 | `PUT /api/admin/productos/:id` | Actualizar producto (incluye `orden`, `disponible`) |
+| `GET /api/admin/productos/:id/componentes` | Cargar componentes de una promo en el formulario de producto |
+| `PUT /api/admin/productos/:id/componentes` | Reemplazar componentes de una promo; `[]` limpia componentes y deshabilita la promo |
 | `PATCH /api/admin/productos/:id/stock` | Ajustar stock |
 | `PATCH /api/admin/productos/orden` | Reordenar productos (batch) — body `{ ordenes: [{ id, orden }] }` |
 | `GET /api/admin/configuracion-tienda` | Config actual (incluye `categoria_default`) |
@@ -388,7 +393,7 @@ La pantalla `/admin/caja` funciona como una caja rápida real de kermesse: vende
 1. **Catálogo de productos** — grilla densa de botones operativos (no cards de menú). Cada botón muestra nombre, precio con `km-tabular`, stock disponible en unidades (`5 u`), y badges de estado inline (`Agotado`, `Bajo`). Si un producto ya está en la venta, se muestra un badge dorado con la cantidad agregada.
 2. **Panel de pedido lateral** — en desktop, siempre visible a la derecha (360px). Contiene líneas con controles +/- compactos, subtotal por línea, método de pago, datos opcionales, total grande y acciones.
 3. **Barra "Cobrar" mobile** — barra inferior fija con `km-safe-bottom` que muestra ítems + total, sin cubrir productos. Toca para abrir el sheet del pedido.
-4. **Método de pago** — Efectivo es la opción default y visualmente destacada (fondo `--km-listo-bg` / teal). Transferencia usa azul oscuro. Al elegir transferencia, aparece aviso "Pago pendiente de verificación" con `--km-preparando-bg`. Al elegir efectivo, se indica "Se registra como pagado al confirmar" con `--km-listo-bg`.
+4. **Método de pago** — Efectivo es la opción default y visualmente destacada (fondo `--km-listo-bg` / teal). Transferencia usa azul oscuro. Ambos métodos se registran como `pagado` al confirmar caja; el backend ignora estados legacy pendientes.
 
 **B7: Product photos in caja cards** — Los botones de producto ahora renderizan `next/image` con la imagen del producto cuando `imagen_url` existe (URL absoluta via `ABSOLUTE_IMAGE_URL` en `apiToCajaProduct`). Si no hay imagen, se muestra el fallback `ProductIconGlyph`.
 
@@ -399,7 +404,7 @@ La pantalla `/admin/caja` funciona como una caja rápida real de kermesse: vende
 - Carrito desktop: panel lateral siempre visible con `km-panel`, sin sombras pesadas.
 - Mobile: barra inferior "Cobrar · $total" con chevron-up en vez de tapar contenido.
 - Efectivo: opción default y clara, con indicador de registro automático.
-- Transferencia: aviso explícito de "pendiente de verificación" cuando aplica.
+- Transferencia: registro presencial directo como `pagado`; no requiere comprobante en caja.
 - Eliminados colores Tailwind default (red, slate, emerald) en favor de tokens `--km-*`.
 - `km-tabular` en precios, cantidades y totales.
 - `km-focus` en todos los controles interactivos.
@@ -483,7 +488,8 @@ La pantalla `/admin/pedidos` funciona como herramienta para resolver excepciones
    - **entregado →** sin acción disponible
 7. **Pago pendiente resaltado** — si un pedido necesita pago y no está cerrado, aparece aviso inline "Pago pendiente — verificá al entregar" y botón rápido "Pagado".
 8. **Acciones secundarias ocultas** — "Cancelar pedido" y "Ver detalle" están en menú desplegable (icono `MoreHorizontal`), no como botones visibles que compiten.
-9. **Empty states contextuales** — distinto mensaje según tab activo y si hay filtros.
+9. **Editar pedido** — el menú secundario abre un modal para pedidos no cancelados. Permite corregir metadata/pago, ajustar cantidades, quitar productos y agregar productos activos; al guardar refetchea la lista y mantiene el modal abierto si el backend devuelve 400/409.
+10. **Empty states contextuales** — distinto mensaje según tab activo y si hay filtros.
 
 **Diseño visual por estado:**
 
@@ -500,6 +506,7 @@ La pantalla `/admin/pedidos` funciona como herramienta para resolver excepciones
 - **De vista única a 4 tabs por estado** — flat list reemplazada por tabs `recibido`/`preparacion`/`listo`/`entregado` con server-side filtering.
 - **Payment gate agregado** — los pedidos online en `recibido` ya no tienen "Empezar" como acción de avance directo. Deben pasar por "Confirmar pago" que ejecuta payment PATCH → state PATCH secuencial.
 - **Tab counts** — badges con conteo por tab se obtienen con requests paralelos `limit=1`.
+- **Edición agregada** — `OrderEditModal` usa `GET /api/admin/pedidos/:id`, `GET /api/admin/productos?estado=activo` y `PUT /api/admin/pedidos/:id`; manda `items` solo si cambian productos.
 - El resto de la jerarquía (cards con `EstadoBadge`, búsqueda, filtros, acciones secundarias ocultas, empty states, km-panel, km-tabular, km-focus) se preserva sin cambios.
 
 ---

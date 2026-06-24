@@ -180,7 +180,7 @@ const idsRequeridos = [...requerimientos.keys()].sort((a, b) => a - b);
 
 Cuando se cancela o edita un pedido con una promo, el backend consulta los componentes actuales en `combo_producto` para reponer o recalcular stock. Esto funciona mientras los componentes de la promo no cambien después de la venta.
 
-Si en una etapa futura de ABM productos se permite modificar la composición de una promo ya vendida, la cancelación o edición puede reponer componentes equivocados.
+El ABM ya permite modificar componentes de promos. Si se edita una promo ya vendida, la cancelación o edición posterior de esos pedidos puede reponer componentes distintos a los vendidos originalmente. `componentes: []` está permitido solo como limpieza operativa y deshabilita automáticamente la promo.
 
 **Fix requerido antes de habilitar ABM de combos:** elegir una de:
 - Opción A: No permitir modificar componentes de promos con ventas asociadas.
@@ -454,13 +454,13 @@ items: z.preprocess((val) => {
 
 ---
 
-## 34. Backend test failures preexisting to this change
+## 34. No reutilizar fallas históricas como excusa de cierre
 
-**Síntoma:** `npm test` reporta 4 fallas conocidas: 3 en `caja.test.js` (PUT edit reconciliation) y 1 en `comprobantes.test.js` (MIME message mismatch).
+**Síntoma:** Docs antiguos marcaban 3 fallas de `caja.test.js` y 1 de `comprobantes.test.js` como preexistentes.
 
-**Causa:** Estos fallos son preexistentes y no relacionados con la funcionalidad de filtrado/ordenamiento de productos. La suite `producto-filtering.test.js` (33 tests) pasa correctamente.
+**Estado PR6:** Esas fallas fueron remediadas en `edit-orders-caja-transfer-promos` según evidencia enfocada. Antes de archive hay que correr `npm test` completo y registrar el resultado fresco.
 
-**Regla:** Para verificar que este change no introdujo regresiones, correr: `npx jest producto-filtering.test.js producto-imagen.test.js configuracion.test.js configuracion.unit.test.js`.
+**Regla:** No cerrar un cambio apoyándose en una lista vieja de fallas conocidas. Si una suite completa falla, documentar el fallo actual con comando, archivo y relación con el cambio.
 
 ## 29. Sequential release: payment PATCH followed by state PATCH is NOT atomic (B7)
 

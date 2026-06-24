@@ -47,6 +47,7 @@ import {
   type AdminProduct,
   adminToApiPayload,
   apiToAdminProduct,
+  isPromoIncomplete,
 } from '@/lib/admin'
 import { useApiResource } from '@/lib/use-api-resource'
 import type { ApiProducto, ApiProductoPaginada } from '@/lib/types'
@@ -271,6 +272,11 @@ export function ProductsScreen() {
   const toggleActive = async (id: string) => {
     const product = products?.find((p) => p.id === id)
     if (!product) return
+    // Prevent enabling an incomplete promo (backend rejects, but better UX)
+    if (!product.active && product.type === 'promo' && isPromoIncomplete(product)) {
+      window.alert('Esta promo no tiene componentes configurados. Agregá componentes antes de habilitarla.')
+      return
+    }
     const willBeActive = !product.active
     // Optimistic update
     setProducts((prev) => (prev ?? []).map((p) => (p.id === id ? { ...p, active: willBeActive } : p)))
@@ -426,7 +432,7 @@ export function ProductsScreen() {
                             </thead>
                             <tbody className="divide-y divide-[var(--km-linea)]">
                               {group.products.map((p) => (
-                                <SortableProductRow key={p.id} product={p} canReorder={canReorder} onEdit={() => setEditing(p)} onToggle={() => { toggleActive(p.id); setMenuOpen(null) }} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
+                                <SortableProductRow key={p.id} product={p} canReorder={canReorder} onEdit={() => setEditing(p)} onToggle={() => { toggleActive(p.id) }} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
                               ))}
                             </tbody>
                           </table>
@@ -452,7 +458,7 @@ export function ProductsScreen() {
                           </thead>
                           <tbody className="divide-y divide-[var(--km-linea)]">
                             {filtered.map((p) => (
-                              <SortableProductRow key={p.id} product={p} canReorder={canReorder} onEdit={() => setEditing(p)} onToggle={() => { toggleActive(p.id); setMenuOpen(null) }} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
+                                <SortableProductRow key={p.id} product={p} canReorder={canReorder} onToggle={() => { toggleActive(p.id) }} onEdit={() => setEditing(p)} onAdjust={() => setAdjusting(p)} onMoveUp={canReorder ? () => moveItem(p.id, 'up') : undefined} onMoveDown={canReorder ? () => moveItem(p.id, 'down') : undefined} />
                             ))}
                           </tbody>
                         </table>
@@ -516,6 +522,7 @@ export function ProductsScreen() {
       {(creating || editing) && (
         <ProductFormDialog
           initial={editing}
+          allProducts={products ?? []}
           submitting={submitting}
           error={submitError}
           onSave={handleSave}
@@ -620,6 +627,7 @@ function SortableProductRow({
             {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : state === 'no_disponible' ? 'No disponible' : 'Desactivado'}
           </EstadoBadge>
           {low && <EstadoBadge estado="stockBajo">Stock bajo</EstadoBadge>}
+          {isPromoIncomplete(product) && <EstadoBadge estado="pendiente">Incompleta</EstadoBadge>}
         </div>
       </td>
       <td className="px-4 py-3">
@@ -796,6 +804,7 @@ function MobileProductCard({
               {state === 'activo' ? 'Activo' : state === 'agotado' ? 'Agotado' : state === 'no_disponible' ? 'No disponible' : 'Desactivado'}
             </EstadoBadge>
             {low && <EstadoBadge estado="stockBajo">Stock bajo</EstadoBadge>}
+            {isPromoIncomplete(product) && <EstadoBadge estado="pendiente">Incompleta</EstadoBadge>}
             <span className="rounded-md bg-[var(--km-fondo)] px-1.5 py-0.5 text-[11px] font-semibold text-[#003B73]">
               {TYPE_LABEL[product.type]}
             </span>

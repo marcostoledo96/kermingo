@@ -58,5 +58,4 @@ jobs:
 
       - name: Test
         working-directory: backend
-        # Run jest directly to avoid the shim bug in the npm-installed bin
-        run: node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand
+        run: npm run pretest && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand

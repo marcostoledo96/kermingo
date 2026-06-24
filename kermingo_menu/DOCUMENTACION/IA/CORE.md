@@ -130,14 +130,16 @@ Todas las operaciones de stock se hacen dentro de transacciones MySQL con `getCo
 
 - **No toca stock.** Cambiar `estado_pago` no modifica inventario.
 
-### Editar pedido de caja (`editWithTransaction`)
+### Editar pedido admin (`editWithTransaction`)
 
-`PUT /api/admin/pedidos/:id` — edición transaccional con reconciliación de stock.
+`PUT /api/admin/pedidos/:id` — edición transaccional con reconciliación de stock cuando se envía `items`.
 
 **Restricciones:**
-- Solo pedidos con `origen = 'caja'`. Retorna `-2` si el pedido no es de caja.
-- Pedidos `cancelado` o `entregado` no se pueden editar. Retorna `-1`.
-- Si `data.items` no está presente, solo se editan metadatos (nombre, mesa, teléfono, observaciones, metodo_pago) sin tocar stock.
+- Pedidos online y de caja son editables por admin.
+- Pedidos `cancelado` rechazan cambios de items/pago/stock; solo se aceptan correcciones metadata seguras.
+- Pedidos `entregado` aceptan metadata/pago, pero no cambios de items ni movimientos de estado.
+- Si `data.items` no está presente, solo se editan metadatos/pago (nombre, mesa, teléfono, observaciones, metodo_pago, estado_pago) sin tocar stock.
+- `items: []` siempre se rechaza.
 
 **Reconciliación de stock (cuando `data.items` está presente):**
 1. Bloquea pedido con `FOR UPDATE`.
@@ -171,6 +173,8 @@ Al crear un pedido con una promo:
 1. Se buscan los componentes en `combo_producto`.
 2. Se acumula la cantidad requerida por componente: `comp.cantidad × item.cantidad`.
 3. Se valida el stock de los componentes, no de la promo.
+
+**Edición de componentes admin:** `PUT /api/admin/productos/:id/componentes` reemplaza la composición completa en transacción. `componentes: []` es una limpieza explícita: borra componentes y setea la promo como `disponible=0`. Una promo sin componentes no puede quedar disponible ni venderse.
 
 ---
 
@@ -210,10 +214,10 @@ La función `normalizarTelefono(raw)` en `pedido.model.js`:
 | Endpoint | `POST /api/pedidos` | `POST /api/admin/pedidos/caja` |
 | Auth | No | `requireAdmin` |
 | `metodo_pago` | Solo `'transferencia'` | `'efectivo'` o `'transferencia'` |
-| `estado_pago` inicial | Siempre `'comprobante_subido'` tras upload válido | Puede ser `'pendiente'` o `'pagado'` |
-| `estado_pedido` inicial | **`'recibido'` (gate de verificación de pago)** | **`'en_preparacion'`** (caja bypassa el gate). El schema acepta override explícito si se necesita otro estado. |
+| `estado_pago` inicial | Siempre `'comprobante_subido'` tras upload válido | Siempre `'pagado'` para efectivo y transferencia; el backend ignora payloads legacy `pendiente` |
+| `estado_pedido` inicial | **`'recibido'` (gate de verificación de pago)** | **`'en_preparacion'`** (caja bypassa el gate) |
 | Aparece en cocina | Solo después de confirmar pago desde admin pedidos | Directamente al crearse |
-| Editable | No (solo seguimiento) | Sí (admin puede editar) |
+| Editable | Sí, desde admin | Sí, desde admin |
 
 ---
 

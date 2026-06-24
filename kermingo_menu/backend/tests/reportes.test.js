@@ -11,6 +11,8 @@ const COOKIE_NAME = environments.cookie.name;
 const JWT_SECRET = environments.jwt.secret;
 const ORIGIN = environments.frontendUrl;
 
+let baselineReportes;
+
 function adminCookie(userId = 1) {
   const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '1h' });
   return `${COOKIE_NAME}=${token}`;
@@ -135,6 +137,35 @@ async function limpiarReportesTest() {
   }
 }
 
+function expectFixtureDelta(reportes) {
+  expect(reportes.total_recaudado - baselineReportes.total_recaudado).toBeCloseTo(70);
+  expect(reportes.total_efectivo - baselineReportes.total_efectivo).toBeCloseTo(20);
+  expect(reportes.total_transferencia - baselineReportes.total_transferencia).toBeCloseTo(50);
+  expect(reportes.pedidos_pagados - baselineReportes.pedidos_pagados).toBe(2);
+  expect(reportes.pedidos_pendientes_pago - baselineReportes.pedidos_pendientes_pago).toBe(1);
+  expect(reportes.monto_pendiente_pago - baselineReportes.monto_pendiente_pago).toBeCloseTo(100);
+  expect(reportes.productos_vendidos - baselineReportes.productos_vendidos).toBe(6);
+}
+
+function expectFixtureRanking(reportes) {
+  const productoA = reportes.ranking_productos.find((row) => row.nombre === `${RUN_ID}-producto-a`);
+  const productoB = reportes.ranking_productos.find((row) => row.nombre === `${RUN_ID}-producto-b`);
+
+  expect(productoA).toMatchObject({
+    producto_id: expect.any(Number),
+    nombre: `${RUN_ID}-producto-a`,
+    cantidad: 5,
+    total_recaudado: 50,
+  });
+  expect(productoB).toMatchObject({
+    producto_id: expect.any(Number),
+    nombre: `${RUN_ID}-producto-b`,
+    cantidad: 1,
+    total_recaudado: 20,
+  });
+  expect(reportes.producto_top).toEqual(reportes.ranking_productos[0] || null);
+}
+
 describe('GET /api/admin/reportes auth boundary', () => {
   it('retorna 401 sin cookie de admin', async () => {
     const res = await request(app).get('/api/admin/reportes');
@@ -146,6 +177,7 @@ describe('GET /api/admin/reportes auth boundary', () => {
 describe('GET /api/admin/reportes (integración + agregados SQL)', () => {
   beforeAll(async () => {
     await limpiarReportesTest();
+    baselineReportes = await obtenerReportes(pool);
     await prepararFixturesReporte();
   });
 
@@ -169,42 +201,17 @@ describe('GET /api/admin/reportes (integración + agregados SQL)', () => {
 
     const reportes = res.body.data;
     expect(typeof reportes.total_recaudado).toBe('number');
-    expect(reportes.total_recaudado).toBeCloseTo(70);
-    expect(reportes.total_efectivo).toBeCloseTo(20);
-    expect(reportes.total_transferencia).toBeCloseTo(50);
-    expect(reportes.pedidos_pagados).toBe(2);
-    expect(reportes.pedidos_pendientes_pago).toBe(1);
-    expect(reportes.monto_pendiente_pago).toBeCloseTo(100);
-    expect(reportes.productos_vendidos).toBe(6);
+    expectFixtureDelta(reportes);
 
     expect(Array.isArray(reportes.ranking_productos)).toBe(true);
-    expect(reportes.ranking_productos.length).toBe(2);
-    expect(reportes.ranking_productos[0]).toMatchObject({
-      producto_id: expect.any(Number),
-      nombre: `${RUN_ID}-producto-a`,
-      cantidad: 5,
-      total_recaudado: 50,
-    });
-    expect(reportes.producto_top).toEqual(reportes.ranking_productos[0]);
+    expectFixtureRanking(reportes);
     expect(new Date(reportes.actualizado_en).toString()).not.toBe('Invalid Date');
   });
 
   it('el modelo de reportes devuelve las mismas agregaciones', async () => {
     const directData = await obtenerReportes(pool);
-    expect(directData.total_recaudado).toBeCloseTo(70);
-    expect(directData.total_efectivo).toBeCloseTo(20);
-    expect(directData.total_transferencia).toBeCloseTo(50);
-    expect(directData.pedidos_pagados).toBe(2);
-    expect(directData.pedidos_pendientes_pago).toBe(1);
-    expect(directData.monto_pendiente_pago).toBeCloseTo(100);
-    expect(directData.productos_vendidos).toBe(6);
-    expect(directData.ranking_productos.length).toBe(2);
-    expect(directData.producto_top).toMatchObject({
-      nombre: `${RUN_ID}-producto-a`,
-      cantidad: 5,
-      total_recaudado: 50,
-    });
-    expect(directData.ranking_productos[0].producto_id).toBe(directData.producto_top.producto_id);
+    expectFixtureDelta(directData);
+    expectFixtureRanking(directData);
     expect(directData.actualizado_en).toEqual(expect.any(String));
   });
 });

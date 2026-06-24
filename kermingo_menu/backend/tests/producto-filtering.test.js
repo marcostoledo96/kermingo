@@ -250,3 +250,98 @@ describe('buildWhereAdmin — estado SQL conditions', () => {
     expect(sql2).not.toContain('p.disponible')
   })
 })
+
+// ── Integration: admin product list exposes componentes_count ──
+
+import request from 'supertest'
+import jwt from 'jsonwebtoken'
+import pool from '../src/api/database/db.js'
+import environments from '../src/api/config/environments.js'
+import app from '../src/app.js'
+
+const COOKIE = environments.cookie.name
+const SECRET = environments.jwt.secret
+const ORIG = environments.frontendUrl
+const RUN = `TEST-FILT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+
+function adminCookie (userId = 1) {
+  return `${COOKIE}=${jwt.sign({ userId }, SECRET, { expiresIn: '1h' })}`
+}
+
+async function crearProducto (payload) {
+  const base = {
+    descripcion: 'Test comp count',
+    precio: 500,
+    tipo: 'comida',
+    stock_limitado: 1,
+    stock_actual: 10,
+    stock_minimo_alerta: 2,
+    activo: 1,
+    disponible: 1,
+    categorias: ['Merienda'],
+  }
+  const res = await request(app)
+    .post('/api/admin/productos')
+    .set('Cookie', adminCookie())
+    .set('Origin', ORIG)
+    .send({ ...base, ...payload, nombre: `${RUN}-${Math.random().toString(36).slice(2, 8)}` })
+  return res.body.data
+}
+
+async function limpiarProductosFiltro () {
+  const [rows] = await pool.query('SELECT id FROM producto WHERE nombre LIKE ?', [`${RUN}%`])
+  const ids = rows.map(r => r.id)
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',')
+    await pool.query(`DELETE FROM combo_producto WHERE combo_id IN (${ph})`, ids)
+    await pool.query(`DELETE FROM producto_categoria WHERE producto_id IN (${ph})`, ids)
+    await pool.query(`DELETE FROM producto WHERE id IN (${ph})`, ids)
+  }
+}
+
+describe('Admin product list — componentes_count', () => {
+  afterAll(async () => {
+    await limpiarProductosFiltro()
+    try { await pool.end() } catch { /* noop */ }
+  })
+
+  it('promo without components has componentes_count = 0', async () => {
+    const promo = await crearProducto({ tipo: 'promo', disponible: 0 })
+    const res = await request(app)
+      .get('/api/admin/productos?estado=todos&limit=100')
+      .set('Cookie', adminCookie())
+    expect(res.statusCode).toBe(200)
+    const found = res.body.data.productos.find(p => p.id === promo.id)
+    expect(found).toBeDefined()
+    expect(found.componentes_count).toBe(0)
+  })
+
+  it('promo with components has componentes_count > 0', async () => {
+    const comp = await crearProducto({ tipo: 'comida' })
+    const promo = await crearProducto({ tipo: 'promo', disponible: 0 })
+    // Insert component directly
+    await pool.query('INSERT INTO combo_producto (combo_id, producto_id, cantidad) VALUES (?, ?, ?)', [promo.id, comp.id, 2])
+
+    const res = await request(app)
+      .get('/api/admin/productos?estado=todos&limit=100')
+      .set('Cookie', adminCookie())
+    expect(res.statusCode).toBe(200)
+    const found = res.body.data.productos.find(p => p.id === promo.id)
+    expect(found).toBeDefined()
+    expect(found.componentes_count).toBe(1)
+
+    // Clean up combo_producto
+    await pool.query('DELETE FROM combo_producto WHERE combo_id = ?', [promo.id])
+  })
+
+  it('non-promo product has componentes_count = 0', async () => {
+    const comida = await crearProducto({ tipo: 'comida' })
+    const res = await request(app)
+      .get('/api/admin/productos?estado=todos&limit=100')
+      .set('Cookie', adminCookie())
+    expect(res.statusCode).toBe(200)
+    const found = res.body.data.productos.find(p => p.id === comida.id)
+    expect(found).toBeDefined()
+    expect(found.componentes_count).toBe(0)
+  })
+})

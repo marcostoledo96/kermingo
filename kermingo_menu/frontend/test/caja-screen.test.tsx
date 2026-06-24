@@ -211,4 +211,85 @@ describe('CajaScreen product images', () => {
       )
     })
   })
+
+  it('does not show pending verification copy when transfer is selected', async () => {
+    mockProductList([makeProduct({ id: 20, nombre: 'Café' })])
+
+    render(<CajaScreen />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /café/i }))
+    fireEvent.click(screen.getByRole('button', { name: /transfer/i }))
+
+    expect(screen.queryByText(/pago pendiente de verificación/i)).toBeNull()
+  })
+
+  it('marks unavailable promo cards as disabled and not addable', async () => {
+    mockProductList([
+      makeProduct({ id: 30, nombre: 'Combo no disponible', tipo: 'promo', disponible: 0, stock_limitado: 0, stock_actual: null }),
+    ])
+
+    render(<CajaScreen />)
+
+    const promoButton = await screen.findByRole('button', { name: /combo no disponible/i })
+    expect((promoButton as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getAllByText(/no disponible/i).length).toBeGreaterThan(0)
+
+    fireEvent.click(promoButton)
+    expect(screen.getByText('$ 0')).toBeTruthy()
+  })
+})
+
+describe('CajaScreen catalog grouping', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    mockApiPost.mockResolvedValue({ numero: 'KMG-9999', id: 77 })
+  })
+
+  it('renders category section headings when "todos" filter shows multiple categories', async () => {
+    const products: ApiProducto[] = [
+      makeProduct({ id: 1, nombre: 'Pizza muzza', tipo: 'comida', categorias: 'Cena' }),
+      makeProduct({ id: 2, nombre: 'Medialunas', tipo: 'comida', categorias: 'Merienda' }),
+      makeProduct({ id: 3, nombre: 'Coca Cola', tipo: 'bebida', categorias: 'Merienda,Cena' }),
+      makeProduct({ id: 4, nombre: 'Combo cena', tipo: 'promo', categorias: 'Cena' }),
+    ]
+
+    mockProductList(products)
+
+    render(<CajaScreen />)
+
+    // Default filter is "todos", so all section headings should appear.
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Cena' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Merienda' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Bebidas' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Promos' })).toBeTruthy()
+    })
+  })
+
+  it('keeps order summary and actions accessible after adding items', async () => {
+    const products: ApiProducto[] = [
+      makeProduct({ id: 1, nombre: 'Pizza muzza', tipo: 'comida', categorias: 'Cena' }),
+      makeProduct({ id: 2, nombre: 'Coca Cola', tipo: 'bebida', categorias: 'Cena' }),
+    ]
+
+    mockProductList(products)
+
+    render(<CajaScreen />)
+
+    const pizzaBtn = await screen.findByRole('button', { name: /pizza muzza/i })
+    fireEvent.click(pizzaBtn)
+
+    // Total is present, and primary action buttons remain accessible.
+    expect(screen.getByText('Total')).toBeTruthy()
+    const confirmButtons = screen.getAllByRole('button', { name: /confirmar venta/i })
+    expect(confirmButtons.length).toBeGreaterThan(0)
+    const clearButtons = screen.getAllByRole('button', { name: /limpiar pedido/i })
+    expect(clearButtons.length).toBeGreaterThan(0)
+
+    // Payment method toggle and customer inputs remain available.
+    expect(screen.getByRole('button', { name: /efectivo/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /transfer/i })).toBeTruthy()
+    expect(screen.getByLabelText(/nombre del cliente/i)).toBeTruthy()
+  })
 })

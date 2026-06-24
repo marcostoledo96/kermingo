@@ -1,5 +1,6 @@
 import type {
   ApiCocinaPedido,
+  ApiComponente,
   ApiItem,
   ApiPedido,
   ApiPedidoListItem,
@@ -8,7 +9,7 @@ import type {
 } from './types'
 import type { MealCategory, ProductIcon, ProductType } from './products'
 import { ABSOLUTE_IMAGE_URL } from './config'
-import { apiGet, apiPatch } from './api'
+import { apiGet, apiPatch, apiPut } from './api'
 
 /* Product mapping --------------------------------------------------------- */
 
@@ -27,6 +28,17 @@ export type AdminProduct = {
   stockLimited: boolean
   stockCurrent: number
   stockMin: number
+  componentesCount?: number
+}
+
+export type Componente = {
+  productoId: number
+  nombre: string
+  cantidad: number
+  activo: boolean
+  disponible: boolean
+  stockLimited: boolean
+  stockActual: number | null
 }
 
 export type AdminReporteProducto = {
@@ -112,6 +124,7 @@ export function apiToAdminProduct(p: ApiProducto): AdminProduct {
     stockLimited: p.stock_limitado === 1,
     stockCurrent: p.stock_actual ?? 0,
     stockMin: p.stock_minimo_alerta,
+    componentesCount: p.componentes_count,
   }
 }
 
@@ -182,8 +195,18 @@ export type Order = {
   total: number
   notes?: string
   hasReceipt: boolean
-  lines: { name: string; icon: ProductIcon; qty: number; price: number }[]
+  lines: { productId: number; name: string; icon: ProductIcon; qty: number; price: number }[]
   origen: 'online' | 'caja'
+}
+
+export type OrderMetadataEditPayload = {
+  nombre_cliente: string
+  mesa?: string
+  telefono_cliente?: string
+  observaciones?: string
+  metodo_pago?: PayMethod
+  estado_pago?: PayStatus
+  items?: Array<{ producto_id: number; cantidad: number }>
 }
 
 export function apiToOrder(p: ApiPedido | ApiPedidoListItem): Order {
@@ -205,6 +228,7 @@ export function apiToOrder(p: ApiPedido | ApiPedidoListItem): Order {
     hasReceipt: p.comprobante_archivo_id != null,
     lines:
       items?.map((it) => ({
+        productId: it.producto_id,
         name: it.nombre_producto,
         icon: inferIcon(it.nombre_producto, 'comida'),
         qty: it.cantidad,
@@ -212,6 +236,14 @@ export function apiToOrder(p: ApiPedido | ApiPedidoListItem): Order {
       })) ?? [],
     origen: p.origen,
   }
+}
+
+export async function editOrderMetadata(
+  id: string,
+  payload: OrderMetadataEditPayload,
+): Promise<Order> {
+  const data = await apiPut<ApiPedido>(`/api/admin/pedidos/${id}`, payload)
+  return apiToOrder(data)
 }
 
 export function orderStatusToApi(s: OrderStatus): 'recibido' | 'en_preparacion' | 'listo' | 'entregado' | 'cancelado' {
@@ -357,4 +389,35 @@ export function isCajaLowStock(p: CajaProduct): boolean {
 export async function reordenarProductos(ordenes: Array<{ id: number; orden: number }>): Promise<AdminProduct[]> {
   const data = await apiPatch<Array<ApiProducto>>('/api/admin/productos/orden', { ordenes })
   return data.map(apiToAdminProduct)
+}
+
+/* Component mapping ------------------------------------------------------- */
+
+export function apiToComponente(c: ApiComponente): Componente {
+  return {
+    productoId: c.producto_id,
+    nombre: c.nombre,
+    cantidad: c.cantidad,
+    activo: c.activo === 1,
+    disponible: c.disponible === 1,
+    stockLimited: c.stock_limitado === 1,
+    stockActual: c.stock_actual,
+  }
+}
+
+export async function fetchComponentes(productId: number): Promise<Componente[]> {
+  const data = await apiGet<ApiComponente[]>(`/api/admin/productos/${productId}/componentes`)
+  return data.map(apiToComponente)
+}
+
+export async function saveComponentes(
+  productId: number,
+  componentes: Array<{ producto_id: number; cantidad: number }>,
+): Promise<Componente[]> {
+  const data = await apiPut<ApiComponente[]>(`/api/admin/productos/${productId}/componentes`, { componentes })
+  return data.map(apiToComponente)
+}
+
+export function isPromoIncomplete(p: AdminProduct): boolean {
+  return p.type === 'promo' && (p.componentesCount ?? 0) === 0
 }

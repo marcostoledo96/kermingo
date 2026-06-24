@@ -15,7 +15,6 @@ import {
   Receipt,
   RefreshCw,
   AlertCircle,
-  Clock,
   ChevronUp,
 } from 'lucide-react'
 import { formatPrice } from '@/lib/products'
@@ -29,6 +28,7 @@ import {
   apiToCajaProduct,
   isCajaLowStock,
   isCajaSoldOut,
+  isCajaUnavailable,
 } from '@/lib/admin'
 import type { MealCategory } from '@/lib/products'
 import type { ApiProducto } from '@/lib/types'
@@ -44,6 +44,23 @@ const FILTERS: { id: CajaFilter; label: string }[] = [
   { id: 'bebida', label: 'Bebidas' },
   { id: 'promo', label: 'Promos' },
 ]
+
+/** Secciones de catálogo para agrupar productos cuando el filtro es "todos". */
+const SECTION_ORDER: { key: string; label: string }[] = [
+  { key: 'Cena', label: 'Cena' },
+  { key: 'Merienda', label: 'Merienda' },
+  { key: 'Bebidas', label: 'Bebidas' },
+  { key: 'Promos', label: 'Promos' },
+  { key: 'Otros', label: 'Otros' },
+]
+
+function sectionOf(p: CajaProduct): string {
+  if (p.type === 'promo') return 'Promos'
+  if (p.type === 'bebida') return 'Bebidas'
+  if (p.meals.includes('cena')) return 'Cena'
+  if (p.meals.includes('merienda')) return 'Merienda'
+  return 'Otros'
+}
 
 export function CajaScreen() {
   const [filter, setFilter] = useState<CajaFilter>('todos')
@@ -100,7 +117,7 @@ export function CajaScreen() {
   }, [lines])
 
   function addProduct(product: CajaProduct) {
-    if (isCajaSoldOut(product)) return
+    if (isCajaSoldOut(product) || isCajaUnavailable(product)) return
     setLines((prev) => {
       const existing = prev.find((l) => l.product.id === product.id)
       if (existing) {
@@ -148,7 +165,7 @@ export function CajaScreen() {
       telefono_cliente: phone.trim() || undefined,
       observaciones: notes.trim() || undefined,
       metodo_pago: method,
-      estado_pago: method === 'efectivo' ? ('pagado' as const) : ('pendiente' as const),
+      estado_pago: 'pagado' as const,
       estado_pedido: 'en_preparacion' as const,
       items,
     }
@@ -244,97 +261,18 @@ export function CajaScreen() {
             <div className="rounded-2xl border border-[var(--km-linea)] bg-[var(--km-papel)] p-10 text-center text-sm font-medium text-[var(--km-tinta-suave)]">
               Cargando catálogo…
             </div>
+          ) : filtered.length === 0 ? (
+            <p className="py-10 text-center text-sm font-medium text-[var(--km-tinta-suave)]">
+              No hay productos para este filtro.
+            </p>
+          ) : filter === 'todos' ? (
+            <CatalogSections
+              products={filtered}
+              qtyMap={qtyMap}
+              onAdd={addProduct}
+            />
           ) : (
-            <div className="grid grid-cols-2 gap-3 pb-28 sm:grid-cols-3 lg:pb-0">
-              {filtered.map((product) => {
-                const soldOut = isCajaSoldOut(product)
-                const low = isCajaLowStock(product)
-                const inCart = qtyMap.get(product.id) ?? 0
-                return (
-                  <button
-                    key={product.id}
-                    type="button"
-                    disabled={soldOut}
-                    onClick={() => addProduct(product)}
-                    className={`km-focus group relative flex flex-col items-start gap-2 rounded-2xl border p-3.5 text-left transition-all ${
-                      soldOut
-                        ? 'cursor-not-allowed border-[var(--km-celeste)]/20 bg-[var(--km-fondo)]/60 opacity-60'
-                        : inCart > 0
-                          ? 'border-[var(--km-dorado)]/50 bg-[var(--km-dorado)]/8 hover:-translate-y-0.5 hover:border-[var(--km-dorado)] hover:shadow-md active:scale-[0.98]'
-                          : 'border-[var(--km-celeste)]/25 bg-[var(--km-papel)] hover:-translate-y-0.5 hover:border-[var(--km-azul)] hover:shadow-md active:scale-[0.98]'
-                    }`}
-                  >
-                    {/* Image or Icon glyph + status */}
-                    <div className="flex w-full items-start justify-between">
-                      {product.image ? (
-                        <Image
-                          src={product.image}
-                          alt={product.name}
-                          width={44}
-                          height={44}
-                          className={`h-11 w-11 rounded-xl object-cover ${soldOut ? 'opacity-60 grayscale' : ''}`}
-                          unoptimized
-                        />
-                      ) : (
-                        <div
-                          className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                            soldOut ? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]' : 'bg-[var(--km-fondo)] text-[var(--km-azul)]'
-                          }`}
-                        >
-                          <ProductIconGlyph icon={product.icon} className="h-6 w-6" strokeWidth={2} />
-                        </div>
-                      )}
-                      {soldOut && (
-                        <span className="shrink-0 text-[10px] font-bold text-[var(--km-peligro-text)]">
-                          Agotado
-                        </span>
-                      )}
-                      {low && !soldOut && (
-                        <span className="shrink-0 text-[10px] font-bold text-[var(--km-alerta-text)]">
-                          Bajo
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Name */}
-                    <span className={`text-sm font-bold leading-tight ${soldOut ? 'text-[var(--km-entregado-text)]' : 'text-[var(--km-azul)]'}`}>
-                      {product.name}
-                    </span>
-
-                    {/* Price + stock */}
-                    <div className="mt-auto flex w-full items-baseline justify-between gap-1">
-                      <span className={`km-tabular text-base font-extrabold ${soldOut ? 'text-[var(--km-entregado-text)]' : 'text-[var(--km-azul)]'}`}>
-                        {formatPrice(product.price)}
-                      </span>
-                      {product.stockLimited && !soldOut && (
-                        <span className="km-tabular text-[10px] font-semibold text-[var(--km-tinta-suave)]">
-                          {product.stockActual} u
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Quantity badge if already in cart */}
-                    {inCart > 0 && !soldOut && (
-                      <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--km-dorado)] px-1 text-[10px] font-extrabold text-[var(--km-azul)] shadow-sm">
-                        {inCart}
-                      </span>
-                    )}
-
-                    {/* Hover Plus affordance */}
-                    {!soldOut && (
-                      <span className="absolute right-3 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--km-dorado)] text-[var(--km-azul)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                        <Plus className="h-5 w-5" strokeWidth={2.6} />
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-              {filtered.length === 0 && !loading && (
-                <p className="col-span-full py-10 text-center text-sm font-medium text-[var(--km-tinta-suave)]">
-                  No hay productos para este filtro.
-                </p>
-              )}
-            </div>
+            <ProductGrid products={filtered} qtyMap={qtyMap} onAdd={addProduct} />
           )}
         </main>
 
@@ -472,6 +410,171 @@ export function CajaScreen() {
   )
 }
 
+// ─── Catálogo: tarjetas y secciones por categoría ──────────────────────────
+
+function ProductCard({
+  product,
+  inCart,
+  onAdd,
+}: {
+  product: CajaProduct
+  inCart: number
+  onAdd: (p: CajaProduct) => void
+}) {
+  const soldOut = isCajaSoldOut(product)
+  const unavailable = isCajaUnavailable(product)
+  const disabled = soldOut || unavailable
+  const low = isCajaLowStock(product)
+  return (
+    <button
+      key={product.id}
+      type="button"
+      disabled={disabled}
+      onClick={() => onAdd(product)}
+      className={`km-focus group relative flex flex-col items-start gap-2 rounded-2xl border p-3.5 text-left transition-all ${
+        disabled
+          ? 'cursor-not-allowed border-[var(--km-celeste)]/20 bg-[var(--km-fondo)]/60 opacity-60'
+          : inCart > 0
+            ? 'border-[var(--km-dorado)]/50 bg-[var(--km-dorado)]/8 hover:-translate-y-0.5 hover:border-[var(--km-dorado)] hover:shadow-md active:scale-[0.98]'
+            : 'border-[var(--km-celeste)]/25 bg-[var(--km-papel)] hover:-translate-y-0.5 hover:border-[var(--km-azul)] hover:shadow-md active:scale-[0.98]'
+      }`}
+    >
+      {/* Image or Icon glyph + status */}
+      <div className="flex w-full items-start justify-between">
+        {product.image ? (
+          <Image
+            src={product.image}
+            alt={product.name}
+            width={44}
+            height={44}
+            className={`h-11 w-11 rounded-xl object-cover ${disabled ? 'opacity-60 grayscale' : ''}`}
+            unoptimized
+          />
+        ) : (
+          <div
+            className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+              disabled ? 'bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]' : 'bg-[var(--km-fondo)] text-[var(--km-azul)]'
+            }`}
+          >
+            <ProductIconGlyph icon={product.icon} className="h-6 w-6" strokeWidth={2} />
+          </div>
+        )}
+        {disabled && (
+          <span className="shrink-0 text-[10px] font-bold text-[var(--km-peligro-text)]">
+            {unavailable ? 'No disponible' : 'Agotado'}
+          </span>
+        )}
+        {low && !disabled && (
+          <span className="shrink-0 text-[10px] font-bold text-[var(--km-alerta-text)]">
+            Bajo
+          </span>
+        )}
+      </div>
+
+      {/* Name */}
+      <span className={`text-sm font-bold leading-tight ${disabled ? 'text-[var(--km-entregado-text)]' : 'text-[var(--km-azul)]'}`}>
+        {product.name}
+      </span>
+
+      {/* Price + stock */}
+      <div className="mt-auto flex w-full items-baseline justify-between gap-1">
+        <span className={`km-tabular text-base font-extrabold ${disabled ? 'text-[var(--km-entregado-text)]' : 'text-[var(--km-azul)]'}`}>
+          {formatPrice(product.price)}
+        </span>
+        {product.stockLimited && !disabled && (
+          <span className="km-tabular text-[10px] font-semibold text-[var(--km-tinta-suave)]">
+            {product.stockActual} u
+          </span>
+        )}
+      </div>
+
+      {/* Quantity badge if already in cart */}
+      {inCart > 0 && !disabled && (
+        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--km-dorado)] px-1 text-[10px] font-extrabold text-[var(--km-azul)] shadow-sm">
+          {inCart}
+        </span>
+      )}
+
+      {/* Hover Plus affordance */}
+      {!disabled && (
+        <span className="absolute right-3 top-1/2 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--km-dorado)] text-[var(--km-azul)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+          <Plus className="h-5 w-5" strokeWidth={2.6} />
+        </span>
+      )}
+    </button>
+  )
+}
+
+function ProductGrid({
+  products,
+  qtyMap,
+  onAdd,
+}: {
+  products: CajaProduct[]
+  qtyMap: Map<number, number>
+  onAdd: (p: CajaProduct) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 pb-28 sm:grid-cols-3 lg:pb-0">
+      {products.map((product) => (
+        <ProductCard
+          key={product.id}
+          product={product}
+          inCart={qtyMap.get(product.id) ?? 0}
+          onAdd={onAdd}
+        />
+      ))}
+    </div>
+  )
+}
+
+function CatalogSections({
+  products,
+  qtyMap,
+  onAdd,
+}: {
+  products: CajaProduct[]
+  qtyMap: Map<number, number>
+  onAdd: (p: CajaProduct) => void
+}) {
+  const sections = useMemo(() => {
+    const buckets = new Map<string, CajaProduct[]>()
+    for (const p of products) {
+      const key = sectionOf(p)
+      const arr = buckets.get(key) ?? []
+      arr.push(p)
+      buckets.set(key, arr)
+    }
+    return SECTION_ORDER.filter((s) => buckets.has(s.key)).map((s) => ({
+      key: s.key,
+      label: s.label,
+      items: buckets.get(s.key)!,
+    }))
+  }, [products])
+
+  return (
+    <div className="space-y-5 pb-28 lg:pb-0">
+      {sections.map((section) => (
+        <section key={section.key} aria-label={section.label}>
+          <h3 className="mb-2 px-1 text-xs font-extrabold uppercase tracking-wide text-[var(--km-celeste)]">
+            {section.label}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {section.items.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                inCart={qtyMap.get(product.id) ?? 0}
+                onAdd={onAdd}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 // ─── Panel del pedido (reutilizado en desktop y mobile) ────────────────────
 
 function OrderPanel({
@@ -539,154 +642,152 @@ function OrderPanel({
         </div>
       )}
 
-      {/* Líneas */}
-      <div className={`flex-1 overflow-y-auto ${empty ? '' : 'divide-y divide-[var(--km-celeste)]/10'}`}>
-        {empty ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--km-fondo)]">
-              <ShoppingCart className="h-6 w-6 text-[var(--km-celeste)]" strokeWidth={2} />
+      {/* ── Zona principal: ítems + datos + pago (scroll única) ── */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Líneas */}
+        <div className={empty ? '' : 'divide-y divide-[var(--km-celeste)]/10'}>
+          {empty ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--km-fondo)]">
+                <ShoppingCart className="h-6 w-6 text-[var(--km-celeste)]" strokeWidth={2} />
+              </div>
+              <p className="text-sm font-medium text-[var(--km-celeste)]">
+                Tocá un producto para agregarlo.
+              </p>
             </div>
-            <p className="text-sm font-medium text-[var(--km-celeste)]">
-              Tocá un producto para agregarlo.
-            </p>
-          </div>
-        ) : (
-          lines.map((l) => (
-            <div key={l.product.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--km-fondo)] text-[var(--km-azul)]">
-                <ProductIconGlyph icon={l.product.icon} className="h-5 w-5" strokeWidth={2} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-[var(--km-azul)]">{l.product.name}</p>
-                <p className="text-xs font-medium text-[var(--km-tinta-suave)]">
-                  {formatPrice(l.product.price)} c/u
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
+          ) : (
+            lines.map((l) => (
+              <div key={l.product.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--km-fondo)] text-[var(--km-azul)]">
+                  <ProductIconGlyph icon={l.product.icon} className="h-5 w-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-[var(--km-azul)]">{l.product.name}</p>
+                  <p className="text-xs font-medium text-[var(--km-tinta-suave)]">
+                    {formatPrice(l.product.price)} c/u
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-label="Restar"
+                    onClick={() => onChangeQty(l.product.id, -1)}
+                    className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-celeste)]/40 text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
+                  >
+                    <Minus className="h-4 w-4" strokeWidth={2.6} />
+                  </button>
+                  <span className="km-tabular w-6 text-center font-mono text-sm font-extrabold text-[var(--km-azul)]">
+                    {l.qty}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Sumar"
+                    onClick={() => onChangeQty(l.product.id, 1)}
+                    className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-celeste)]/40 text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={2.6} />
+                  </button>
+                </div>
                 <button
                   type="button"
-                  aria-label="Restar"
-                  onClick={() => onChangeQty(l.product.id, -1)}
-                  className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-celeste)]/40 text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
+                  aria-label="Quitar"
+                  onClick={() => onRemove(l.product.id)}
+                  className="km-focus flex h-8 w-8 items-center justify-center rounded-lg text-[var(--km-entregado-text)] transition-colors hover:bg-[var(--km-peligro-bg)] hover:text-[var(--km-peligro-text)]"
                 >
-                  <Minus className="h-4 w-4" strokeWidth={2.6} />
-                </button>
-                <span className="km-tabular w-6 text-center font-mono text-sm font-extrabold text-[var(--km-azul)]">
-                  {l.qty}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Sumar"
-                  onClick={() => onChangeQty(l.product.id, 1)}
-                  className="km-focus flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--km-celeste)]/40 text-[var(--km-azul)] transition-colors hover:bg-[var(--km-fondo)]"
-                >
-                  <Plus className="h-4 w-4" strokeWidth={2.6} />
+                  <Trash2 className="h-4 w-4" strokeWidth={2.2} />
                 </button>
               </div>
-              <button
-                type="button"
-                aria-label="Quitar"
-                onClick={() => onRemove(l.product.id)}
-                className="km-focus flex h-8 w-8 items-center justify-center rounded-lg text-[var(--km-entregado-text)] transition-colors hover:bg-[var(--km-peligro-bg)] hover:text-[var(--km-peligro-text)]"
-              >
-                <Trash2 className="h-4 w-4" strokeWidth={2.2} />
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* ── Datos + pago + total + acciones ────────────────── */}
-      <div className="space-y-3 border-t border-[var(--km-celeste)]/15 bg-[var(--km-fondo)]/40 p-4">
-        {submitError && (
-          <div className="rounded-lg border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3 py-2 text-[11px] font-medium text-[var(--km-peligro-text)]">
-            {submitError}
-          </div>
-        )}
-
-        {/* Método de pago — Efectivo default/destacado */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => onMethod('efectivo')}
-            className={`km-focus flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-bold transition-colors ${
-              method === 'efectivo'
-                ? 'border-[var(--km-listo-text)] bg-[var(--km-listo-bg)] text-[var(--km-listo-text)] shadow-sm'
-                : 'border-[var(--km-celeste)]/40 bg-[var(--km-papel)] text-[var(--km-azul)] hover:bg-[var(--km-fondo)]'
-            }`}
-          >
-            <Banknote className="h-4 w-4" strokeWidth={2.2} /> Efectivo
-          </button>
-          <button
-            type="button"
-            onClick={() => onMethod('transferencia')}
-            className={`km-focus flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-bold transition-colors ${
-              method === 'transferencia'
-                ? 'border-[var(--km-azul)] bg-[var(--km-azul)] text-[var(--km-papel)]'
-                : 'border-[var(--km-celeste)]/40 bg-[var(--km-papel)] text-[var(--km-azul)] hover:bg-[var(--km-fondo)]'
-            }`}
-          >
-            <ArrowRightLeft className="h-4 w-4" strokeWidth={2.2} /> Transfer.
-          </button>
+            ))
+          )}
         </div>
 
-        {/* Transferencia pendiente aviso */}
-        {method === 'transferencia' && (
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--km-preparando-bg)] px-3 py-2 text-[11px] font-medium text-[var(--km-preparando-text)]">
-            <Clock className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
-            Pago pendiente de verificación
-          </div>
-        )}
+        {/* ── Datos + pago (dentro del scroll) ─────────────────── */}
+        <div className="space-y-3 border-t border-[var(--km-celeste)]/15 bg-[var(--km-fondo)]/40 p-4">
+          {submitError && (
+            <div className="rounded-lg border border-[var(--km-peligro-bg)] bg-[var(--km-peligro-bg)] px-3 py-2 text-[11px] font-medium text-[var(--km-peligro-text)]">
+              {submitError}
+            </div>
+          )}
 
-        {/* Efectivo confirmación */}
-        {method === 'efectivo' && !empty && (
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--km-listo-bg)] px-3 py-2 text-[11px] font-medium text-[var(--km-listo-text)]">
-            <Banknote className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
-            Se registra como pagado al confirmar
+          {/* Método de pago — Efectivo default/destacado */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onMethod('efectivo')}
+              className={`km-focus flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-bold transition-colors ${
+                method === 'efectivo'
+                  ? 'border-[var(--km-listo-text)] bg-[var(--km-listo-bg)] text-[var(--km-listo-text)] shadow-sm'
+                  : 'border-[var(--km-celeste)]/40 bg-[var(--km-papel)] text-[var(--km-azul)] hover:bg-[var(--km-fondo)]'
+              }`}
+            >
+              <Banknote className="h-4 w-4" strokeWidth={2.2} /> Efectivo
+            </button>
+            <button
+              type="button"
+              onClick={() => onMethod('transferencia')}
+              className={`km-focus flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-bold transition-colors ${
+                method === 'transferencia'
+                  ? 'border-[var(--km-azul)] bg-[var(--km-azul)] text-[var(--km-papel)]'
+                  : 'border-[var(--km-celeste)]/40 bg-[var(--km-papel)] text-[var(--km-azul)] hover:bg-[var(--km-fondo)]'
+              }`}
+            >
+              <ArrowRightLeft className="h-4 w-4" strokeWidth={2.2} /> Transfer.
+            </button>
           </div>
-        )}
 
-        {/* Datos opcionales — v0-like rounded-xl inputs */}
-        <input
-          type="text"
-          value={customer}
-          onChange={(e) => onCustomer(e.target.value)}
-          placeholder="Nombre del cliente (opcional)"
-          aria-label="Nombre del cliente"
-          className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            type="tel"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => onPhone(e.target.value)}
-            placeholder="Teléfono"
-            aria-label="Teléfono del cliente"
-            className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
-          />
+          {/* Caja registra ambos métodos como pagados */}
+          {!empty && (
+            <div className="flex items-center gap-2 rounded-lg bg-[var(--km-listo-bg)] px-3 py-2 text-[11px] font-medium text-[var(--km-listo-text)]">
+              <Banknote className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.2} />
+              Se registra como pagado al confirmar
+            </div>
+          )}
+
+          {/* Datos opcionales — v0-like rounded-xl inputs */}
           <input
             type="text"
-            inputMode="numeric"
-            value={table}
-            onChange={(e) => onTable(e.target.value)}
-            placeholder="Mesa"
-            aria-label="Mesa"
+            value={customer}
+            onChange={(e) => onCustomer(e.target.value)}
+            placeholder="Nombre del cliente (opcional)"
+            aria-label="Nombre del cliente"
+            className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={(e) => onPhone(e.target.value)}
+              placeholder="Teléfono"
+              aria-label="Teléfono del cliente"
+              className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={table}
+              onChange={(e) => onTable(e.target.value)}
+              placeholder="Mesa"
+              aria-label="Mesa"
+              className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
+            />
+          </div>
+
+          <textarea
+            value={notes}
+            onChange={(e) => onNotes(e.target.value)}
+            placeholder="Nota (opcional)"
+            aria-label="Nota opcional"
+            rows={2}
             className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
           />
         </div>
+      </div>
 
-        <textarea
-          value={notes}
-          onChange={(e) => onNotes(e.target.value)}
-          placeholder="Nota (opcional)"
-          aria-label="Nota opcional"
-          rows={2}
-          className="km-focus w-full rounded-xl border border-[var(--km-celeste)]/40 bg-[var(--km-papel)] px-3.5 py-2.5 text-sm font-medium text-[var(--km-azul)] placeholder:text-[#9CA3AF]"
-        />
-
+      {/* ── Pie fijo: Total + acciones (siempre visibles) ────── */}
+      <div className="space-y-2 border-t border-[var(--km-celeste)]/15 bg-[var(--km-papel)] p-4">
         {/* Total grande — v0-like rounded-2xl */}
-        <div className="flex items-end justify-between rounded-2xl bg-[var(--km-papel)] px-4 py-3 shadow-sm">
+        <div className="flex items-end justify-between rounded-2xl bg-[var(--km-fondo)] px-4 py-3 shadow-sm">
           <span className="text-sm font-bold uppercase tracking-wide text-[var(--km-azul)]/55">
             Total
           </span>
@@ -700,7 +801,7 @@ function OrderPanel({
           type="button"
           onClick={onConfirm}
           disabled={empty || submitting}
-          className={`km-focus flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-extrabold transition-all ${
+          className={`km-focus flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-extrabold transition-all ${
             empty || submitting
               ? 'cursor-not-allowed bg-[var(--km-entregado-bg)] text-[var(--km-entregado-text)]'
               : 'bg-[var(--km-dorado)] text-[var(--km-azul)] shadow-lg shadow-[var(--km-dorado)]/30 hover:brightness-110 active:scale-[0.99]'

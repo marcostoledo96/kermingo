@@ -1,10 +1,11 @@
+
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { X, ImagePlus, Check, Loader2, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { X, ImagePlus, Check, Loader2, Trash2, Plus } from 'lucide-react'
 import type { MealCategory, ProductIcon, ProductType } from '@/lib/products'
 import { ProductIconGlyph } from '@/components/menu/product-visual'
-import { apiToAdminProduct, type AdminProduct } from '@/lib/admin'
+import { apiToAdminProduct, type AdminProduct, type Componente, fetchComponentes, saveComponentes } from '@/lib/admin'
 import { apiDelete, apiPostForm, ApiError } from '@/lib/api'
 import { ABSOLUTE_IMAGE_URL } from '@/lib/config'
 import type { ApiProducto } from '@/lib/types'
@@ -41,6 +42,7 @@ const emptyProduct = (): AdminProduct => ({
 
 export function ProductFormDialog({
   initial,
+  allProducts = [],
   submitting = false,
   error = null,
   onSave,
@@ -48,6 +50,7 @@ export function ProductFormDialog({
   onProductUpdated,
 }: {
   initial?: AdminProduct | null
+  allProducts?: AdminProduct[]
   submitting?: boolean
   error?: string | null
   onSave: (product: AdminProduct) => Promise<AdminProduct>
@@ -55,6 +58,143 @@ export function ProductFormDialog({
   onProductUpdated?: (product: AdminProduct) => void
 }) {
   const [form, setForm] = useState<AdminProduct>(initial ?? emptyProduct())
+  const [stockCurrentInput, setStockCurrentInput] = useState(() => String((initial ?? emptyProduct()).stockCurrent))
+  const [stockMinInput, setStockMinInput] = useState(() => String((initial ?? emptyProduct()).stockMin))
+
+  // Promo component state
+  const [componentes, setComponentes] = useState<Componente[]>([])
+  const [loadingComponentes, setLoadingComponentes] = useState(false)
+  const [componentError, setComponentError] = useState<string | null>(null)
+  const [hadInitialComponentes, setHadInitialComponentes] = useState(false)
+  const [componentesDirty, setComponentesDirty] = useState(false)
+  const [newComponentId, setNewComponentId] = useState('')
+  const [newComponentQty, setNewComponentQty] = useState(1)
+
+  const componentProducts = useMemo(
+    () =>
+      allProducts
+        .filter((p) => p.type !== 'promo' && p.id !== form.id)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es-AR', { sensitivity: 'base' })),
+    [allProducts, form.id],
+  )
+
+  // Load components when editing a promo
+  useEffect(() => {
+    if (form.type !== 'promo') {
+      setComponentes([])
+      setComponentError(null)
+      setHadInitialComponentes(false)
+      setComponentesDirty(false)
+      return
+    }
+
+    if (!form.id || form.id.startsWith('prod-')) {
+      setLoadingComponentes(false)
+      setComponentError(null)
+      setComponentes([])
+      setHadInitialComponentes(false)
+      setComponentesDirty(false)
+      return
+    }
+
+    setLoadingComponentes(true)
+    setComponentError(null)
+    setComponentesDirty(false)
+    fetchComponentes(Number(form.id))
+      .then((next) => {
+        setComponentes(next)
+        setHadInitialComponentes(next.length > 0)
+        setComponentesDirty(false)
+      })
+      .catch((err) => {
+        setComponentError(err instanceof ApiError ? err.message : 'No se pudieron cargar los componentes')
+      })
+      .finally(() => setLoadingComponentes(false))
+  }, [form.id, form.type])
+
+  // Keep component selection in sync when type changes.
+  useEffect(() => {
+    if (form.type !== 'promo') {
+      setNewComponentId('')
+      setNewComponentQty(1)
+      setComponentesDirty(false)
+      setHadInitialComponentes(false)
+    }
+  }, [form.type])
+
+  const markComponentesTouched = () => setComponentesDirty(true)
+
+  const addComponent = () => {
+    const productoId = Number(newComponentId)
+    const cantidad = Math.max(1, Number.parseInt(String(newComponentQty), 10) || 0)
+    if (!Number.isFinite(productoId) || productoId <= 0 || cantidad <= 0) return
+
+    const baseProduct = componentProducts.find((p) => p.id === newComponentId)
+    if (!baseProduct) return
+
+    setComponentError(null)
+
+    setComponentes((prev) => {
+      const index = prev.findIndex((c) => c.productoId === productoId)
+      if (index >= 0) {
+        return prev.map((c) =>
+          c.productoId === productoId
+            ? {
+                ...c,
+                nombre: baseProduct.name,
+                cantidad: c.cantidad + cantidad,
+                activo: baseProduct.active,
+                disponible: baseProduct.available,
+                stockLimited: baseProduct.stockLimited,
+                stockActual: baseProduct.stockCurrent,
+              }
+            : c,
+        )
+      }
+      return [
+        ...prev,
+        {
+          productoId,
+          nombre: baseProduct.name,
+          cantidad,
+          activo: baseProduct.active,
+          disponible: baseProduct.available,
+          stockLimited: baseProduct.stockLimited,
+          stockActual: baseProduct.stockCurrent,
+        },
+      ]
+    })
+
+    setNewComponentId('')
+    setNewComponentQty(1)
+    markComponentesTouched()
+  }
+
+  const updateComponentQuantity = (productoId: number, rawQuantity: string) => {
+    const cantidad = Number.parseInt(rawQuantity, 10)
+    setComponentes((prev) =>
+      prev.map((c) =>
+        c.productoId === productoId
+          ? { ...c, cantidad: Number.isNaN(cantidad) ? 1 : Math.max(1, cantidad) }
+        : c,
+      ),
+    )
+    markComponentesTouched()
+  }
+
+  const removeComponent = (productoId: number) => {
+    setComponentes((prev) => prev.filter((c) => c.productoId !== productoId))
+    markComponentesTouched()
+  }
+
+  const savePayload = componentes.map((c) => ({ producto_id: c.productoId, cantidad: c.cantidad }))
+
+  const isPromoUnavailableWithoutComponents = form.type === 'promo' && form.available && componentes.length === 0
+
+  const maybeResetNewComponentQty = (value: number) => {
+    const next = Number.parseInt(String(value), 10)
+    setNewComponentQty(Number.isNaN(next) ? 1 : Math.max(1, next))
+  }
 
   // Image state
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -174,10 +314,27 @@ export function ProductFormDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSave) return
+    if (isPromoUnavailableWithoutComponents) {
+      setLocalSubmitError('La promo necesita componentes antes de estar disponible.')
+      return
+    }
     setLocalSubmitError(null)
     setImageError(null)
     try {
-      const saved = await onSave({ ...form, id: form.id || `prod-${Date.now()}` })
+      const normalizedForm = {
+        ...form,
+        stockCurrent: stockCurrentInput === '' ? 0 : form.stockCurrent,
+        stockMin: stockMinInput === '' ? 0 : form.stockMin,
+      }
+      const shouldEnableAfterComponentSave =
+        normalizedForm.type === 'promo' &&
+        normalizedForm.available &&
+        componentes.length > 0 &&
+        !hadInitialComponentes
+      const productForFirstSave = shouldEnableAfterComponentSave
+        ? { ...normalizedForm, available: false }
+        : normalizedForm
+      let saved = await onSave({ ...productForFirstSave, id: productForFirstSave.id || `prod-${Date.now()}` })
 
       // Create mode with pending file: upload now
       if (!isEditing && pendingFile && saved.id && !saved.id.startsWith('prod-')) {
@@ -201,6 +358,35 @@ export function ProductFormDialog({
           setUploadingImage(false)
         }
       }
+
+        const shouldPersistComponentes =
+          form.type === 'promo' &&
+          !!saved.id &&
+          !saved.id.startsWith('prod-') &&
+          (componentes.length > 0 || hadInitialComponentes || componentesDirty)
+
+        // Save promo components if type is promo and product has an ID.
+        // For existing promos (or promos already loaded from backend), empty payload
+        // means clear components explicitly.
+        if (shouldPersistComponentes) {
+          try {
+            const payload = componentes.length > 0 ? savePayload : []
+            const savedComponents = await saveComponentes(Number(saved.id), payload)
+            setComponentes(savedComponents)
+            onProductUpdated?.({ ...saved, componentesCount: savedComponents.length })
+            if (shouldEnableAfterComponentSave) {
+              saved = await onSave({ ...saved, available: true, componentesCount: savedComponents.length })
+              onProductUpdated?.(saved)
+            }
+          } catch (err) {
+            // Component save failed — keep form data visible, don't close
+            setComponentError(
+              err instanceof ApiError ? err.message : 'No se pudieron guardar los componentes',
+            )
+            return
+          }
+        }
+
       onClose()
     } catch (err) {
       setLocalSubmitError(
@@ -438,8 +624,13 @@ export function ProductFormDialog({
                       type="number"
                       inputMode="numeric"
                       min={0}
-                      value={form.stockCurrent}
-                      onChange={(e) => set('stockCurrent', Number(e.target.value))}
+                      value={stockCurrentInput}
+                      aria-label="Stock actual"
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setStockCurrentInput(value)
+                        if (value !== '') set('stockCurrent', Math.max(0, Number(value)))
+                      }}
                       disabled={submitting || uploadingImage}
                       className="kermingo-input disabled:opacity-60"
                     />
@@ -449,8 +640,13 @@ export function ProductFormDialog({
                       type="number"
                       inputMode="numeric"
                       min={0}
-                      value={form.stockMin}
-                      onChange={(e) => set('stockMin', Number(e.target.value))}
+                      value={stockMinInput}
+                      aria-label="Alerta mínimo"
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setStockMinInput(value)
+                        if (value !== '') set('stockMin', Math.max(0, Number(value)))
+                      }}
                       disabled={submitting || uploadingImage}
                       className="kermingo-input disabled:opacity-60"
                     />
@@ -484,7 +680,121 @@ export function ProductFormDialog({
                   Los clientes verán el producto con la etiqueta "Todavía no disponible".
                 </p>
               )}
+              {form.type === 'promo' && form.available && componentes.length === 0 && (
+                <p className="mt-1 text-xs font-medium" style={{ color: 'var(--km-peligro-text)' }}>
+                  La promo necesita componentes antes de estar disponible.
+                </p>
+              )}
             </div>
+
+            {/* Componentes de promo */}
+            {form.type === 'promo' && (
+              <div className="rounded-2xl border border-[#75AADB]/20 bg-white p-4">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#003B73]/70">
+                  Componentes
+                </label>
+                <div className="mb-3 space-y-2">
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                    <label className="sr-only" htmlFor="component-producto">
+                      Producto
+                    </label>
+                    <select
+                      id="component-producto"
+                      value={newComponentId}
+                      onChange={(e) => setNewComponentId(e.target.value)}
+                      disabled={submitting || uploadingImage || loadingComponentes}
+                      className="kermingo-input min-h-10 bg-white"
+                    >
+                      <option value="">Seleccioná un producto</option>
+                      {componentProducts.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label className="sr-only" htmlFor="component-cantidad">
+                      Cantidad
+                    </label>
+                    <input
+                      id="component-cantidad"
+                      type="number"
+                      min={1}
+                      value={newComponentQty}
+                      onChange={(e) => {
+                        maybeResetNewComponentQty(Number(e.target.value))
+                      }}
+                      disabled={submitting || uploadingImage || !newComponentId}
+                      className="kermingo-input min-h-10 sm:w-20"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={addComponent}
+                      disabled={submitting || uploadingImage || !newComponentId || newComponentQty <= 0}
+                      className="flex shrink-0 items-center justify-center gap-1 rounded-xl border border-[#75AADB]/40 bg-[#EEF5FF]/70 px-3 py-2.5 text-xs font-bold text-[#003B73] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Agregar
+                    </button>
+                  </div>
+                </div>
+
+                {componentError && (
+                  <div className="mb-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ background: 'var(--km-peligro-bg)', color: 'var(--km-peligro-text)' }}>
+                    {componentError}
+                  </div>
+                )}
+                {loadingComponentes ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-[#003B73]/50">
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />
+                    Cargando componentes…
+                  </div>
+                ) : componentes.length === 0 ? (
+                  <p className="py-2 text-sm text-[#003B73]/50">
+                    Esta promo no tiene componentes configurados.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                     {componentes.map((c) => (
+                       <li key={c.productoId} className="flex items-center justify-between gap-2 rounded-xl border border-[#75AADB]/20 bg-[#EEF5FF]/30 px-3 py-2">
+                         <div className="min-w-0">
+                           <p className="text-sm font-semibold text-[#003B73]">{c.nombre}</p>
+                           <div className="mt-1 flex items-center gap-2">
+                             <label className="text-xs text-[#003B73]/70" htmlFor={`component-qty-${c.productoId}`}>
+                               Cantidad
+                             </label>
+                             <input
+                               id={`component-qty-${c.productoId}`}
+                               type="number"
+                               min={1}
+                               value={c.cantidad}
+                               onChange={(event) => updateComponentQuantity(c.productoId, event.target.value)}
+                               disabled={submitting || uploadingImage}
+                               className="h-8 w-16 rounded-lg border border-[#75AADB]/40 px-2 text-sm"
+                             />
+                           </div>
+                           <p className="text-xs text-[#003B73]/50">
+                             {!c.activo && 'Desactivado'}
+                             {(!c.activo && c.disponible) ? ' · ' : ''}
+                             {!c.disponible && 'No disponible'}
+                           </p>
+                         </div>
+                         <button
+                           type="button"
+                           onClick={() => removeComponent(c.productoId)}
+                           disabled={submitting || uploadingImage}
+                           aria-label="Quitar"
+                           className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--km-peligro-bg)] text-[var(--km-peligro-text)] transition-colors hover:bg-[var(--km-peligro-bg)] disabled:opacity-50"
+                        >
+                          <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 border-t border-[#75AADB]/20 bg-white px-5 py-4">

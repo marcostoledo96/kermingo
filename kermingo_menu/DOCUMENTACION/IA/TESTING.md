@@ -47,6 +47,10 @@ npm run test:integration
 # Correr un archivo específico
 npx jest tests/path/to/file.test.js
 
+# Corrección segura de transferencias de caja legacy (dry-run por defecto)
+node scripts/fix-caja-transferencias-pagadas.mjs
+CONFIRM_FIX_CAJA_TRANSFERENCIAS=YES node scripts/fix-caja-transferencias-pagadas.mjs --apply
+
 # Ver coverage
 npm test -- --coverage
 
@@ -66,7 +70,7 @@ RUN_REAL_DRIVE_TESTS=true npm test -- --testPathPattern=comprobantes.test
 
 **Nota sobre `--runInBand`:** Se introdujo en B6.3.1 para eliminar interferencias concurrentes del pool de MySQL. Todas las suites corren secuencialmente. Si se agregan más tests, mantener `--runInBand` en los scripts de integración.
 
-**Nota:** Backend tiene 4 fallas conocidas preexistentes (3 caja PUT edit reconciliation, 1 comprobantes MIME message mismatch) que no son responsabilidad de este change. La suite completa reporta algunos tests fallando pero son preexistentes y no relacionados con las correcciones.
+**Nota PR6:** Las fallas históricas de `caja.test.js`/`comprobantes.test.js` fueron remediadas en el slice `edit-orders-caja-transfer-promos`. La suite completa debe correrse nuevamente antes de archive; no tratar esos fallos como blockers conocidos aceptados sin evidencia fresca.
 
 ---
 
@@ -179,7 +183,7 @@ const { createWithTransaction } = await import('../../src/api/models/pedido.mode
 | Producto imagen | `producto-imagen.test.js` | Product image upload/remove/query |
 | Producto categorías | `productos-categorias.test.js` | Crear/editar producto con categorías Merienda/Cena, validación vacío |
 | Health | `health.test.js` | Health check endpoint |
-| **Total** | 18+ suites | ~70+ tests backend, ~238+ frontend tests. 3 fallas conocidas de caja PR2 (edición) no relacionadas con este cambio. |
+| **Total** | 18+ suites | ~70+ tests backend, ~238+ frontend tests. Para conteo exacto y estado real, correr las suites completas antes de archive. |
 
 La suite está en constante crecimiento. Para el conteo exacto, correr `npm test`.
 
@@ -221,7 +225,7 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | useLocalStorageState | `frontend/test/use-local-storage.test.ts` | 10 | Estabilidad referencial, cache invalidation, evita React #185 |
 | useApiResource | `frontend/test/use-api-resource.test.ts` | 7 | Estabilidad de fetcher, refetch manual, evita loop infinito |
 | Cocina actions | `frontend/test/cocina-actions.test.ts` | 7 | Acciones ágiles por estado: recibido→preparacion|listo, preparacion→recibido|listo, listo→preparacion|entregado, terminal sin acciones |
-| Orders screen (B7) | `frontend/test/orders-screen.test.tsx` | 8+ | Tab switching fetches correct `estado_pedido` param; confirm-payment sequence mocks payment 200 then state 200; payment 400 blocks state call; no generic advance button for `recibido` |
+| Orders screen (B7/PR5) | `frontend/test/orders-screen.test.tsx` | 35+ | Tab switching fetches correct `estado_pedido`; confirm-payment sequencing; edit modal metadata/payment corrections; item quantity/remove; add-product sends existing + added `items`; backend 400/409 keeps draft open |
 | Caja screen (B7) | `frontend/test/caja-screen.test.tsx` | 4+ | Product card renders `Image` when `imagen_url` exists; fallback icon when absent |
 | Tracking screen token (B7) | `frontend/test/tracking-screen-token.test.tsx` | 7+ | `recibido` + `comprobante_subido` shows "Estamos comprobando tu pago" |
 | AdminSession provider | `frontend/test/admin-session-provider.test.tsx` | - | Provider renderiza redirect en unauthenticated, no muestra children |
@@ -229,6 +233,7 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | Config screen | `frontend/test/config.test.ts` | 13 | PUT configuración con campos parciales, resolveApiBase production guard, store closed/demo gating |
 | Login screen | `frontend/test/login-screen.test.tsx` | 8 | Login exitoso redirige a dashboard, credenciales demo condicionales |
 | Product form dialog | `frontend/test/product-form-dialog.test.tsx` | 30 | Crear producto con imagen exitosa, error mantiene diálogo abierto, ProductsScreen no cierra antes de upload |
+| Product promo components | `frontend/test/product-form-dialog.test.tsx`, `frontend/test/products-screen-badge.test.tsx` | focused | Promo component editor, save failure keeps draft, incomplete promo badge |
 | Product availability | `frontend/test/product-availability.test.ts` | 20 | `deriveStockStatus` y `mapProducto` — prioridad no_disponible, disponible/orden mapping, activo/agotado alignment |
 
 **Comandos:**

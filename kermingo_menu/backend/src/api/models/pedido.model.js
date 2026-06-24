@@ -135,7 +135,7 @@ export async function createWithTransaction(pool, data) {
       );
       const producto = prodRows[0];
       if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
-      if (!producto.disponible) throw new Error(`Producto "${producto.nombre}" no está disponible todavía`);
+      if (!producto.disponible) throw new ValidationError(`Producto "${producto.nombre}" no está disponible todavía`);
 
       itemsExpandidos.push({
         producto_id: producto.id,
@@ -151,7 +151,7 @@ export async function createWithTransaction(pool, data) {
           [item.producto_id]
         );
         if (compRows.length === 0) {
-          throw new Error(`La promo "${producto.nombre}" no tiene componentes configurados en combo_producto`);
+          throw new ValidationError(`La promo "${producto.nombre}" no tiene componentes configurados en combo_producto`);
         }
         for (const comp of compRows) {
           const total = comp.cantidad * item.cantidad;
@@ -177,7 +177,7 @@ export async function createWithTransaction(pool, data) {
       for (const id of idsRequeridos) {
         const producto = stockMap.get(id);
         if (!producto) throw new Error(`Producto ${id} no encontrado`);
-        if (!producto.disponible) throw new Error(`Producto "${producto.nombre}" no está disponible todavía`);
+        if (!producto.disponible) throw new ValidationError(`Producto "${producto.nombre}" no está disponible todavía`);
         const necesario = requerimientos.get(id);
         if (producto.stock_limitado && producto.stock_actual < necesario) {
           throw new Error(
@@ -631,9 +631,9 @@ export async function cancelWithTransaction(pool, id) {
 }
 
 /**
- * Edita un pedido de caja transaccionalmente, reconciliando stock.
+ * Edita un pedido de forma transaccional, reconciliando stock.
  * Restaura stock anterior, valida nuevo set, descuenta stock nuevo.
- * Rechaza si estado_pedido es 'cancelado' o 'entregado'.
+ * Cancela edición de items en estado cancelado.
  * Si data.items no está presente, saltea reconciliación de stock (solo metadatos).
  * Si metodo_pago cambia, ajusta estado_pago para coherencia.
  * @param {mysql2.Pool} pool
@@ -649,7 +649,7 @@ export async function editWithTransaction(pool, id, data) {
 
     // 1. Bloquear pedido
     const [pedRows] = await conn.query(
-      'SELECT id, estado_pedido, estado_pago, metodo_pago, origen FROM pedido WHERE id = ? FOR UPDATE',
+      'SELECT id, estado_pedido, estado_pago, metodo_pago, comprobante_archivo_id FROM pedido WHERE id = ? FOR UPDATE',
       [id]
     );
     const pedido = pedRows[0];
@@ -657,18 +657,32 @@ export async function editWithTransaction(pool, id, data) {
       await conn.rollback();
       return 0; // not found
     }
-    if (pedido.origen !== 'caja') {
+    const intentaEditarItems = data.items !== undefined;
+    if (pedido.estado_pedido === 'cancelado' && intentaEditarItems) {
       await conn.rollback();
-      return -2; // only caja pedidos editable
-    }
-    if (['cancelado', 'entregado'].includes(pedido.estado_pedido)) {
-      await conn.rollback();
-      return -1; // not allowed
+      return -1; // no items edits allowed
     }
 
-    // 2. Coerce estado_pago when metodo_pago changes
+    if (pedido.estado_pedido === 'cancelado' && (data.metodo_pago !== undefined || data.estado_pago !== undefined)) {
+      await conn.rollback();
+      return -2; // payment updates are blocked on cancelled
+    }
+
+    // 2. Payment coherence + method-aware transitions
     let estadoPagoEffectivo = pedido.estado_pago;
-    if (data.metodo_pago !== undefined && data.metodo_pago !== pedido.metodo_pago) {
+    const metodoPagoNuevo = data.metodo_pago ?? pedido.metodo_pago;
+
+    if (metodoPagoNuevo === 'efectivo' && pedido.comprobante_archivo_id) {
+      throw new ValidationError('No se puede cambiar a efectivo un pedido con comprobante adjunto');
+    }
+
+    if (data.estado_pago !== undefined) {
+      if (!validatePaymentTransition(pedido.estado_pago, data.estado_pago, metodoPagoNuevo)) {
+        await conn.rollback();
+        return -3; // invalid payment transition
+      }
+      estadoPagoEffectivo = data.estado_pago;
+    } else if (data.metodo_pago !== undefined && data.metodo_pago !== pedido.metodo_pago) {
       // pagado stays pagado (terminal for all methods)
       if (estadoPagoEffectivo !== 'pagado') {
         const validStates = Object.keys(transitionsByMethod[data.metodo_pago] || {});
@@ -680,7 +694,12 @@ export async function editWithTransaction(pool, id, data) {
 
     // --- Stock reconciliation only when items is present ---
     let total = null;
-    if (data.items) {
+    if (data.items !== undefined) {
+      if (!Array.isArray(data.items) || data.items.length === 0) {
+        await conn.rollback();
+        return -1;
+      }
+
       // 3. Leer detalle actual y calcular reposiciones (stock a devolver)
       const [detalles] = await conn.query(
         `SELECT pd.producto_id, pd.cantidad, p.tipo

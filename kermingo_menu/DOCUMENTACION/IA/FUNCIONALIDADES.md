@@ -77,9 +77,8 @@
 ### Caja rápida (admin)
 
 - El admin crea pedidos directamente desde `/admin/caja`.
-- **B7:** Default `estado_pedido='en_preparacion'` (caja bypassa el gate `recibido`). Puede setearse otro estado explícitamente si se necesita override.
-- Puede setear `estado_pago: 'pagado'` y `estado_pedido` inicial.
-- **Fix B7:** Backend hace coerción segura: efectivo sin `estado_pago` → `'pagado'`; transferencia sin `estado_pago` → `'pendiente'`.
+- **B7:** Default `estado_pedido='en_preparacion'` (caja bypassa el gate `recibido`).
+- El backend fuerza `estado_pago='pagado'` para efectivo y transferencia, aunque el frontend mande un estado viejo.
 - Útil para ventas presenciales con pago inmediato. Los pedidos de caja van directo a cocina sin pasar por verificación de pago.
 
 ### Cocina (admin)
@@ -98,7 +97,7 @@
 - Si un pedido online eligió transferencia con comprobante, se crea con `estado_pago=comprobante_subido`. El admin puede aprobar (`comprobante_subido → pagado`) o rechazar (`comprobante_subido → rechazado`) el comprobante.
 - **Flujo de confirmación (B7):** "Confirmar pago" ejecuta secuencia `PATCH /pago {pagado}` → `PATCH /estado {en_preparacion}`. No es atómico — si el segundo PATCH falla, el pedido queda en `recibido`+`pagado` para reintento manual.
 - Efectivo no existe en el flujo online; si se intenta enviar, el backend responde 400. Las ventas en efectivo se cargan desde caja rápida.
-- Caja rápida puede crear pedidos con `estado_pago='pagado'` directamente.
+- Caja rápida crea pedidos con `estado_pago='pagado'` siempre, para efectivo y transferencia, aunque el frontend mande un estado viejo.
 - Cambiar `estado_pago` no afecta el stock.
 
 ### Filtro de pendientes de pago (admin)
@@ -106,10 +105,12 @@
 - El admin puede listar pedidos filtrando por `estado_pago=pendiente`.
 - Permite identificar rápidamente pedidos que requieren verificación de pago.
 
-### Edición de pedidos de caja (admin)
+### Edición de pedidos (admin)
 
-- Los pedidos creados desde caja (`origen='caja'`) son los únicos editables.
-- Los pedidos online (`origen='online'`) no se pueden editar, solo cancelar.
+- Los pedidos online y de caja se pueden corregir desde admin.
+- Metadata/pago se corrigen sin tocar stock si no se envía `items`.
+- Los cambios de productos reconcilian stock en transacción.
+- Pedidos cancelados son históricos para cambios de stock/pago; solo admiten correcciones metadata seguras.
 
 ### Cancelación con reposición de stock (admin)
 

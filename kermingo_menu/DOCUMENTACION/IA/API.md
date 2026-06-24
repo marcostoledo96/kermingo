@@ -92,7 +92,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 
 | Método | Ruta | Handler | Descripción |
 |---|---|---|---|
-| `POST` | `/admin/pedidos/caja` | `pedido.crearCaja` | Crear pedido desde caja rápida. **Default `estado_pedido='en_preparacion'`** (caja bypasses `recibido` gate). Puede setear `estado_pago` y `estado_pedido` explícitamente si se necesita override. |
+| `POST` | `/admin/pedidos/caja` | `pedido.crearCaja` | Crear pedido desde caja rápida. **Siempre fuerza `estado_pago='pagado'`** para efectivo y transferencia, ignorando payloads viejos `pendiente`/`rechazado`. **Default `estado_pedido='en_preparacion'`** (caja bypasses `recibido` gate). |
 | `GET` | `/admin/pedidos` | `pedido.listarAdmin` | Lista pedidos con filtros y paginación. Query: `page`, `limit`, `estado_pedido`, `estado_pago`, `metodo_pago`, `origen`, `buscar` |
 | `GET` | `/admin/pedidos/:id` | `pedido.obtenerAdmin` | Detalle completo de un pedido |
 | `GET` | `/admin/pedidos/:id/comprobante` | `pedido.obtenerComprobante` | Metadatos del comprobante de pago (Drive). Retorna `{ nombre_original, mime_type, tamanio_bytes, url_publica, url_proxy, created_at }`. `url_publica` es el enlace público de Drive (para "Abrir en otra pestaña"). `url_proxy` es el endpoint `/api/admin/pedidos/:id/comprobante/imagen` para embeber la imagen vía proxy backend. Acceso: admin autenticado. |
@@ -100,16 +100,16 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `PATCH` | `/admin/pedidos/:id/estado` | `pedido.cambiarEstado` | Avanzar estado del pedido. Valida transición |
 | `PATCH` | `/admin/pedidos/:id/pago` | `pedido.cambiarPago` | Cambiar estado de pago |
 | `PATCH` | `/admin/pedidos/:id/cancelar` | `pedido.cancelar` | Cancelar pedido y reponer stock |
-| `PUT` | `/admin/pedidos/:id` | `pedido.editar` | Edita pedido de caja con reconciliación transaccional de stock. Solo pedidos origen=caja, no cancelados ni entregados |
+| `PUT` | `/admin/pedidos/:id` | `pedido.editar` | Edita pedidos online o caja. Metadata/pago pueden corregirse en pedidos no cancelados; `items` reemplaza productos y reconcilia stock transaccionalmente. `items: []` se rechaza. Cancelados rechazan cambios de stock/pago/total; entregados aceptan correcciones metadata/pago sin mover estado. |
 
 **Schemas:**
 
 - `createPedidoSchema`: `{ nombre_cliente, mesa?, telefono_cliente?, observaciones?, metodo_pago, items }`
-- `createCajaSchema`: extiende `createPedidoSchema` con `estado_pago` y `estado_pedido`
+- `createCajaSchema`: extiende `createPedidoSchema`; acepta `estado_pago` legacy pero `crearCaja` lo ignora y fuerza `pagado`
 - `pedidoQuerySchema`: `{ page, limit, estado_pedido?, estado_pago?, metodo_pago?, origen?, buscar?, solo_pagos_pendientes? }` — `solo_pagos_pendientes` es boolean string que filtra pedidos con `estado_pago IN ('pendiente','rechazado')` excluyendo `cancelado`
 - `updateEstadoPedidoSchema`: `{ estado_pedido }` enum `recibido|en_preparacion|listo|entregado`
 - `updateEstadoPagoSchema`: `{ estado_pago }` enum `pendiente|comprobante_subido|pagado|rechazado`
-- `editPedidoSchema`: `{ nombre_cliente?, mesa?, telefono_cliente?, observaciones?, metodo_pago?, items? }` — al menos un campo obligatorio; `items` opcional (si no se envía, solo se editan metadatos sin tocar stock)
+- `editPedidoSchema`: `{ nombre_cliente?, mesa?, telefono_cliente?, observaciones?, metodo_pago?, estado_pago?, items? }` — al menos un campo obligatorio; `items` opcional (si no se envía, solo se editan metadatos/pago sin tocar stock); `items` no puede estar vacío si se envía
 - `idParamSchema`: `{ id: number }`
 
 ---
@@ -149,6 +149,8 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 | `PATCH` | `/admin/productos/:id/recuperar` | `producto.recuperar` | Reactivar (setea `activo=1`) |
 | `PATCH` | `/admin/productos/:id/stock` | `producto.ajustarStock` | Ajustar stock |
 | `PATCH` | `/admin/productos/orden` | `producto.reordenar` | Reordenar productos (batch). Body: `{ ordenes: [{ id, orden }] }`. Protegido + trusted origin. Transacción que solo actualiza `orden`. |
+| `GET` | `/admin/productos/:id/componentes` | `producto.obtenerComponentes` | Lista componentes de una promo con cantidad, estado y stock actual. Rechaza productos no-promo. |
+| `PUT` | `/admin/productos/:id/componentes` | `producto.setComponentes` | Reemplaza componentes de una promo atómicamente. Rechaza duplicados, self-reference, cantidad inválida y componentes inactivos/no disponibles. `componentes: []` limpia la composición y deja la promo `disponible=0`. |
 
 **Schemas:**
 
@@ -156,6 +158,7 @@ Archivos fuente: `utils/respuesta.utils.js` (`respuestaExitosa`, `respuestaError
 - `updateProductoSchema`: schema explícito con todos los campos `.optional()` (no `partial()`) — evita que `.default()` sobre `stock_minimo_alerta`/`activo` sobrescriba silenciosamente. Incluye `orden` y `disponible`. `categorias` opcional, si viene no puede estar vacío.
 - `stockAdjustmentSchema`: `{ stock_actual: number }`
 - `reordenarSchema`: `{ ordenes: z.array({ id: z.number(), orden: z.number().int().min(0) }).min(1) }`
+- `componentesSchema`: `{ componentes: [{ producto_id: number, cantidad: number >= 1 }] }` (array vacío permitido para limpiar y deshabilitar la promo)
 - `adminProductoQuerySchema`: incluye `estado` enum con los 5 valores, default `activo`.
 
 ---

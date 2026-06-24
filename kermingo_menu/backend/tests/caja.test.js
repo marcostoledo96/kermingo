@@ -7,6 +7,7 @@ import {
   validatePaymentTransition,
   transitionsByMethod,
   PAGO_TRANSITIONS,
+  createWithTransaction,
   cancelWithTransaction,
 } from '../src/api/models/pedido.model.js';
 import {
@@ -44,9 +45,11 @@ async function crearPedidoCaja(payload) {
  */
 async function limpiarPedidosDeTest() {
   const [rows] = await pool.query(
-    'SELECT id, estado_pedido FROM pedido WHERE nombre_cliente LIKE ?',
+    'SELECT id, estado_pedido, comprobante_archivo_id FROM pedido WHERE nombre_cliente LIKE ?',
     [`${RUN_ID}%`]
   );
+  const archivoIds = rows.map((row) => row.comprobante_archivo_id).filter(Boolean);
+
   for (const pedido of rows) {
     if (['listo', 'entregado'].includes(pedido.estado_pedido)) {
       throw new Error(
@@ -65,10 +68,82 @@ async function limpiarPedidosDeTest() {
   );
   const ids = remaining.map((r) => r.id);
   if (ids.length > 0) {
+    if (archivoIds.length > 0) {
+      const aph = archivoIds.map(() => '?').join(',');
+      await pool.query(
+        `UPDATE pedido SET comprobante_archivo_id = NULL WHERE comprobante_archivo_id IN (${aph})`,
+        archivoIds
+      );
+      await pool.query(`DELETE FROM archivo_drive WHERE id IN (${aph})`, archivoIds);
+    }
+
     const ph = ids.map(() => '?').join(',');
     await pool.query(`DELETE FROM pedido_detalle WHERE pedido_id IN (${ph})`, ids);
     await pool.query(`DELETE FROM pedido WHERE id IN (${ph})`, ids);
   }
+}
+
+async function limpiarProductosDeTest() {
+  const [rows] = await pool.query(
+    'SELECT id FROM producto WHERE nombre LIKE ?',
+    [`${RUN_ID}-PRODUCTO-%`]
+  );
+  const ids = rows.map((r) => r.id);
+  if (ids.length === 0) return;
+
+  const ph = ids.map(() => '?').join(',');
+  await pool.query(`DELETE FROM combo_producto WHERE combo_id IN (${ph}) OR producto_id IN (${ph})`, [...ids, ...ids]);
+  await pool.query(`DELETE FROM producto_categoria WHERE producto_id IN (${ph})`, ids);
+  await pool.query(`DELETE FROM producto WHERE id IN (${ph})`, ids);
+}
+
+async function crearProductoFixture({
+  suffix,
+  tipo = 'comida',
+  disponible = 1,
+  stockLimitado = 1,
+  stockActual = 50,
+  precio = 1000,
+}) {
+  const [result] = await pool.query(
+    `INSERT INTO producto
+       (nombre, descripcion, precio, tipo, stock_limitado, stock_actual, stock_minimo_alerta, activo, disponible, orden)
+     VALUES (?, 'Producto test caja promo', ?, ?, ?, ?, 5, 1, ?, 0)`,
+    [`${RUN_ID}-PRODUCTO-${suffix}`, precio, tipo, stockLimitado, stockActual, disponible]
+  );
+  return result.insertId;
+}
+
+async function crearPromoFixture({ promoDisponible = 1, componenteDisponible = 1 } = {}) {
+  const componenteId = await crearProductoFixture({
+    suffix: `COMP-${Math.random().toString(36).slice(2, 6)}`,
+    disponible: componenteDisponible,
+    stockActual: 20,
+    precio: 500,
+  });
+  const promoId = await crearProductoFixture({
+    suffix: `PROMO-${Math.random().toString(36).slice(2, 6)}`,
+    tipo: 'promo',
+    disponible: promoDisponible,
+    stockLimitado: 0,
+    stockActual: null,
+    precio: 1200,
+  });
+  await pool.query(
+    'INSERT INTO combo_producto (combo_id, producto_id, cantidad) VALUES (?, ?, ?)',
+    [promoId, componenteId, 2]
+  );
+  return { promoId, componenteId };
+}
+
+async function adjuntarComprobanteFalso(pedidoId, tag = 'e2e') {
+  const [archivoRes] = await pool.query(
+    `INSERT INTO archivo_drive (drive_id, nombre_original, mime_type, tamanio_bytes, tipo, url_publica)
+     VALUES (?, ?, ?, ?, 'comprobante', ?)`,
+    [`test-drive-${pedidoId}-${tag}-${Date.now()}`, 'comprobante-test.jpg', 'image/jpeg', 1024, null]
+  );
+  await pool.query('UPDATE pedido SET comprobante_archivo_id = ? WHERE id = ?', [archivoRes.insertId, pedidoId]);
+  return archivoRes.insertId;
 }
 
 /**
@@ -314,19 +389,19 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
 
   beforeAll(async () => {
     await limpiarPedidosDeTest();
-    // Create explicit pending estado_pago to validate pending -> pagado transition for efectivo.
-    const pedidoEfectivoRes = await request(app)
-      .post('/api/admin/pedidos/caja')
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({
-        nombre_cliente: `${RUN_ID}-EFECTIVO`,
-        metodo_pago: 'efectivo',
-        estado_pago: 'pendiente',
-        items: [{ producto_id: 5, cantidad: 1 }], // Pancho
-      });
-    expect(pedidoEfectivoRes.statusCode).toBe(201);
-    pedidoEfectivo = pedidoEfectivoRes.body.data;
+    // Caja orders now start as pagado (force-pagado). Create two orders:
+    // one efectivo, one transferencia — both start as pagado.
+    // Use direct DB to set one to pendiente for the pending->pagado transition test.
+    pedidoEfectivo = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-EFECTIVO`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: 5, cantidad: 1 }],
+    });
+    // Force efectivo order to pendiente for transition test (caja starts as pagado)
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', [
+      'pendiente',
+      pedidoEfectivo.id,
+    ]);
 
     pedidoTransferencia = await crearPedidoCaja({
       nombre_cliente: `${RUN_ID}-TRANSFERENCIA`,
@@ -351,6 +426,11 @@ describe('Authenticated PATCH payment transitions (PR1 integration)', () => {
   });
 
   it('PATCH pendiente -> pagado for transferencia returns 200 without comprobante', async () => {
+    // Transferencia order starts as pagado (force-pagado). Force to pendiente via DB for test.
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', [
+      'pendiente',
+      pedidoTransferencia.id,
+    ]);
     const res = await request(app)
       .patch(`/api/admin/pedidos/${pedidoTransferencia.id}/pago`)
       .set('Cookie', adminCookie())
@@ -476,7 +556,7 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
 
   async function readDetalle(pedidoId) {
     const [rows] = await pool.query(
-      'SELECT producto_id, cantidad, precio_unitario, subtotal FROM pedido_detalle WHERE pedido_id = ?',
+      'SELECT producto_id, precio_unitario, cantidad, subtotal FROM pedido_detalle WHERE pedido_id = ? ORDER BY producto_id ASC',
       [pedidoId]
     );
     return rows;
@@ -609,37 +689,134 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
     expect(detalles.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('PUT rejects editing an online pedido', async () => {
-    // B7: public route only accepts transferencia with comprobante.
-    // Use a minimal valid JPEG to create an online pedido.
-    const jpegBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00]);
-    const resPost = await request(app)
-      .post('/api/pedidos')
-      .field('nombre_cliente', `${RUN_ID}-ONLINE`)
-      .field('metodo_pago', 'transferencia')
-      .field('items', JSON.stringify([{ producto_id: 5, cantidad: 1 }]))
-      .attach('comprobante', jpegBuffer, {
-        filename: 'receipt.jpg',
-        contentType: 'image/jpeg',
-      });
+  it('PUT edits only metadata of an online pedido deterministically', async () => {
+    const pedidoOnline = await createWithTransaction(pool, {
+      nombre_cliente: `${RUN_ID}-ONLINE`,
+      metodo_pago: 'transferencia',
+      origen: 'online',
+      items: [{ producto_id: 5, cantidad: 1 }],
+    });
 
-    // If Drive is not configured, skip this test (upload fails with 503)
-    if (resPost.statusCode === 503) {
-      console.warn('Skipping online pedido edit test — Drive not configured');
-      return;
-    }
+    const pedidoId = pedidoOnline.pedidoId;
+    const [pedidoBeforeRows] = await pool.query(
+      'SELECT origen, total FROM pedido WHERE id = ?',
+      [pedidoId]
+    );
+    expect(pedidoBeforeRows[0].origen).toBe('online');
+    const totalBefore = parseFloat(pedidoBeforeRows[0].total);
 
-    expect(resPost.statusCode).toBe(201);
-    const pedidoOnline = resPost.body.data;
+    const detalleBefore = await readDetalle(pedidoId);
+    const stockBefore = await readStock([5]);
 
     const res = await request(app)
-      .put(`/api/admin/pedidos/${pedidoOnline.id}`)
+      .put(`/api/admin/pedidos/${pedidoId}`)
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
-      .send({ items: [{ producto_id: 5, cantidad: 2 }] });
+      .send({
+        nombre_cliente: `${RUN_ID}-ONLINE-UPDATED`,
+        mesa: 'Mesa 77',
+        observaciones: 'Sin mayonesa',
+      });
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.ok).toBe(false);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const [pedidoAfterRows] = await pool.query(
+      'SELECT nombre_cliente, mesa, observaciones, total FROM pedido WHERE id = ?',
+      [pedidoId]
+    );
+    const pedidoAfter = pedidoAfterRows[0];
+    expect(pedidoAfter.nombre_cliente).toBe(`${RUN_ID}-ONLINE-UPDATED`);
+    expect(pedidoAfter.mesa).toBe('Mesa 77');
+    expect(pedidoAfter.observaciones).toBe('Sin mayonesa');
+    expect(parseFloat(pedidoAfter.total)).toBeCloseTo(totalBefore, 2);
+
+    const detalleAfter = await readDetalle(pedidoId);
+    expect(detalleAfter).toHaveLength(detalleBefore.length);
+    for (let i = 0; i < detalleBefore.length; i += 1) {
+      expect(detalleAfter[i].producto_id).toBe(detalleBefore[i].producto_id);
+      expect(detalleAfter[i].cantidad).toBe(detalleBefore[i].cantidad);
+      expect(parseFloat(detalleAfter[i].subtotal)).toBeCloseTo(parseFloat(detalleBefore[i].subtotal), 2);
+      expect(parseFloat(detalleAfter[i].precio_unitario)).toBeCloseTo(
+        parseFloat(detalleBefore[i].precio_unitario),
+        2
+      );
+    }
+
+    const stockAfter = await readStock([5]);
+    expect(stockAfter.get(5).stock_actual).toBe(stockBefore.get(5).stock_actual);
+  });
+
+  it('PUT allows online pedido item edits with stock and total reconciliation', async () => {
+    const pedidoOnline = await createWithTransaction(pool, {
+      nombre_cliente: `${RUN_ID}-ONLINE-RECON-ITEM`,
+      metodo_pago: 'efectivo',
+      origen: 'online',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const pedidoId = pedidoOnline.pedidoId;
+
+    const stockBefore = await readStock([prodIdLimited, prodIdLimited2]);
+    const stockBeforeLimited = Number(stockBefore.get(prodIdLimited).stock_actual);
+    const stockBeforeLimited2 = Number(stockBefore.get(prodIdLimited2).stock_actual);
+
+    const [pedidoBeforeRows] = await pool.query(
+      'SELECT origen, estado_pedido, total FROM pedido WHERE id = ?',
+      [pedidoId]
+    );
+    const pedidoBefore = pedidoBeforeRows[0];
+    expect(pedidoBefore.origen).toBe('online');
+
+    const totalBefore = parseFloat(pedidoBefore.total);
+    const estadoPedidoBefore = pedidoBefore.estado_pedido;
+
+    const detalleBefore = await readDetalle(pedidoId);
+    expect(detalleBefore).toHaveLength(1);
+    expect(detalleBefore[0].producto_id).toBe(prodIdLimited);
+    expect(detalleBefore[0].cantidad).toBe(1);
+
+    const [priceRows] = await pool.query('SELECT id, precio FROM producto WHERE id IN (?, ?)', [
+      prodIdLimited,
+      prodIdLimited2,
+    ]);
+    const priceMap = new Map(priceRows.map((r) => [r.id, parseFloat(r.precio)]));
+    const expectedTotal = priceMap.get(prodIdLimited) * 3 + priceMap.get(prodIdLimited2) * 2;
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${pedidoId}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        items: [
+          { producto_id: prodIdLimited, cantidad: 3 },
+          { producto_id: prodIdLimited2, cantidad: 2 },
+        ],
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(parseFloat(res.body.data.total)).toBeCloseTo(expectedTotal, 2);
+
+    const [pedidoAfterRows] = await pool.query(
+      'SELECT origen, estado_pedido, total FROM pedido WHERE id = ?',
+      [pedidoId]
+    );
+    const pedidoAfter = pedidoAfterRows[0];
+    expect(pedidoAfter.origen).toBe('online');
+    expect(pedidoAfter.estado_pedido).toBe(estadoPedidoBefore);
+    expect(parseFloat(pedidoAfter.total)).not.toBeCloseTo(totalBefore, 2);
+    expect(parseFloat(pedidoAfter.total)).toBeCloseTo(expectedTotal, 2);
+
+    const detalleAfter = await readDetalle(pedidoId);
+    expect(detalleAfter).toHaveLength(2);
+    const detalleByProduct = new Map(detalleAfter.map((d) => [d.producto_id, d.cantidad]));
+    expect(detalleByProduct.get(prodIdLimited)).toBe(3);
+    expect(detalleByProduct.get(prodIdLimited2)).toBe(2);
+
+    const stockAfter = await readStock([prodIdLimited, prodIdLimited2]);
+    expect(stockAfter.get(prodIdLimited).stock_actual).toBe(stockBeforeLimited + 1 - 3);
+    expect(stockAfter.get(prodIdLimited2).stock_actual).toBe(stockBeforeLimited2 - 2);
   });
 
   it('PUT edits a cancelled pedido fails as expected', async () => {
@@ -661,6 +838,187 @@ describe('Authenticated PUT edit correction (PR2 integration)', () => {
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({ items: [{ producto_id: prodIdLimited, cantidad: 1 }] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT allows metadata-only edits on cancelled pedido with no item/total/stock changes', async () => {
+    const cancelPedidoMeta = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-CANCEL-META`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const cancelRes = await request(app)
+      .patch(`/api/admin/pedidos/${cancelPedidoMeta.id}/cancelar`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN);
+    expect(cancelRes.statusCode).toBe(200);
+
+    const [pedidoBeforeRows] = await pool.query(
+      'SELECT estado_pedido, total FROM pedido WHERE id = ?',
+      [cancelPedidoMeta.id]
+    );
+    expect(pedidoBeforeRows[0].estado_pedido).toBe('cancelado');
+
+    const [detalleBeforeRows] = await pool.query(
+      'SELECT producto_id, cantidad, precio_unitario, subtotal FROM pedido_detalle WHERE pedido_id = ? ORDER BY producto_id ASC',
+      [cancelPedidoMeta.id]
+    );
+
+    const [stockBeforeRows] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+
+    const totalBefore = parseFloat(pedidoBeforeRows[0].total);
+    const stockBefore = stockBeforeRows[0].stock_actual;
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${cancelPedidoMeta.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-CANCEL-META-UPDATED`,
+        mesa: 'Mesa 99',
+        observaciones: 'Sin ketchup',
+      });
+
+    expect(res.statusCode).toBe(200);
+
+    const [pedidoAfterRows] = await pool.query(
+      'SELECT estado_pedido, total, nombre_cliente, mesa, observaciones FROM pedido WHERE id = ?',
+      [cancelPedidoMeta.id]
+    );
+    const pedidoAfter = pedidoAfterRows[0];
+    expect(pedidoAfter.estado_pedido).toBe('cancelado');
+    expect(pedidoAfter.nombre_cliente).toBe(`${RUN_ID}-CANCEL-META-UPDATED`);
+    expect(pedidoAfter.mesa).toBe('Mesa 99');
+    expect(pedidoAfter.observaciones).toBe('Sin ketchup');
+    expect(parseFloat(pedidoAfter.total)).toBeCloseTo(totalBefore, 2);
+
+    const [detalleAfterRows] = await pool.query(
+      'SELECT producto_id, cantidad, precio_unitario, subtotal FROM pedido_detalle WHERE pedido_id = ? ORDER BY producto_id ASC',
+      [cancelPedidoMeta.id]
+    );
+    expect(detalleAfterRows).toHaveLength(detalleBeforeRows.length);
+    for (let i = 0; i < detalleBeforeRows.length; i += 1) {
+      expect(detalleAfterRows[i].producto_id).toBe(detalleBeforeRows[i].producto_id);
+      expect(detalleAfterRows[i].cantidad).toBe(detalleBeforeRows[i].cantidad);
+      expect(parseFloat(detalleAfterRows[i].subtotal)).toBeCloseTo(parseFloat(detalleBeforeRows[i].subtotal), 2);
+      expect(parseFloat(detalleAfterRows[i].precio_unitario)).toBeCloseTo(
+        parseFloat(detalleBeforeRows[i].precio_unitario),
+        2
+      );
+    }
+
+    const [stockAfterRows] = await pool.query(
+      'SELECT stock_actual FROM producto WHERE id = ?',
+      [prodIdLimited]
+    );
+    expect(stockAfterRows[0].stock_actual).toBe(stockBefore);
+  });
+
+  it('PUT canceled pedido with empty items array fails as expected', async () => {
+    const canceledPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-CANCEL-EMPTY-ITEMS`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const cancelRes = await request(app)
+      .patch(`/api/admin/pedidos/${canceledPedido.id}/cancelar`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN);
+    expect(cancelRes.statusCode).toBe(200);
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${canceledPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ items: [] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('PUT allows delivered pedido item edits with stock/total reconciliation', async () => {
+    const deliveredPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-DELIVERED-ITEM-EDIT`,
+      metodo_pago: 'transferencia',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const stockBefore = await readStock([prodIdLimited, prodIdLimited2]);
+    const [precioRows] = await pool.query(
+      'SELECT id, precio FROM producto WHERE id IN (?, ?)',
+      [prodIdLimited, prodIdLimited2]
+    );
+    const precioMap = new Map(precioRows.map((r) => [r.id, parseFloat(r.precio)]));
+    const [pedidoBeforeRows] = await pool.query('SELECT total FROM pedido WHERE id = ?', [deliveredPedido.id]);
+    const totalBefore = parseFloat(pedidoBeforeRows[0].total);
+
+    try {
+      await pool.query(
+        'UPDATE pedido SET estado_pedido = ?, estado_pago = ?, metodo_pago = ? WHERE id = ?',
+        ['entregado', 'pendiente', 'transferencia', deliveredPedido.id]
+      );
+
+      const resItems = await request(app)
+        .put(`/api/admin/pedidos/${deliveredPedido.id}`)
+        .set('Cookie', adminCookie())
+        .set('Origin', ORIGIN)
+        .send({
+          items: [
+            { producto_id: prodIdLimited, cantidad: 3 },
+            { producto_id: prodIdLimited2, cantidad: 1 },
+          ],
+        });
+
+      expect(resItems.statusCode).toBe(200);
+      expect(resItems.body.ok).toBe(true);
+
+      const expectedTotal = precioMap.get(prodIdLimited) * 3 + precioMap.get(prodIdLimited2) * 1;
+      expect(parseFloat(resItems.body.data.total)).toBeCloseTo(expectedTotal, 2);
+      expect(resItems.body.data.estado_pedido).toBe('entregado');
+      expect(parseFloat(resItems.body.data.total)).not.toBeCloseTo(totalBefore, 2);
+
+      const stockAfter = await readStock([prodIdLimited, prodIdLimited2]);
+      expect(stockAfter.get(prodIdLimited).stock_actual).toBe(
+        stockBefore.get(prodIdLimited).stock_actual + 1 - 3
+      );
+      expect(stockAfter.get(prodIdLimited2).stock_actual).toBe(
+        stockBefore.get(prodIdLimited2).stock_actual - 1
+      );
+
+      const [pedidoAfterRows] = await pool.query('SELECT estado_pedido FROM pedido WHERE id = ?', [deliveredPedido.id]);
+      expect(pedidoAfterRows[0].estado_pedido).toBe('entregado');
+    } finally {
+      await pool.query(
+        'UPDATE pedido SET estado_pedido = ? WHERE id = ?',
+        ['en_preparacion', deliveredPedido.id]
+      );
+    }
+  });
+
+  it('PUT rejects invalid payment transition in edit', async () => {
+    const transitionPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-TRANSITION-FORCE`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    await pool.query(
+      'UPDATE pedido SET estado_pago = ?, metodo_pago = ? WHERE id = ?',
+      ['pendiente', 'efectivo', transitionPedido.id]
+    );
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${transitionPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ estado_pago: 'rechazado' });
 
     expect(res.statusCode).toBe(400);
     expect(res.body.ok).toBe(false);
@@ -774,6 +1132,14 @@ describe('Caja partial edit (integration)', () => {
     return map;
   }
 
+  async function readDetalle(pedidoId) {
+    const [rows] = await pool.query(
+      'SELECT producto_id, precio_unitario, cantidad, subtotal FROM pedido_detalle WHERE pedido_id = ? ORDER BY producto_id ASC',
+      [pedidoId]
+    );
+    return rows;
+  }
+
   beforeAll(async () => {
     await limpiarPedidosDeTest();
     partialPedido = await crearPedidoCaja({
@@ -816,6 +1182,110 @@ describe('Caja partial edit (integration)', () => {
     expect(res.body.data.metodo_pago).toBe('transferencia');
   });
 
+  it('PUT metadata + payment correction keeps comprobante_archivo_id and item/stock unchanged', async () => {
+    const pedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-COMP-KEEP`,
+      metodo_pago: 'transferencia',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', ['pendiente', pedido.id]);
+    const comprobanteArchivoId = await adjuntarComprobanteFalso(pedido.id, 'comprobante-keep');
+
+    const [beforeRows] = await pool.query(
+      'SELECT comprobante_archivo_id, estado_pago, total FROM pedido WHERE id = ?',
+      [pedido.id]
+    );
+    const beforePedido = beforeRows[0];
+    const detalleBefore = await readDetalle(pedido.id);
+    const stockBefore = await readStock([prodIdLimited]);
+
+    expect(beforePedido.comprobante_archivo_id).toBe(comprobanteArchivoId);
+    expect(beforePedido.estado_pago).toBe('pendiente');
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${pedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        estado_pago: 'comprobante_subido',
+        observaciones: 'Corrección manual de pago',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const [afterRows] = await pool.query(
+      'SELECT comprobante_archivo_id, estado_pago, total FROM pedido WHERE id = ?',
+      [pedido.id]
+    );
+    const afterPedido = afterRows[0];
+    const detalleAfter = await readDetalle(pedido.id);
+    const stockAfter = await readStock([prodIdLimited]);
+
+    expect(afterPedido.comprobante_archivo_id).toBe(comprobanteArchivoId);
+    expect(afterPedido.estado_pago).toBe('comprobante_subido');
+    expect(parseFloat(afterPedido.total)).toBeCloseTo(parseFloat(beforePedido.total), 2);
+    expect(detalleAfter).toHaveLength(detalleBefore.length);
+    for (let i = 0; i < detalleBefore.length; i += 1) {
+      expect(detalleAfter[i].producto_id).toBe(detalleBefore[i].producto_id);
+      expect(detalleAfter[i].cantidad).toBe(detalleBefore[i].cantidad);
+      expect(parseFloat(detalleAfter[i].precio_unitario)).toBeCloseTo(
+        parseFloat(detalleBefore[i].precio_unitario),
+        2
+      );
+      expect(parseFloat(detalleAfter[i].subtotal)).toBeCloseTo(parseFloat(detalleBefore[i].subtotal), 2);
+    }
+    expect(stockAfter.get(prodIdLimited).stock_actual).toBe(
+      stockBefore.get(prodIdLimited).stock_actual
+    );
+  });
+
+  it('PUT rejects transferencia to efectivo when a comprobante is already attached', async () => {
+    const pedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-COMP-EFECTIVO-BLOCK`,
+      metodo_pago: 'transferencia',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', ['comprobante_subido', pedido.id]);
+    const comprobanteArchivoId = await adjuntarComprobanteFalso(pedido.id, 'efectivo-block');
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${pedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ metodo_pago: 'efectivo' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+
+    const [afterRows] = await pool.query(
+      'SELECT metodo_pago, estado_pago, comprobante_archivo_id FROM pedido WHERE id = ?',
+      [pedido.id]
+    );
+    expect(afterRows[0].metodo_pago).toBe('transferencia');
+    expect(afterRows[0].estado_pago).toBe('comprobante_subido');
+    expect(afterRows[0].comprobante_archivo_id).toBe(comprobanteArchivoId);
+  });
+
+  it('PUT paid order keeps estado_pago=pagado when method changes', async () => {
+    const paidPedido = await crearPedidoCaja({
+      nombre_cliente: `${RUN_ID}-PAID-METHOD`,
+      metodo_pago: 'efectivo',
+      items: [{ producto_id: prodIdLimited, cantidad: 1 }],
+    });
+
+    const res = await request(app)
+      .put(`/api/admin/pedidos/${paidPedido.id}`)
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({ metodo_pago: 'transferencia' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.estado_pago).toBe('pagado');
+  });
+
   it('PUT empty body returns 400', async () => {
     const res = await request(app)
       .put(`/api/admin/pedidos/${partialPedido.id}`)
@@ -836,17 +1306,19 @@ describe('Caja edit metodo_pago coherence (integration)', () => {
 
   beforeAll(async () => {
     await limpiarPedidosDeTest();
+    // Caja orders now start as pagado (force-pagado). Create a transferencia
+    // order and force it to comprobante_subido via direct DB update for the
+    // coherence test, since PATCH can't transition from pagado (terminal).
     coherencePedido = await crearPedidoCaja({
       nombre_cliente: `${RUN_ID}-COHERENCE`,
       metodo_pago: 'transferencia',
       items: [{ producto_id: prodIdLimited, cantidad: 1 }],
     });
-    // Mark as comprobante_subido
-    await request(app)
-      .patch(`/api/admin/pedidos/${coherencePedido.id}/pago`)
-      .set('Cookie', adminCookie())
-      .set('Origin', ORIGIN)
-      .send({ estado_pago: 'comprobante_subido' });
+    // Direct DB: override terminal pagado to comprobante_subido for test setup
+    await pool.query('UPDATE pedido SET estado_pago = ? WHERE id = ?', [
+      'comprobante_subido',
+      coherencePedido.id,
+    ]);
   });
 
   afterAll(async () => {
@@ -968,31 +1440,68 @@ describe('B7: Public route rejects efectivo; caja accepts both', () => {
     expect(res.body.data.origen).toBe('caja');
   });
 
-  it('P1-4: caja transferencia sin estado_pago queda pendiente', async () => {
+  it('PR1: caja transferencia sin estado_pago queda pagado (force-pagado)', async () => {
     const res = await request(app)
       .post('/api/admin/pedidos/caja')
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({
-        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFERENCIA-DEFAULT-PEND`,
+        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFERENCIA-FORCE-PAGADO`,
         metodo_pago: 'transferencia',
         items: [{ producto_id: 5, cantidad: 1 }],
       });
 
     expect(res.statusCode).toBe(201);
     expect(res.body.ok).toBe(true);
-    expect(res.body.data.estado_pago).toBe('pendiente');
+    expect(res.body.data.estado_pago).toBe('pagado');
     expect(res.body.data.estado_pedido).toBe('en_preparacion');
     expect(res.body.data.origen).toBe('caja');
   });
 
-  it('P1-4: caja explícita estado_pago se preserva', async () => {
+  it('PR1: caja transferencia con estado_pago=pendiente se fuerza a pagado', async () => {
     const res = await request(app)
       .post('/api/admin/pedidos/caja')
       .set('Cookie', adminCookie())
       .set('Origin', ORIGIN)
       .send({
-        nombre_cliente: `${RUN_ID}-B7-CAJA-EFECTIVO-EXPLICIT`,
+        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFER-PENDIENTE-FORCE`,
+        metodo_pago: 'transferencia',
+        estado_pago: 'pendiente',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.estado_pago).toBe('pagado');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
+    expect(res.body.data.origen).toBe('caja');
+  });
+
+  it('PR1: caja transferencia con estado_pago=rechazado se fuerza a pagado', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-TRANSFER-RECHAZADO-FORCE`,
+        metodo_pago: 'transferencia',
+        estado_pago: 'rechazado',
+        items: [{ producto_id: 5, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.estado_pago).toBe('pagado');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
+  });
+
+  it('PR1: caja efectivo con estado_pago=pendiente se fuerza a pagado', async () => {
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-EFECTIVO-EXPLICIT-PENDIENTE`,
         metodo_pago: 'efectivo',
         estado_pago: 'pendiente',
         items: [{ producto_id: 5, cantidad: 1 }],
@@ -1000,11 +1509,57 @@ describe('B7: Public route rejects efectivo; caja accepts both', () => {
 
     expect(res.statusCode).toBe(201);
     expect(res.body.ok).toBe(true);
-    expect(res.body.data.estado_pago).toBe('pendiente');
+    expect(res.body.data.estado_pago).toBe('pagado');
+    expect(res.body.data.estado_pedido).toBe('en_preparacion');
+  });
+
+  it('POST /api/admin/pedidos/caja with available promo returns 201 and deducts component stock', async () => {
+    await pool.query('UPDATE configuracion_tienda SET estado = ? WHERE id = 1', ['abierta']);
+    const { promoId, componenteId } = await crearPromoFixture({ promoDisponible: 1 });
+    const [[before]] = await pool.query('SELECT stock_actual FROM producto WHERE id = ?', [componenteId]);
+
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-PROMO-OK`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: promoId, cantidad: 2 }],
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ producto_id: promoId, cantidad: 2 })])
+    );
+
+    const [[after]] = await pool.query('SELECT stock_actual FROM producto WHERE id = ?', [componenteId]);
+    expect(after.stock_actual).toBe(before.stock_actual - 4);
+  });
+
+  it('POST /api/admin/pedidos/caja with unavailable promo returns 400 instead of 500', async () => {
+    await pool.query('UPDATE configuracion_tienda SET estado = ? WHERE id = 1', ['abierta']);
+    const { promoId } = await crearPromoFixture({ promoDisponible: 0 });
+
+    const res = await request(app)
+      .post('/api/admin/pedidos/caja')
+      .set('Cookie', adminCookie())
+      .set('Origin', ORIGIN)
+      .send({
+        nombre_cliente: `${RUN_ID}-B7-CAJA-PROMO-NO-DISPONIBLE`,
+        metodo_pago: 'efectivo',
+        items: [{ producto_id: promoId, cantidad: 1 }],
+      });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toContain('no está disponible');
   });
 
   afterAll(async () => {
     await limpiarPedidosDeTest();
+    await limpiarProductosDeTest();
   });
 });
 
