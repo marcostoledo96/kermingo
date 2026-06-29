@@ -190,24 +190,6 @@ export function TrackingScreen() {
     setHydrated(true)
   }, [])
 
-  // Si hay urlToken nuevo, agregarlo a la lista persistida (una vez)
-  useEffect(() => {
-    if (!urlToken) return
-    if (!myOrders.some((e) => e.token === urlToken)) {
-      addMyOrder({
-        token: urlToken,
-        numero: '',
-        createdAt: new Date().toISOString(),
-      })
-    }
-    // También actualizar la key legacy
-    try {
-      window.localStorage.setItem('kermingo:lastToken', JSON.stringify(urlToken))
-    } catch {
-      // noop
-    }
-  }, [urlToken, myOrders])
-
   // Capturar las primeras entradas válidas (post-hidratación) para el fetch inicial
   useEffect(() => {
     if (initialEntriesRef.current === null && entries.length > 0) {
@@ -215,7 +197,7 @@ export function TrackingScreen() {
     }
   }, [entries])
 
-  const fetchOne = useCallback(async (token: string, isManual = false): Promise<DisplayOrder | null> => {
+  const fetchOne = useCallback(async (token: string): Promise<DisplayOrder | null> => {
     try {
       const data = await apiGet<ApiPedido>(`/api/pedidos/seguimiento/${encodeURIComponent(token.trim())}`)
       const mapped = mapPedido(data)
@@ -238,8 +220,7 @@ export function TrackingScreen() {
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'No se pudo consultar el seguimiento'
-      if (isManual) throw new Error(msg)
-      return null
+      throw new Error(msg)
     }
   }, [])
 
@@ -257,8 +238,13 @@ export function TrackingScreen() {
 
     const results = await Promise.allSettled(
       entryList.map(async (e) => {
-        const data = await fetchOne(e.token, false)
-        return { token: e.token, data, error: data ? null : 'No se pudo cargar' }
+        try {
+          const data = await fetchOne(e.token)
+          return { token: e.token, data, error: null }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'No se pudo cargar'
+          return { token: e.token, data: null, error: message }
+        }
       }),
     )
 
@@ -311,23 +297,36 @@ export function TrackingScreen() {
       ...prev,
       [token]: { ...(prev[token] ?? { token, data: null, error: null }), loading: true },
     }))
-    fetchOne(token, false).then((data) => {
-      setOrders((prev) => ({
-        ...prev,
-        [token]: {
-          token,
-          data,
-          error: data ? null : 'No se pudo cargar',
-          loading: false,
-        },
-      }))
-      if (data?.numero) {
-        const e = entries.find((x) => x.token === token)
-        if (e && !e.numero) {
-          addMyOrder({ token, numero: data.numero, createdAt: e.createdAt })
+    fetchOne(token)
+      .then((data) => {
+        setOrders((prev) => ({
+          ...prev,
+          [token]: {
+            token,
+            data,
+            error: null,
+            loading: false,
+          },
+        }))
+        if (data?.numero) {
+          const e = entries.find((x) => x.token === token)
+          if (e && !e.numero) {
+            addMyOrder({ token, numero: data.numero, createdAt: e.createdAt })
+          }
         }
-      }
-    })
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : 'No se pudo cargar'
+        setOrders((prev) => ({
+          ...prev,
+          [token]: {
+            token,
+            data: null,
+            error: message,
+            loading: false,
+          },
+        }))
+      })
   }
 
   const onManualSubmit = async (e: React.FormEvent) => {
@@ -340,7 +339,7 @@ export function TrackingScreen() {
     setManualLoading(true)
     setManualError(null)
     try {
-      const data = await fetchOne(trimmed, true)
+      const data = await fetchOne(trimmed)
       if (!data) throw new Error('No encontrado')
       addMyOrder({ token: trimmed, numero: data.numero, createdAt: data.createdAt })
       setShowManual(false)

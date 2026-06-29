@@ -54,6 +54,7 @@ vi.mock('@/components/menu/product-visual', () => ({
 }))
 
 import { TrackingScreen } from '@/components/menu/tracking-screen'
+import { ApiError } from '@/lib/api'
 
 const API_PEDIDO = {
   token_seguimiento: 'url-abc',
@@ -131,6 +132,20 @@ describe('TrackingScreen — auto-carga desde este celular (S5, S6, S7)', () => 
     const persisted = window.localStorage.getItem('kermingo:myOrders')
     expect(persisted).toBeTruthy()
     expect(persisted).toContain('url-abc')
+  })
+
+  it('no persiste un ?token= inexistente y muestra el error del backend', async () => {
+    mockGet.mockImplementation((key: string) => (key === 'token' ? 'missing-token' : null))
+    mockApiGet.mockRejectedValue(new ApiError('Pedido no encontrado', 404))
+
+    render(<TrackingScreen />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Pedido no encontrado')).toBeTruthy()
+    })
+
+    expect(window.localStorage.getItem('kermingo:myOrders')).toBeNull()
+    expect(window.localStorage.getItem('kermingo:lastToken')).toBeNull()
   })
 
   it('puede buscar otro pedido con código manual cuando ya hay pedidos en la lista', async () => {

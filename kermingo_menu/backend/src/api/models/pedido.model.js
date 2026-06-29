@@ -134,7 +134,7 @@ export async function createWithTransaction(pool, data) {
         [item.producto_id]
       );
       const producto = prodRows[0];
-      if (!producto) throw new Error(`Producto ${item.producto_id} no encontrado o inactivo`);
+      if (!producto) throw new ValidationError(`Producto ${item.producto_id} no encontrado o inactivo`);
       if (!producto.disponible) throw new ValidationError(`Producto "${producto.nombre}" no está disponible todavía`);
 
       itemsExpandidos.push({
