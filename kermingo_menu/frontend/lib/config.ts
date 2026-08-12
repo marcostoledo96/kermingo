@@ -3,6 +3,7 @@ const DEFAULT_API_BASE = 'http://localhost:3001'
 type ApiBaseContext = {
   apiUrl?: string | null
   nodeEnv?: string
+  mockApi?: string | null
   isBrowser?: boolean
   browserLocation?: {
     protocol: string
@@ -11,6 +12,12 @@ type ApiBaseContext = {
 }
 
 export const resolveApiBase = (context: ApiBaseContext = {}): string => {
+  const mockFlag = context.mockApi ?? process.env.NEXT_PUBLIC_MOCK_API
+  if (mockFlag === 'true') {
+    // Same-origin relative URLs for static assets under /products/
+    return ''
+  }
+
   const explicit = context.apiUrl ?? process.env.NEXT_PUBLIC_API_URL
   if (explicit?.trim()) {
     return explicit.trim()

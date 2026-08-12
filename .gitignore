@@ -6,7 +6,9 @@
 # Environment variables (never commit secrets)
 .env
 .env.*
+.env*
 !.env.example
+!.env.local.example
 
 # Credentials and secrets
 *.pem
@@ -44,3 +46,4 @@ OPERACIONES_MANUALES_PROD.md
 
 # Backups (never commit DB dumps)
 backup-*.sql
+.vercel

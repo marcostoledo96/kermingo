@@ -30,6 +30,17 @@ describe('resolveApiBase', () => {
     expect(resolveApiBase({ nodeEnv: 'production', isBrowser: false })).toBe('')
   })
 
+  it('returns empty string when mock API is enabled', () => {
+    expect(
+      resolveApiBase({
+        mockApi: 'true',
+        nodeEnv: 'production',
+        isBrowser: true,
+        browserLocation: { protocol: 'https:', hostname: 'kermingo.vercel.app' },
+      }),
+    ).toBe('')
+  })
+
   it('logs and returns empty string in production browser when API URL is missing', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
