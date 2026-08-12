@@ -9,9 +9,10 @@
 Desde el archivo del evento (2026), el sitio público corre en **modo demo**:
 
 - Flag: `NEXT_PUBLIC_MOCK_API=true`
-- No llama a Express/MySQL/Drive
+- No llama a Express, MySQL, Google Drive ni otros servicios de red
 - Banner visible: “Modo demo / archivo…”
-- Tienda fija en `cerrada`
+- Tienda mock en `abierta`: permite completar una compra simulada
+- No crea ventas reales ni modifica el stock real
 
 ## Credenciales demo
 
@@ -29,10 +30,21 @@ La sesión admin es **local** (`localStorage` clave `kermingo:demoSession`), no 
 | Área | Comportamiento |
 |---|---|
 | Landing / menú | Fixtures (catálogo seed) + imágenes en `/products/{id}.png` |
-| Seguimiento | Tokens demo `demodemo…0001` … `0005` |
+| Checkout online | Valida los datos y el comprobante en la UI, y crea un pedido simulado desde los fixtures |
+| Pedido simulado | Nace con `estado_pedido='en_preparacion'` y `estado_pago='pagado'` |
+| Seguimiento | Admite los tokens fijos `demodemo…0001` … `0005` y los pedidos creados en la pestaña actual |
 | Admin (lectura) | Pedidos, cocina, productos, reportes, config desde fixtures |
 | Mutaciones admin | Feedback visual / respuesta fake; **no persisten** al recargar |
-| Checkout online | Rechazado (tienda cerrada / archivo) |
+
+## Persistencia de la compra simulada
+
+- El detalle dinámico se guarda en `sessionStorage` bajo `kermingo:demoOrders`.
+- El detalle sobrevive a la navegación y a los refresh de la pestaña, pero desaparece al cerrarla.
+- El checkout también mantiene en `localStorage` el resumen y los tokens existentes (`kermingo:lastOrder`, `kermingo:lastToken` y `kermingo:myOrders`). Por eso una sesión nueva puede conservar un token o resumen sin encontrar su detalle dinámico.
+- El comprobante es obligatorio y se valida en la UI, pero su contenido no se guarda ni se vuelve a leer.
+- El seguimiento se consulta en `/seguimiento`, por token o mediante el enlace mostrado después de confirmar.
+
+El banner de modo demo permanece visible para evitar que la compra simulada se confunda con una venta real.
 
 ## Archivos clave
 

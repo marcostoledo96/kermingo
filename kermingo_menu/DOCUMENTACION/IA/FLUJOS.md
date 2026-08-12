@@ -62,6 +62,28 @@
 
 **Regla:** Los pedidos online aceptan únicamente `metodo_pago: 'transferencia'` con `comprobante` adjunto. Si falta el archivo, el backend responde 400. Si el visitante intenta `efectivo`, también responde 400; efectivo queda reservado para caja rápida (admin). Ver `CORE.md` sección 2 para la state machine de pago.
 
+### Variante de compra simulada (`NEXT_PUBLIC_MOCK_API=true`)
+
+```txt
+[Visitante]
+    │
+    ├── El adapter mock devuelve la tienda como `abierta`
+    ├── Agrega productos desde fixtures al carrito (`localStorage`)
+    ├── Checkout valida en la UI nombre y comprobante
+    │   └── El archivo no se guarda ni se vuelve a leer
+    ├── POST /api/pedidos es interceptado en el navegador
+    │   ├── No hay backend, DB, Drive ni request de red
+    │   ├── Calcula items y total desde los fixtures
+    │   ├── Crea el pedido como `en_preparacion` + `pagado`
+    │   ├── Guarda el detalle en `sessionStorage` (`kermingo:demoOrders`)
+    │   └── No modifica el stock real
+    ├── Guarda resumen y tokens existentes en `localStorage`
+    ├── Muestra la confirmación con enlace a `/seguimiento`
+    └── GET /api/pedidos/seguimiento/:token recupera el detalle de la pestaña
+```
+
+El detalle dinámico sobrevive a navegación y refresh dentro de la misma pestaña, pero desaparece al cerrarla. Como los tokens y el resumen permanecen en `localStorage`, una sesión nueva puede listarlos sin tener ya el detalle asociado. El banner demo permanece visible para distinguir este recorrido de una venta real.
+
 ---
 
 ## 2. Caja rápida
