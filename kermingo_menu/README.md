@@ -1,6 +1,6 @@
 # Kermingo
 
-> **Estado actual:** portfolio permanente en Vercel en **modo demo** (sin backend Railway).  
+> **Estado actual:** portfolio permanente en Vercel en **modo demo** (sin backend Railway).
 > Docs: [`DOCUMENTACION/IA/MODO-DEMO.md`](DOCUMENTACION/IA/MODO-DEMO.md) · [`REVIVIR-BACKEND.md`](DOCUMENTACION/IA/REVIVIR-BACKEND.md) · [`GUIA-FRONTEND.md`](DOCUMENTACION/IA/GUIA-FRONTEND.md)
 
 Kermingo es una app web hecha para organizar la venta de comida y bebida de un evento scout recaudatorio. La idea es que las familias puedan ver el menú, armar su pedido desde el celular, elegir cómo pagan y seguir el estado de la compra sin depender de planillas sueltas o mensajes perdidos.

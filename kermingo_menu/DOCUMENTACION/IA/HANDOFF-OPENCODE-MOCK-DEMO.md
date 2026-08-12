@@ -121,7 +121,6 @@ frontend/public/products/{1..13,15..24}.png # 23 imágenes reales; ID 14 usa fal
 backend/scripts/anonymize-dump.mjs
 backend/src/api/database/archives/README.md
 backend/src/api/database/archives/2026-07-28-prod-anonymized.sql
-backend/src/api/database/archives/2026-07-28-prod-anonymized.sql.gz
 ```
 
 ### Docs
