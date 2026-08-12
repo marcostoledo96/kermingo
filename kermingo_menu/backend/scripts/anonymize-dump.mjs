@@ -3,9 +3,7 @@
  * Anonymize a mysqldump for public git.
  * Usage: node anonymize-dump.mjs <input.sql> <output.sql>
  *
- * - Replaces INSERT values for pedido PII columns when detectable in extended inserts
- * - Forces admin hash to the known seed bcrypt for admin123
- * - Nulls Drive URLs / replaces drive_id with synthetic ids
+ * - Replaces sensitive INSERT values by explicit table/column policy
  *
  * Always review the output before committing. Prefer regenerating from a trusted
  * RAW kept outside the repo.
@@ -27,9 +25,6 @@ let sql = readFileSync(resolve(inPath), 'utf8')
 
 // Strip DEFINER clauses that break restores on shared hosts
 sql = sql.replace(/DEFINER=`[^`]+`@`[^`]+`/g, '')
-
-// Replace any bcrypt-looking hashes in usuario inserts with demo hash
-sql = sql.replace(/\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}/g, DEMO_HASH)
 
 function splitSql(source, delimiter) {
   const parts = []
@@ -59,43 +54,78 @@ function splitSql(source, delimiter) {
   return parts
 }
 
-function anonymizePedidoInsert(statement, firstSequence) {
+const SENSITIVE_TABLES = {
+  pedido: {
+    required: [
+      'nombre_cliente',
+      'telefono_cliente',
+      'telefono_whatsapp',
+      'mesa',
+      'token_seguimiento',
+      'observaciones',
+    ],
+    replacements: (sequence, values, columns) => ({
+      nombre_cliente: `'Cliente Demo ${sequence}'`,
+      telefono_cliente: `'119900${String(1000 + sequence).slice(-4)}'`,
+      telefono_whatsapp: `'549119900${String(1000 + sequence).slice(-4)}'`,
+      mesa: 'NULL',
+      token_seguimiento: `'${sequence.toString(16).padStart(32, '0')}'`,
+      observaciones: values[columns.indexOf('observaciones')].toUpperCase() === 'NULL'
+        ? 'NULL'
+        : `'Observacion demo ${sequence}'`,
+    }),
+  },
+  usuario: {
+    required: ['nombre', 'email', 'contrasenia_hash'],
+    replacements: (sequence) => ({
+      nombre: `'Usuario Demo ${sequence}'`,
+      email: `'usuario${sequence}@example.invalid'`,
+      contrasenia_hash: `'${DEMO_HASH}'`,
+    }),
+  },
+  archivo_drive: {
+    required: ['nombre_original', 'drive_id', 'url_publica'],
+    replacements: (sequence, values, columns) => {
+      const original = values[columns.indexOf('nombre_original')]
+      const extension = original.match(/\.([a-z0-9]+)'$/i)?.[1]?.toLowerCase()
+      return {
+        nombre_original: `'archivo-demo-${sequence}${extension ? `.${extension}` : ''}'`,
+        drive_id: `'demo-drive-${sequence}'`,
+        url_publica: 'NULL',
+      }
+    },
+  },
+}
+
+function anonymizeSensitiveInsert(statement, table, firstSequence) {
   const parsed = statement.match(
-    /^(INSERT\s+INTO\s+`?pedido`?\s*)\(([^)]*)\)(\s+VALUES\s*)([\s\S]+)$/i,
+    new RegExp(`^(INSERT\\s+INTO\\s+\`?${table}\`?\\s*)\\(([^)]*)\\)(\\s+VALUES\\s*)([\\s\\S]+)$`, 'i'),
   )
   if (!parsed) {
-    throw new Error('Unsafe pedido INSERT: explicit columns and plain VALUES are required')
+    throw new Error(`Unsafe ${table} INSERT: explicit columns and plain VALUES are required`)
   }
 
   const columns = splitSql(parsed[2], ',').map((column) =>
     column.replaceAll('`', '').trim().toLowerCase())
+  const missing = SENSITIVE_TABLES[table].required.filter((column) => !columns.includes(column))
+  if (missing.length > 0) {
+    throw new Error(`Unsafe ${table} INSERT: missing required columns: ${missing.join(', ')}`)
+  }
   const rows = splitSql(parsed[4], ',')
   let sequence = firstSequence
   const scrubbedRows = rows.map((row) => {
     if (!row.startsWith('(') || !row.endsWith(')')) {
-      throw new Error('Unsafe pedido INSERT: only VALUES tuples are supported')
+      throw new Error(`Unsafe ${table} INSERT: only VALUES tuples are supported`)
     }
     const values = splitSql(row.slice(1, -1), ',')
     if (values.length !== columns.length) {
-      throw new Error('Unsafe pedido INSERT: column/value count mismatch')
+      throw new Error(`Unsafe ${table} INSERT: column/value count mismatch`)
     }
 
     sequence += 1
-    const suffix = String(1000 + sequence).slice(-4)
-    const replacements = {
-      nombre_cliente: `'Cliente Demo ${sequence}'`,
-      telefono_cliente: `'119900${suffix}'`,
-      telefono_whatsapp: `'549119900${suffix}'`,
-      mesa: 'NULL',
-      token_seguimiento: `'${sequence.toString(16).padStart(32, '0')}'`,
-    }
+    const replacements = SENSITIVE_TABLES[table].replacements(sequence, values, columns)
     for (const [column, replacement] of Object.entries(replacements)) {
-      const index = columns.indexOf(column)
-      if (index >= 0) values[index] = replacement
-    }
-    const observaciones = columns.indexOf('observaciones')
-    if (observaciones >= 0 && values[observaciones].toUpperCase() !== 'NULL') {
-      values[observaciones] = `'Observacion demo ${sequence}'`
+      values[columns.indexOf(column)] = replacement
     }
     return `(${values.join(',')})`
   })
@@ -106,42 +136,34 @@ function anonymizePedidoInsert(statement, firstSequence) {
   }
 }
 
-let pedidoSequence = 0
-const pedidoInsertCount = sql.match(/\bINTO\s+`?pedido`?\b/gi)?.length ?? 0
-let parsedPedidoInsertCount = 0
+const sequences = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
+const expectedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [
+  table,
+  sql.match(new RegExp(`\\bINTO\\s+\`?${table}\`?\\b`, 'gi'))?.length ?? 0,
+]))
+const parsedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
 const statements = splitSql(sql, ';')
 sql = statements.map((statement) => {
   const prefix = statement.match(/^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:#[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0] ?? ''
   const executable = statement.slice(prefix.length)
-  if (!/^INSERT\b[\s\S]*?\bINTO\s+`?pedido`?\b/i.test(executable)) return statement
-  const result = anonymizePedidoInsert(executable, pedidoSequence)
-  parsedPedidoInsertCount += 1
-  pedidoSequence = result.sequence
-  return prefix + result.sql
+  for (const table of Object.keys(SENSITIVE_TABLES)) {
+    if (!new RegExp(`^INSERT\\b[\\s\\S]*?\\bINTO\\s+\`?${table}\`?\\b`, 'i').test(executable)) continue
+    const result = anonymizeSensitiveInsert(executable, table, sequences[table])
+    parsedCounts[table] += 1
+    sequences[table] = result.sequence
+    return prefix + result.sql
+  }
+  return statement
 }).join(';')
-if (parsedPedidoInsertCount !== pedidoInsertCount) {
-  throw new Error('Unsafe pedido INSERT: not every statement could be parsed')
+for (const table of Object.keys(SENSITIVE_TABLES)) {
+  if (parsedCounts[table] !== expectedCounts[table]) {
+    throw new Error(`Unsafe ${table} INSERT: not every statement could be parsed`)
+  }
 }
-
-// Null public Drive URLs
-sql = sql.replace(/url_publica`?,\s*'https?:\/\/[^']*'/gi, "url_publica`, NULL")
-sql = sql.replace(/'https:\/\/drive\.google\.com[^']*'/gi, 'NULL')
-
-// Synthetic drive ids
-let driveSeq = 0
-sql = sql.replace(
-  /(INSERT INTO `?archivo_drive`?[\s\S]*?;)/gi,
-  (block) =>
-    block.replace(/'([A-Za-z0-9_-]{20,})'/g, (m, id) => {
-      if (id.startsWith('demo-drive-')) return m
-      driveSeq += 1
-      return `'demo-drive-${driveSeq}'`
-    }),
-)
 
 const header = `-- Anonymized dump generated ${new Date().toISOString()}
 -- DO NOT use as a source of real PII. Review before committing.
--- Source: ${inPath}
+-- Source: anonymized SQL input
 
 `
 

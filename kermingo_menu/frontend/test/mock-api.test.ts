@@ -27,10 +27,63 @@ describe('mock API mode', () => {
     expect(productos[0]?.id).toBe(1)
   })
 
+  it('keeps product 14 image fields null in the fixture and public endpoint', async () => {
+    const [{ apiGet }, { MOCK_PRODUCTOS }] = await Promise.all([
+      import('@/lib/api'),
+      import('@/lib/mocks/fixtures'),
+    ])
+    const expected = {
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+    }
+
+    expect(MOCK_PRODUCTOS.find((producto) => producto.id === 14)).toMatchObject(expected)
+    await expect(apiGet('/api/productos/14')).resolves.toMatchObject(expected)
+  })
+
   it('keeps public checkout open in demo', async () => {
     const { apiGet } = await import('@/lib/api')
     const config = await apiGet<{ estado: string }>('/api/configuracion-tienda')
     expect(config.estado).toBe('abierta')
+  })
+
+  it.each([
+    [{ estado: 'abierta' }, { estado: 'abierta' }],
+    [{ mensaje_publico: null }, { mensaje_publico: null }],
+    [{ cena_habilitada_desde: '20:30:00' }, { cena_habilitada_desde: '20:30:00' }],
+    [{ cena_habilitada_desde: null }, { cena_habilitada_desde: null }],
+    [{ categoria_default: 'cena' }, { categoria_default: 'cena' }],
+  ])('returns complete config for partial PUT body %j without persisting it', async (body, expected) => {
+    const { apiGet, apiPut } = await import('@/lib/api')
+    const updated = await apiPut<Record<string, unknown>>('/api/admin/configuracion-tienda', body)
+    const unchanged = await apiGet<Record<string, unknown>>('/api/admin/configuracion-tienda')
+
+    expect(updated).toEqual(expect.objectContaining({
+      id: 1,
+      estado: 'cerrada',
+      mensaje_publico: expect.any(String),
+      cena_habilitada_desde: null,
+      categoria_default: 'merienda',
+      ...expected,
+    }))
+    expect(unchanged).toMatchObject({
+      estado: 'cerrada',
+      mensaje_publico: expect.any(String),
+      cena_habilitada_desde: null,
+      categoria_default: 'merienda',
+    })
+  })
+
+  it('rejects arbitrary config fields', async () => {
+    const { apiPut } = await import('@/lib/api')
+
+    await expect(apiPut('/api/admin/configuracion-tienda', {
+      estado: 'abierta',
+      isAdmin: true,
+    })).rejects.toMatchObject({ name: 'ApiError', status: 400 })
   })
 
   it('returns the component array after saving promo components', async () => {
@@ -43,6 +96,18 @@ describe('mock API mode', () => {
     expect(componentes).toEqual(expect.arrayContaining([
       expect.objectContaining({ producto_id: 10, cantidad: 3 }),
     ]))
+  })
+
+  it('returns only en_preparacion and listo orders from the kitchen endpoint', async () => {
+    const { apiGet } = await import('@/lib/api')
+    const pedidos = await apiGet<Array<{ id: number; estado_pedido: string }>>(
+      '/api/admin/cocina/pedidos',
+    )
+
+    expect(pedidos.length).toBeGreaterThan(0)
+    expect(pedidos.every((pedido) =>
+      ['en_preparacion', 'listo'].includes(pedido.estado_pedido))).toBe(true)
+    expect(pedidos.some((pedido) => pedido.estado_pedido === 'recibido')).toBe(false)
   })
 
   it.each([

@@ -14,7 +14,7 @@ import {
   DEMO_ADMIN_PASSWORD,
 } from './mode'
 import { readDemoSession, writeDemoSession, type DemoSessionUser } from './session'
-import type { ApiPedido } from '../types'
+import type { ApiConfiguracion, ApiPedido } from '../types'
 
 const DEMO_NOOP_MESSAGE =
   'Modo demo: esta acción no se guarda. El backend de Railway está apagado.'
@@ -109,6 +109,18 @@ function findPedidoByToken(token: string) {
   return saved.find((p) => p.token_seguimiento === token)
     ?? MOCK_PEDIDOS.find((p) => p.token_seguimiento === token)
     ?? null
+}
+
+function updateDemoConfig(body: unknown): ApiConfiguracion {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiError('Configuración inválida', 400)
+  }
+  const allowed = ['estado', 'mensaje_publico', 'cena_habilitada_desde', 'categoria_default']
+  const entries = Object.entries(body)
+  if (entries.length === 0 || entries.some(([key]) => !allowed.includes(key))) {
+    throw new ApiError('Configuración inválida', 400)
+  }
+  return { ...MOCK_CONFIG, ...body } as ApiConfiguracion
 }
 
 function createDemoPedido(body: FormData): ApiPedido {
@@ -272,6 +284,10 @@ export async function mockApiRequest<T>(
     } as T)
   }
 
+  if (m === 'PUT' && p === '/api/admin/configuracion-tienda') {
+    return demoNoop(updateDemoConfig(body) as T)
+  }
+
   if (
     (m === 'PUT' || m === 'PATCH' || m === 'POST' || m === 'DELETE') &&
     p.startsWith('/api/admin/')
@@ -288,9 +304,6 @@ export async function mockApiRequest<T>(
     if (p.includes('/pedidos') && !Number.isNaN(id)) {
       const pedido = findPedido(id) ?? MOCK_PEDIDOS[0]
       return demoNoop(pedido as T)
-    }
-    if (p.includes('configuracion-tienda')) {
-      return demoNoop(MOCK_CONFIG as T)
     }
     if (p.includes('/orden')) {
       return demoNoop(MOCK_PRODUCTOS as T)

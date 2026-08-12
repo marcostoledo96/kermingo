@@ -56,6 +56,13 @@ const SEED: SeedProduct[] = [
 ]
 
 export function toApiProducto(p: SeedProduct): ApiProducto {
+  const image = p.id === 14 ? null : {
+    imagen_archivo_id: p.id,
+    imagen_nombre_original: `${p.id}.png`,
+    imagen_mime_type: 'image/png',
+    imagen_tamanio_bytes: 100000,
+    imagen_url: productImage(p.id),
+  }
   return {
     id: p.id,
     nombre: p.nombre,
@@ -68,11 +75,11 @@ export function toApiProducto(p: SeedProduct): ApiProducto {
     activo: 1,
     disponible: 1,
     orden: p.id,
-    imagen_archivo_id: p.id,
-    imagen_nombre_original: `${p.id}.png`,
-    imagen_mime_type: 'image/png',
-    imagen_tamanio_bytes: 100000,
-    imagen_url: productImage(p.id),
+    imagen_archivo_id: image?.imagen_archivo_id ?? null,
+    imagen_nombre_original: image?.imagen_nombre_original ?? null,
+    imagen_mime_type: image?.imagen_mime_type ?? null,
+    imagen_tamanio_bytes: image?.imagen_tamanio_bytes ?? null,
+    imagen_url: image?.imagen_url ?? null,
     categorias: p.categorias,
     componentes_count: p.componentes_count,
   }
@@ -253,7 +260,7 @@ export function listPedidoItems(): ApiPedidoListItem[] {
 
 export function toCocinaHeaders(): ApiCocinaPedido[] {
   return MOCK_PEDIDOS.filter((p) =>
-    ['recibido', 'en_preparacion', 'listo'].includes(p.estado_pedido),
+    ['en_preparacion', 'listo'].includes(p.estado_pedido),
   ).map((p) => ({
     id: p.id,
     numero: p.numero,
