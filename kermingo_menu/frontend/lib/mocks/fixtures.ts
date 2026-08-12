@@ -269,13 +269,13 @@ export function toCocinaHeaders(): ApiCocinaPedido[] {
 }
 
 export const MOCK_REPORTES: ApiReportes = {
-  total_recaudado: 20500,
+  total_recaudado: 20000,
   total_efectivo: 9000,
-  total_transferencia: 11500,
+  total_transferencia: 11000,
   pedidos_pagados: 4,
-  productos_vendidos: 7,
-  pedidos_pendientes_pago: 1,
-  monto_pendiente_pago: 3500,
+  productos_vendidos: 6,
+  pedidos_pendientes_pago: 0,
+  monto_pendiente_pago: 0,
   producto_top: {
     producto_id: 1,
     nombre: 'Pizza muzza',
@@ -284,8 +284,9 @@ export const MOCK_REPORTES: ApiReportes = {
   },
   ranking_productos: [
     { producto_id: 1, nombre: 'Pizza muzza', cantidad: 2, total_recaudado: 7000 },
-    { producto_id: 24, nombre: 'Combo cena', cantidad: 1, total_recaudado: 6500 },
     { producto_id: 15, nombre: 'Coca Cola', cantidad: 2, total_recaudado: 4000 },
+    { producto_id: 5, nombre: 'Pancho', cantidad: 1, total_recaudado: 2500 },
+    { producto_id: 24, nombre: 'Combo cena', cantidad: 1, total_recaudado: 6500 },
   ],
   actualizado_en: '2026-06-20T15:00:00.000Z',
 }

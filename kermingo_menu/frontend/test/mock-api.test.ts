@@ -33,6 +33,90 @@ describe('mock API mode', () => {
     expect(config.estado).toBe('abierta')
   })
 
+  it('returns the component array after saving promo components', async () => {
+    const { apiPut } = await import('@/lib/api')
+    const componentes = await apiPut<Array<{ producto_id: number; cantidad: number }>>(
+      '/api/admin/productos/23/componentes',
+      { componentes: [{ producto_id: 10, cantidad: 3 }] },
+    )
+
+    expect(componentes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ producto_id: 10, cantidad: 3 }),
+    ]))
+  })
+
+  it.each([
+    ['estado_pedido', { estado_pedido: 'entregado' }, [2, 1]],
+    ['excluir_estado_pedido', { excluir_estado_pedido: 'entregado' }, [5, 4, 3]],
+    ['metodo_pago', { metodo_pago: 'efectivo' }, [4, 2]],
+    ['estado_pago', { estado_pago: 'comprobante_subido' }, [3]],
+    ['origen', { origen: 'caja' }, [4, 2]],
+    ['buscar cliente', { buscar: 'Demo 4' }, [4]],
+    ['buscar numero', { buscar: 'KMG-0005' }, [5]],
+    ['buscar telefono', { buscar: '1199001002' }, [2]],
+    ['buscar mesa', { buscar: 'Barra' }, [4]],
+  ])('filters admin orders by %s before pagination', async (_case, query, expectedIds) => {
+    const { apiGet } = await import('@/lib/api')
+    const result = await apiGet<{
+      pedidos: Array<{ id: number }>
+      paginacion: { total: number }
+    }>('/api/admin/pedidos', { ...query, page: 1, limit: 1 })
+
+    expect(result.paginacion.total).toBe(expectedIds.length)
+    expect(result.pedidos.map((pedido) => pedido.id)).toEqual(expectedIds.slice(0, 1))
+  })
+
+  it('treats solo_pagos_pendientes as pendiente/rechazado, excludes cancelados, and overrides estado_pago', async () => {
+    const { apiGet } = await import('@/lib/api')
+    const result = await apiGet<{
+      pedidos: Array<{ id: number }>
+      paginacion: { total: number }
+    }>('/api/admin/pedidos', {
+      solo_pagos_pendientes: 'true',
+      estado_pago: 'pagado',
+    })
+
+    expect(result).toMatchObject({ pedidos: [], paginacion: { total: 0 } })
+  })
+
+  it('derives report totals and ranking from paid, non-cancelled mock orders', async () => {
+    const [{ apiGet }, { MOCK_PEDIDOS }] = await Promise.all([
+      import('@/lib/api'),
+      import('@/lib/mocks/fixtures'),
+    ])
+    const paid = MOCK_PEDIDOS.filter((pedido) =>
+      pedido.estado_pago === 'pagado' && pedido.estado_pedido !== 'cancelado')
+    const ranking = new Map<number, { producto_id: number; nombre: string; cantidad: number; total_recaudado: number }>()
+    for (const pedido of paid) {
+      for (const item of pedido.items) {
+        const current = ranking.get(item.producto_id) ?? {
+          producto_id: item.producto_id,
+          nombre: item.nombre_producto,
+          cantidad: 0,
+          total_recaudado: 0,
+        }
+        current.cantidad += item.cantidad
+        current.total_recaudado += item.subtotal
+        ranking.set(item.producto_id, current)
+      }
+    }
+    const expectedRanking = [...ranking.values()].sort((a, b) =>
+      b.cantidad - a.cantidad || a.producto_id - b.producto_id)
+    const reportes = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+
+    expect(reportes).toMatchObject({
+      total_recaudado: paid.reduce((sum, pedido) => sum + pedido.total, 0),
+      total_efectivo: paid.filter((pedido) => pedido.metodo_pago === 'efectivo').reduce((sum, pedido) => sum + pedido.total, 0),
+      total_transferencia: paid.filter((pedido) => pedido.metodo_pago === 'transferencia').reduce((sum, pedido) => sum + pedido.total, 0),
+      pedidos_pagados: paid.length,
+      productos_vendidos: paid.flatMap((pedido) => pedido.items).reduce((sum, item) => sum + item.cantidad, 0),
+      pedidos_pendientes_pago: 0,
+      monto_pendiente_pago: 0,
+      producto_top: expectedRanking[0],
+      ranking_productos: expectedRanking,
+    })
+  })
+
   it('creates a complete demo order from FormData without network', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const { apiPostForm } = await import('@/lib/api')

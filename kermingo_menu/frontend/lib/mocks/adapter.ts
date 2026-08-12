@@ -53,17 +53,37 @@ function paginateProductos(query?: Record<string, string | number | undefined>) 
 }
 
 function paginatePedidos(query?: Record<string, string | number | undefined>) {
-  let list = listPedidoItems()
-  const estadoPedido = query?.estado_pedido
-  const estadoPago = query?.estado_pago
-  if (typeof estadoPedido === 'string' && estadoPedido) {
-    list = list.filter((p) => p.estado_pedido === estadoPedido)
+  let list = listPedidoItems().sort((a, b) => b.id - a.id)
+  const equals = (key: 'estado_pedido' | 'metodo_pago' | 'origen') => {
+    const value = query?.[key]
+    if (typeof value === 'string' && value) list = list.filter((pedido) => pedido[key] === value)
   }
-  if (typeof estadoPago === 'string' && estadoPago) {
-    list = list.filter((p) => p.estado_pago === estadoPago)
+  equals('estado_pedido')
+  equals('metodo_pago')
+  equals('origen')
+  if (query?.excluir_estado_pedido) {
+    list = list.filter((pedido) => pedido.estado_pedido !== query.excluir_estado_pedido)
   }
-  const limit = Number(query?.limit ?? 50) || 50
-  const page = Number(query?.page ?? 1) || 1
+  if (query?.buscar) {
+    const normalize = (value: string | null) => (value ?? '')
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase()
+    const search = normalize(String(query.buscar))
+    list = list.filter((pedido) => [
+      pedido.nombre_cliente,
+      pedido.numero,
+      pedido.telefono_cliente,
+      pedido.mesa,
+    ].some((value) => normalize(value).includes(search)))
+  }
+  if (String(query?.solo_pagos_pendientes) === 'true') {
+    list = list.filter((pedido) =>
+      ['pendiente', 'rechazado'].includes(pedido.estado_pago)
+      && pedido.estado_pedido !== 'cancelado')
+  } else if (query?.estado_pago) {
+    list = list.filter((pedido) => pedido.estado_pago === query.estado_pago)
+  }
+  const limit = Math.max(1, Math.min(100, Number(query?.limit) || 24))
+  const page = Math.max(1, Number(query?.page) || 1)
   const start = (page - 1) * limit
   return {
     pedidos: list.slice(start, start + limit),
@@ -258,6 +278,9 @@ export async function mockApiRequest<T>(
   ) {
     const idMatch = match(p, /\/(\d+)(?:\/|$)/)
     const id = idMatch ? Number(idMatch[1]) : NaN
+    if (p.includes('/componentes') && !Number.isNaN(id)) {
+      return demoNoop((MOCK_COMPONENTES[id] ?? []) as T)
+    }
     if (p.includes('/productos') && !Number.isNaN(id)) {
       const prod = findProducto(id) ?? MOCK_PRODUCTOS[0]
       return demoNoop(prod as T)
@@ -268,9 +291,6 @@ export async function mockApiRequest<T>(
     }
     if (p.includes('configuracion-tienda')) {
       return demoNoop(MOCK_CONFIG as T)
-    }
-    if (p.includes('/componentes') && !Number.isNaN(id)) {
-      return demoNoop((MOCK_COMPONENTES[id] ?? []) as T)
     }
     if (p.includes('/orden')) {
       return demoNoop(MOCK_PRODUCTOS as T)
