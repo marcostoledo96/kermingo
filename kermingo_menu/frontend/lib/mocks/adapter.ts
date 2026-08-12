@@ -263,6 +263,57 @@ function editDemoPedido(id: number, body: unknown): ApiPedido {
   } as ApiPedido
 }
 
+function updateDemoPedidoState(id: number, body: unknown): ApiPedido {
+  const data = objectBody(body, ['estado_pedido'], 'Estado de pedido inválido')
+  const pedido = findPedido(id)
+  if (!pedido) throw new ApiError('Pedido no encontrado', 404)
+  if (Object.keys(data).length !== 1
+    || !['recibido', 'en_preparacion', 'listo', 'entregado'].includes(String(data.estado_pedido))) {
+    throw new ApiError('Estado de pedido inválido', 400)
+  }
+  return { ...pedido, estado_pedido: data.estado_pedido, updated_at: new Date().toISOString() } as ApiPedido
+}
+
+function updateDemoPaymentState(id: number, body: unknown): ApiPedido {
+  const data = objectBody(body, ['estado_pago'], 'Estado de pago inválido')
+  const pedido = findPedido(id)
+  if (!pedido) throw new ApiError('Pedido no encontrado', 404)
+  if (Object.keys(data).length !== 1
+    || !['pendiente', 'comprobante_subido', 'pagado', 'rechazado'].includes(String(data.estado_pago))) {
+    throw new ApiError('Estado de pago inválido', 400)
+  }
+  return { ...pedido, estado_pago: data.estado_pago, updated_at: new Date().toISOString() } as ApiPedido
+}
+
+function emptyBody(body: unknown) {
+  objectBody(body, [], 'Body inválido')
+}
+
+function updateDemoProductImage(id: number, body: unknown): ApiProducto {
+  if (!(body instanceof FormData) || [...body.keys()].length !== 1 || !body.has('imagen')) {
+    throw new ApiError('Imagen inválida', 400)
+  }
+  const image = body.get('imagen')
+  const producto = findProducto(id)
+  if (!producto) throw new ApiError('Producto no encontrado', 404)
+  if (!(image instanceof File)) throw new ApiError('Archivo de imagen requerido', 400)
+  return {
+    ...producto,
+    imagen_archivo_id: Date.now(),
+    imagen_nombre_original: image.name,
+    imagen_mime_type: image.type || 'image/webp',
+    imagen_tamanio_bytes: image.size,
+    imagen_url: `/products/${MOCK_PRODUCTOS.find((value) => value.imagen_url)?.id ?? 1}.png`,
+  }
+}
+
+function deleteDemoProductImage(id: number): ApiProducto {
+  const producto = findProducto(id)
+  if (!producto) throw new ApiError('Producto no encontrado', 404)
+  return { ...producto, imagen_archivo_id: null, imagen_nombre_original: null,
+    imagen_mime_type: null, imagen_tamanio_bytes: null, imagen_url: null }
+}
+
 function updateDemoConfig(body: unknown): ApiConfiguracion {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new ApiError('Configuración inválida', 400)
@@ -434,6 +485,52 @@ export async function mockApiRequest<T>(
 
   if (m === 'PUT' && p === '/api/admin/configuracion-tienda') {
     return demoNoop(updateDemoConfig(body) as T)
+  }
+
+  const adminEstadoMatch = match(p, /^\/api\/admin\/pedidos\/(\d+)\/estado$/)
+  if (m === 'PATCH' && adminEstadoMatch) {
+    return demoNoop(updateDemoPedidoState(Number(adminEstadoMatch[1]), body) as T)
+  }
+
+  const pagoMatch = match(p, /^\/api\/admin\/pedidos\/(\d+)\/pago$/)
+  if (m === 'PATCH' && pagoMatch) {
+    return demoNoop(updateDemoPaymentState(Number(pagoMatch[1]), body) as T)
+  }
+
+  const cancelarMatch = match(p, /^\/api\/admin\/pedidos\/(\d+)\/cancelar$/)
+  if (m === 'PATCH' && cancelarMatch) {
+    emptyBody(body)
+    const pedido = findPedido(Number(cancelarMatch[1]))
+    if (!pedido) throw new ApiError('Pedido no encontrado', 404)
+    return demoNoop({ ...pedido, estado_pedido: 'cancelado', updated_at: new Date().toISOString() } as T)
+  }
+
+  const aprobarMatch = match(p, /^\/api\/admin\/pedidos\/(\d+)\/comprobante\/aprobar$/)
+  if (m === 'PATCH' && aprobarMatch) {
+    emptyBody(body)
+    const pedido = findPedido(Number(aprobarMatch[1]))
+    if (!pedido) throw new ApiError('Pedido no encontrado', 404)
+    return demoNoop({ ...pedido, estado_pago: 'pagado',
+      estado_pedido: pedido.estado_pedido === 'recibido' ? 'en_preparacion' : pedido.estado_pedido,
+      updated_at: new Date().toISOString() } as T)
+  }
+
+  const cocinaEstadoMatch = match(p, /^\/api\/admin\/cocina\/pedidos\/(\d+)\/estado$/)
+  if (m === 'PATCH' && cocinaEstadoMatch) {
+    return demoNoop(updateDemoPedidoState(Number(cocinaEstadoMatch[1]), body) as T)
+  }
+
+  const productImageMatch = match(p, /^\/api\/admin\/productos\/(\d+)\/imagen$/)
+  if (m === 'POST' && productImageMatch) {
+    return demoNoop(updateDemoProductImage(Number(productImageMatch[1]), body) as T)
+  }
+  if (m === 'DELETE' && productImageMatch) {
+    if (body !== undefined) throw new ApiError('Body inválido', 400)
+    return demoNoop(deleteDemoProductImage(Number(productImageMatch[1])) as T)
+  }
+
+  if (/^\/api\/admin\/(?:pedidos\/\d+\/(?:estado|pago|cancelar|comprobante\/aprobar)|cocina\/pedidos\/\d+\/estado|productos\/\d+\/imagen)(?:\/.*)?$/.test(p)) {
+    throw new ApiError(`Mock: ruta no implementada (${m} ${p})`, 404)
   }
 
   if (

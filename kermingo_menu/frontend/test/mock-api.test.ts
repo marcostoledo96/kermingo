@@ -151,6 +151,131 @@ describe('mock API mode', () => {
     await expect(apiPut('/api/admin/pedidos/1', { items: [{ producto_id: 999, cantidad: 1 }] })).rejects.toMatchObject({ status: 400 })
   })
 
+  it('returns a nonpersistent order with the requested admin state', async () => {
+    const { apiGet, apiPatch } = await import('@/lib/api')
+    const before = await apiGet<Record<string, unknown>>('/api/admin/pedidos/1')
+    const updated = await apiPatch<Record<string, unknown>>('/api/admin/pedidos/1/estado', {
+      estado_pedido: 'listo',
+    })
+
+    expect(updated).toMatchObject({ id: 1, estado_pedido: 'listo' })
+    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(before)
+  })
+
+  it('returns a nonpersistent order with the requested payment state', async () => {
+    const { apiPatch } = await import('@/lib/api')
+
+    await expect(apiPatch('/api/admin/pedidos/1/pago', { estado_pago: 'rechazado' }))
+      .resolves.toMatchObject({ id: 1, estado_pago: 'rechazado' })
+    await expect(apiPatch('/api/admin/pedidos/1/pago', {
+      estado_pago: 'pagado', extra: true,
+    })).rejects.toMatchObject({ status: 400 })
+    await expect(apiPatch('/api/admin/pedidos/1/pago', {
+      estado_pago: 'inventado',
+    })).rejects.toMatchObject({ status: 400 })
+  })
+
+  it.each([
+    ['/api/admin/pedidos/1/estado', { estado_pedido: 'inventado' }],
+    ['/api/admin/cocina/pedidos/1/estado', { estado_pedido: 'inventado' }],
+  ])('rejects invalid backend order enums on %s', async (path, body) => {
+    const { apiPatch } = await import('@/lib/api')
+    await expect(apiPatch(path, body)).rejects.toMatchObject({ status: 400 })
+  })
+
+  it.each([
+    ['/api/admin/pedidos/1/estado', { estado_pedido: 'listo', extra: true }],
+    ['/api/admin/cocina/pedidos/1/estado', { estado_pedido: 'listo', extra: true }],
+  ])('rejects extra state mutation fields on %s', async (path, body) => {
+    const { apiPatch } = await import('@/lib/api')
+    await expect(apiPatch(path, body)).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('returns cancelar and aprobar mutations with their contract states', async () => {
+    const { apiPatch } = await import('@/lib/api')
+
+    await expect(apiPatch('/api/admin/pedidos/1/cancelar', {}))
+      .resolves.toMatchObject({ id: 1, estado_pedido: 'cancelado' })
+    await expect(apiPatch('/api/admin/pedidos/3/comprobante/aprobar', {}))
+      .resolves.toMatchObject({ id: 3, estado_pago: 'pagado', estado_pedido: 'en_preparacion' })
+    await expect(apiPatch('/api/admin/pedidos/1/cancelar', { extra: true }))
+      .rejects.toMatchObject({ status: 400 })
+    await expect(apiPatch('/api/admin/pedidos/3/comprobante/aprobar', { extra: true }))
+      .rejects.toMatchObject({ status: 400 })
+  })
+
+  it('returns a nonpersistent kitchen order with the requested state', async () => {
+    const { apiPatch } = await import('@/lib/api')
+
+    await expect(apiPatch('/api/admin/cocina/pedidos/1/estado', { estado_pedido: 'listo' }))
+      .resolves.toMatchObject({ id: 1, estado_pedido: 'listo' })
+  })
+
+  it('uploads a product image from exact FormData without persisting or creating an object URL', async () => {
+    const objectUrlSpy = vi.spyOn(URL, 'createObjectURL')
+    const { apiGet, apiPostForm } = await import('@/lib/api')
+    const before = await apiGet<Record<string, unknown>>('/api/productos/14')
+    const form = new FormData()
+    form.set('imagen', new File(['demo'], 'producto.png', { type: 'image/png' }))
+
+    const uploaded = await apiPostForm<Record<string, unknown>>('/api/admin/productos/14/imagen', form)
+
+    expect(uploaded).toMatchObject({
+      id: 14,
+      imagen_archivo_id: expect.any(Number),
+      imagen_nombre_original: 'producto.png',
+      imagen_mime_type: 'image/png',
+      imagen_tamanio_bytes: 4,
+      imagen_url: expect.stringMatching(/^\/products\/\d+\.png$/),
+    })
+    expect(objectUrlSpy).not.toHaveBeenCalled()
+    await expect(apiGet('/api/productos/14')).resolves.toEqual(before)
+  })
+
+  it('strictly validates product image upload FormData', async () => {
+    const { apiPostForm } = await import('@/lib/api')
+    const missing = new FormData()
+    const extra = new FormData()
+    extra.set('imagen', new File(['demo'], 'producto.png', { type: 'image/png' }))
+    extra.set('extra', 'no')
+
+    await expect(apiPostForm('/api/admin/productos/1/imagen', missing)).rejects.toMatchObject({ status: 400 })
+    await expect(apiPostForm('/api/admin/productos/1/imagen', extra)).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('deletes all five product image fields without persisting', async () => {
+    const { apiDelete, apiGet } = await import('@/lib/api')
+    const before = await apiGet<Record<string, unknown>>('/api/productos/1')
+    const deleted = await apiDelete<Record<string, unknown>>('/api/admin/productos/1/imagen')
+
+    expect(deleted).toMatchObject({
+      id: 1,
+      imagen_archivo_id: null,
+      imagen_nombre_original: null,
+      imagen_mime_type: null,
+      imagen_tamanio_bytes: null,
+      imagen_url: null,
+    })
+    await expect(apiGet('/api/productos/1')).resolves.toEqual(before)
+    const { mockApiRequest } = await import('@/lib/mocks/adapter')
+    await expect(mockApiRequest('DELETE', '/api/admin/productos/1/imagen', undefined, {}))
+      .rejects.toMatchObject({ status: 400 })
+  })
+
+  it.each([
+    ['PUT', '/api/admin/pedidos/1/estado', { estado_pedido: 'listo' }],
+    ['POST', '/api/admin/pedidos/1/pago', { estado_pago: 'pagado' }],
+    ['PUT', '/api/admin/pedidos/1/cancelar', {}],
+    ['POST', '/api/admin/pedidos/3/comprobante/aprobar', {}],
+    ['PUT', '/api/admin/cocina/pedidos/1/estado', { estado_pedido: 'listo' }],
+    ['PUT', '/api/admin/productos/1/imagen', new FormData()],
+    ['POST', '/api/admin/productos/1/imagen/extra', new FormData()],
+    ['PATCH', '/api/admin/pedidos/1/estado/extra', { estado_pedido: 'listo' }],
+  ])('does not route %s %s through the generic mutation fallback', async (method, path, body) => {
+    const { mockApiRequest } = await import('@/lib/mocks/adapter')
+    await expect(mockApiRequest(method, path, undefined, body)).rejects.toMatchObject({ status: 404 })
+  })
+
   it.each([
     ['activo', (p: { activo: number; disponible: number; stock_limitado: number; stock_actual: number | null }) => p.activo === 1 && p.disponible === 1 && (p.stock_limitado === 0 || p.stock_actual === null || p.stock_actual > 0)],
     ['agotado', (p: { activo: number; disponible: number; stock_limitado: number; stock_actual: number | null }) => p.activo === 1 && p.disponible === 1 && p.stock_limitado === 1 && (p.stock_actual ?? 0) <= 0],
@@ -242,7 +367,7 @@ describe('mock API mode', () => {
           total_recaudado: 0,
         }
         current.cantidad += item.cantidad
-        current.total_recaudado += item.subtotal
+        current.total_recaudado += Number(item.subtotal)
         ranking.set(item.producto_id, current)
       }
     }
@@ -251,9 +376,9 @@ describe('mock API mode', () => {
     const reportes = await apiGet<Record<string, unknown>>('/api/admin/reportes')
 
     expect(reportes).toMatchObject({
-      total_recaudado: paid.reduce((sum, pedido) => sum + pedido.total, 0),
-      total_efectivo: paid.filter((pedido) => pedido.metodo_pago === 'efectivo').reduce((sum, pedido) => sum + pedido.total, 0),
-      total_transferencia: paid.filter((pedido) => pedido.metodo_pago === 'transferencia').reduce((sum, pedido) => sum + pedido.total, 0),
+      total_recaudado: paid.reduce((sum, pedido) => sum + Number(pedido.total), 0),
+      total_efectivo: paid.filter((pedido) => pedido.metodo_pago === 'efectivo').reduce((sum, pedido) => sum + Number(pedido.total), 0),
+      total_transferencia: paid.filter((pedido) => pedido.metodo_pago === 'transferencia').reduce((sum, pedido) => sum + Number(pedido.total), 0),
       pedidos_pagados: paid.length,
       productos_vendidos: paid.flatMap((pedido) => pedido.items).reduce((sum, item) => sum + item.cantidad, 0),
       pedidos_pendientes_pago: 0,

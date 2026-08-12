@@ -1,7 +1,7 @@
 # Kermingo
 
 > **Estado actual:** portfolio permanente en Vercel en **modo demo** (sin backend Railway).
-> Docs: [`DOCUMENTACION/IA/MODO-DEMO.md`](DOCUMENTACION/IA/MODO-DEMO.md) · [`REVIVIR-BACKEND.md`](DOCUMENTACION/IA/REVIVIR-BACKEND.md) · [`GUIA-FRONTEND.md`](DOCUMENTACION/IA/GUIA-FRONTEND.md)
+> Docs: [`MODO-DEMO.md`](DOCUMENTACION/IA/MODO-DEMO.md) · [`DEPLOY.md`](DOCUMENTACION/IA/DEPLOY.md) · [`REVIVIR-BACKEND.md`](DOCUMENTACION/IA/REVIVIR-BACKEND.md)
 
 Kermingo es una app web hecha para organizar la venta de comida y bebida de un evento scout recaudatorio. La idea es que las familias puedan ver el menú, armar su pedido desde el celular, elegir cómo pagan y seguir el estado de la compra sin depender de planillas sueltas o mensajes perdidos.
 
@@ -131,7 +131,7 @@ Build de producción:
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm build
+NEXT_PUBLIC_MOCK_API=true pnpm build
 ```
 
 Tests y lint:
@@ -144,21 +144,9 @@ pnpm test
 
 ## Deploy
 
-El deploy previsto es:
+El deploy actual es el frontend Next.js en Vercel, con root directory `kermingo_menu/frontend` y `NEXT_PUBLIC_MOCK_API=true`. No hay backend ni MySQL hospedados y el modo demo no llama a Railway, Google Drive ni otra API externa.
 
-- **Frontend:** Vercel, con root directory `kermingo_menu/frontend`.
-- **Backend:** Railway, con root directory `kermingo_menu/backend`.
-- **Base de datos:** MySQL en Railway.
-
-Para una base nueva hay que cargar:
-
-```txt
-backend/src/api/database/schema.sql
-backend/src/api/database/indexes.sql
-backend/src/api/database/seed.sql
-```
-
-Si la base ya existía antes de los cambios de productos, también puede hacer falta aplicar la migración manual correspondiente en `backend/src/api/database/migrations/manual/`.
+La configuración vigente está en [`DOCUMENTACION/IA/DEPLOY.md`](DOCUMENTACION/IA/DEPLOY.md). Para volver a desplegar Express + MySQL, seguí [`DOCUMENTACION/IA/REVIVIR-BACKEND.md`](DOCUMENTACION/IA/REVIVIR-BACKEND.md).
 
 ## Documentación técnica
 
