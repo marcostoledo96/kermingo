@@ -1,26 +1,25 @@
 import { ApiError } from '../api-error'
 import {
   DEMO_COMPROBANTE_META,
-  listPedidoItems,
   MOCK_COMPONENTES,
   MOCK_CONFIG,
   MOCK_PEDIDOS,
   MOCK_PRODUCTOS,
   MOCK_REPORTES,
-  toCocinaHeaders,
 } from './fixtures'
 import {
   DEMO_ADMIN_EMAIL,
   DEMO_ADMIN_PASSWORD,
 } from './mode'
 import { readDemoSession, writeDemoSession, type DemoSessionUser } from './session'
-import type { ApiComponente, ApiConfiguracion, ApiPedido, ApiProducto } from '../types'
+import type { ApiCocinaPedido, ApiComponente, ApiConfiguracion, ApiPedido, ApiProducto } from '../types'
 
 const DEMO_NOOP_MESSAGE =
   'Modo demo: esta acción no se guarda. El backend de Railway está apagado.'
 const DEMO_ORDERS_KEY = 'kermingo:demoOrders'
 const demoProducts = new Map<number, ApiProducto>()
 const demoComponents = new Map<number, ApiComponente[]>()
+const demoPedidos = new Map<number, ApiPedido>()
 
 function delay<T>(value: T, ms = 80): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -61,7 +60,9 @@ function paginateProductos(query?: Record<string, string | number | undefined>) 
 }
 
 function paginatePedidos(query?: Record<string, string | number | undefined>) {
-  let list = listPedidoItems().sort((a, b) => b.id - a.id)
+  let list = MOCK_PEDIDOS.map((pedido) => demoPedidos.get(pedido.id) ?? pedido)
+    .map(({ items: _items, ...pedido }) => pedido)
+    .sort((a, b) => b.id - a.id)
   const equals = (key: 'estado_pedido' | 'metodo_pago' | 'origen') => {
     const value = query?.[key]
     if (typeof value === 'string' && value) list = list.filter((pedido) => pedido[key] === value)
@@ -114,14 +115,37 @@ function isPublicProducto(producto: ApiProducto) {
 }
 
 function findPedido(id: number) {
-  return MOCK_PEDIDOS.find((p) => p.id === id) ?? null
+  return demoPedidos.get(id) ?? MOCK_PEDIDOS.find((p) => p.id === id) ?? null
 }
 
 function findPedidoByToken(token: string) {
   const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
   return saved.find((p) => p.token_seguimiento === token)
+    ?? [...demoPedidos.values()].find((p) => p.token_seguimiento === token)
     ?? MOCK_PEDIDOS.find((p) => p.token_seguimiento === token)
     ?? null
+}
+
+function saveDemoPedido(pedido: ApiPedido) {
+  demoPedidos.set(pedido.id, pedido)
+  return pedido
+}
+
+function cocinaPedidos(): ApiCocinaPedido[] {
+  return MOCK_PEDIDOS.map((pedido) => demoPedidos.get(pedido.id) ?? pedido)
+    .filter((pedido) => ['en_preparacion', 'listo'].includes(pedido.estado_pedido))
+    .map((pedido) => ({
+      id: pedido.id,
+      numero: pedido.numero,
+      nombre_cliente: pedido.nombre_cliente,
+      mesa: pedido.mesa,
+      estado_pedido: pedido.estado_pedido,
+      estado_pago: pedido.estado_pago,
+      observaciones: pedido.observaciones,
+      total: pedido.total,
+      created_at: pedido.created_at,
+      cantidad_items: pedido.items.reduce((total, item) => total + item.cantidad, 0),
+    }))
 }
 
 function objectBody(body: unknown, allowed: string[], message: string): Record<string, unknown> {
@@ -262,7 +286,7 @@ function editDemoPedido(id: number, body: unknown): ApiPedido {
         cantidad, subtotal: precio * cantidad, imagen_url: producto.imagen_url }
     })
   })()
-  return {
+  return saveDemoPedido({
     ...pedido,
     ...data,
     mesa: data.mesa === undefined ? pedido.mesa : normalize(data.mesa),
@@ -271,7 +295,7 @@ function editDemoPedido(id: number, body: unknown): ApiPedido {
     items,
     total: items.reduce((sum, item) => sum + Number(item.subtotal), 0),
     updated_at: new Date().toISOString(),
-  } as ApiPedido
+  } as ApiPedido)
 }
 
 function updateDemoPedidoState(id: number, body: unknown): ApiPedido {
@@ -282,7 +306,7 @@ function updateDemoPedidoState(id: number, body: unknown): ApiPedido {
     || !['recibido', 'en_preparacion', 'listo', 'entregado'].includes(String(data.estado_pedido))) {
     throw new ApiError('Estado de pedido inválido', 400)
   }
-  return { ...pedido, estado_pedido: data.estado_pedido, updated_at: new Date().toISOString() } as ApiPedido
+  return saveDemoPedido({ ...pedido, estado_pedido: data.estado_pedido, updated_at: new Date().toISOString() } as ApiPedido)
 }
 
 function updateDemoPaymentState(id: number, body: unknown): ApiPedido {
@@ -293,7 +317,7 @@ function updateDemoPaymentState(id: number, body: unknown): ApiPedido {
     || !['pendiente', 'comprobante_subido', 'pagado', 'rechazado'].includes(String(data.estado_pago))) {
     throw new ApiError('Estado de pago inválido', 400)
   }
-  return { ...pedido, estado_pago: data.estado_pago, updated_at: new Date().toISOString() } as ApiPedido
+  return saveDemoPedido({ ...pedido, estado_pago: data.estado_pago, updated_at: new Date().toISOString() } as ApiPedido)
 }
 
 function emptyBody(body: unknown) {
@@ -385,6 +409,34 @@ function createDemoPedido(body: FormData): ApiPedido {
     || !findProducto(item.producto_id)
   )) {
     throw new ApiError('Producto o cantidad inválidos', 400)
+  }
+  const requerimientos = new Map<number, number>()
+  for (const item of requestedItems) {
+    const producto = findProducto(item.producto_id)!
+    if (producto.activo !== 1 || producto.disponible !== 1) {
+      throw new ApiError('Producto no disponible', 400)
+    }
+    if (producto.tipo === 'promo') {
+      const componentes = demoComponents.get(producto.id) ?? MOCK_COMPONENTES[producto.id] ?? []
+      if (componentes.length === 0) throw new ApiError('Promo sin componentes', 400)
+      for (const componente of componentes) {
+        requerimientos.set(
+          componente.producto_id,
+          (requerimientos.get(componente.producto_id) ?? 0) + componente.cantidad * item.cantidad,
+        )
+      }
+    } else {
+      requerimientos.set(producto.id, (requerimientos.get(producto.id) ?? 0) + item.cantidad)
+    }
+  }
+  for (const [id, cantidad] of requerimientos) {
+    const producto = findProducto(id)
+    if (!producto || producto.disponible !== 1) {
+      throw new ApiError('Producto no disponible', 400)
+    }
+    if (producto.stock_limitado === 1 && (producto.stock_actual ?? 0) < cantidad) {
+      throw new ApiError('Stock insuficiente', 409)
+    }
   }
   const items = requestedItems.map(({ producto_id, cantidad }) => {
     const producto = findProducto(producto_id)!
@@ -493,7 +545,7 @@ export async function mockApiRequest<T>(
   }
 
   if (m === 'GET' && p === '/api/admin/cocina/pedidos') {
-    return delay(toCocinaHeaders() as T)
+    return delay(cocinaPedidos() as T)
   }
 
   if (m === 'GET' && match(p, /^\/api\/admin\/cocina\/pedidos\/(\d+)$/)) {
@@ -539,7 +591,7 @@ export async function mockApiRequest<T>(
     emptyBody(body)
     const pedido = findPedido(Number(cancelarMatch[1]))
     if (!pedido) throw new ApiError('Pedido no encontrado', 404)
-    return demoNoop({ ...pedido, estado_pedido: 'cancelado', updated_at: new Date().toISOString() } as T)
+    return demoNoop(saveDemoPedido({ ...pedido, estado_pedido: 'cancelado', updated_at: new Date().toISOString() }) as T)
   }
 
   const aprobarMatch = match(p, /^\/api\/admin\/pedidos\/(\d+)\/comprobante\/aprobar$/)
@@ -547,9 +599,9 @@ export async function mockApiRequest<T>(
     emptyBody(body)
     const pedido = findPedido(Number(aprobarMatch[1]))
     if (!pedido) throw new ApiError('Pedido no encontrado', 404)
-    return demoNoop({ ...pedido, estado_pago: 'pagado',
+    return demoNoop(saveDemoPedido({ ...pedido, estado_pago: 'pagado',
       estado_pedido: pedido.estado_pedido === 'recibido' ? 'en_preparacion' : pedido.estado_pedido,
-      updated_at: new Date().toISOString() } as T)
+      updated_at: new Date().toISOString() }) as T)
   }
 
   const cocinaEstadoMatch = match(p, /^\/api\/admin\/cocina\/pedidos\/(\d+)\/estado$/)

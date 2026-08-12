@@ -183,7 +183,7 @@ function sensitiveInsertTarget(statement) {
 }
 
 function executableCommentTarget(statement) {
-  const body = statement.match(/^\/\*!\d*\s*([\s\S]*?)\*\/\s*$/)?.[1]
+  const body = statement.match(/^\/\*!\d*\s*([\s\S]*?)\*\//)?.[1]
   return body ? sensitiveInsertTarget(body) : null
 }
 

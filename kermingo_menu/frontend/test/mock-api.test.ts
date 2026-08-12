@@ -204,9 +204,8 @@ describe('mock API mode', () => {
     expect(components).toEqual([expect.objectContaining({ producto_id: 10, nombre: expect.any(String), cantidad: 2 })])
   })
 
-  it('edits an order from the strict body and recalculates authoritative items and total', async () => {
+  it('keeps an edited order in detail and list refetches', async () => {
     const { apiGet, apiPut } = await import('@/lib/api')
-    const before = await apiGet<Record<string, unknown>>('/api/admin/pedidos/1')
     const edited = await apiPut<Record<string, unknown>>('/api/admin/pedidos/1', {
       nombre_cliente: 'Cliente corregido', mesa: '', telefono_cliente: '', observaciones: '',
       items: [{ producto_id: 5, cantidad: 2 }],
@@ -217,31 +216,42 @@ describe('mock API mode', () => {
       observaciones: null, total: 5000,
       items: [expect.objectContaining({ producto_id: 5, nombre_producto: 'Pancho', cantidad: 2, subtotal: 5000 })],
     }))
-    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(before)
+    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(edited)
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'Cliente corregido' })).resolves.toMatchObject({
+      pedidos: [expect.objectContaining({ id: 1, nombre_cliente: 'Cliente corregido', total: 5000 })],
+      paginacion: { total: 1 },
+    })
     await expect(apiPut('/api/admin/pedidos/1', { total: 1 })).rejects.toMatchObject({ status: 400 })
     await expect(apiPut('/api/admin/pedidos/1', { items: [{ producto_id: 999, cantidad: 1 }] })).rejects.toMatchObject({ status: 400 })
   })
 
-  it('returns a nonpersistent order with the requested admin state', async () => {
+  it('keeps the requested admin state across refetch', async () => {
     const { apiGet, apiPatch } = await import('@/lib/api')
-    const before = await apiGet<Record<string, unknown>>('/api/admin/pedidos/1')
     const updated = await apiPatch<Record<string, unknown>>('/api/admin/pedidos/1/estado', {
       estado_pedido: 'listo',
     })
 
     expect(updated).toMatchObject({ id: 1, estado_pedido: 'listo' })
-    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(before)
+    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(updated)
+    await expect(apiGet('/api/admin/cocina/pedidos')).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 1, estado_pedido: 'listo' })]),
+    )
+    await expect(apiGet('/api/pedidos/seguimiento/demodemo000000000000000000000001'))
+      .resolves.toMatchObject({ id: 1, estado_pedido: 'listo' })
   })
 
-  it('returns a nonpersistent order with the requested payment state', async () => {
-    const { apiPatch } = await import('@/lib/api')
+  it('keeps payment updates across refetch and removes them from the pending filter', async () => {
+    const { apiGet, apiPatch } = await import('@/lib/api')
 
-    await expect(apiPatch('/api/admin/pedidos/1/pago', { estado_pago: 'rechazado' }))
-      .resolves.toMatchObject({ id: 1, estado_pago: 'rechazado' })
-    await expect(apiPatch('/api/admin/pedidos/1/pago', {
+    await expect(apiPatch('/api/admin/pedidos/3/pago', { estado_pago: 'pagado' }))
+      .resolves.toMatchObject({ id: 3, estado_pago: 'pagado' })
+    await expect(apiGet('/api/admin/pedidos/3')).resolves.toMatchObject({ id: 3, estado_pago: 'pagado' })
+    await expect(apiGet('/api/admin/pedidos', { estado_pago: 'comprobante_subido' }))
+      .resolves.toMatchObject({ pedidos: [], paginacion: { total: 0 } })
+    await expect(apiPatch('/api/admin/pedidos/3/pago', {
       estado_pago: 'pagado', extra: true,
     })).rejects.toMatchObject({ status: 400 })
-    await expect(apiPatch('/api/admin/pedidos/1/pago', {
+    await expect(apiPatch('/api/admin/pedidos/3/pago', {
       estado_pago: 'inventado',
     })).rejects.toMatchObject({ status: 400 })
   })
@@ -538,6 +548,38 @@ describe('mock API mode', () => {
       name: 'ApiError',
       status: 400,
     })
+  })
+
+  it.each([
+    ['desactivado', { activo: 0, stock_limitado: 0 }, 1, 400],
+    ['no disponible', { disponible: 0, stock_limitado: 0 }, 1, 400],
+    ['agotado', { stock_limitado: 1, stock_actual: 0 }, 1, 409],
+    ['cantidad mayor al stock', { stock_limitado: 1, stock_actual: 1 }, 2, 409],
+  ])('rejects a stale cart product that is %s at checkout', async (_case, overrides, cantidad, status) => {
+    const { apiPost, apiPostForm } = await import('@/lib/api')
+    const product = await apiPost<{ id: number }>('/api/admin/productos', {
+      nombre: `Producto ${_case}`, precio: 1000, tipo: 'comida', categorias: ['Merienda'],
+      activo: 1, disponible: 1, ...overrides,
+    })
+    const form = new FormData()
+    form.set('items', JSON.stringify([{ producto_id: product.id, cantidad }]))
+
+    await expect(apiPostForm('/api/pedidos', form)).rejects.toMatchObject({ status })
+  })
+
+  it('rejects incomplete promos and promos whose component stock cannot cover the requested quantity', async () => {
+    const { apiPost, apiPostForm, apiPut } = await import('@/lib/api')
+    const promo = await apiPost<{ id: number }>('/api/admin/productos', {
+      nombre: 'Promo stale', precio: 3000, tipo: 'promo', categorias: ['Merienda'], stock_limitado: 0,
+    })
+    const form = new FormData()
+    form.set('items', JSON.stringify([{ producto_id: promo.id, cantidad: 1 }]))
+    await expect(apiPostForm('/api/pedidos', form)).rejects.toMatchObject({ status: 400 })
+
+    await apiPut(`/api/admin/productos/${promo.id}/componentes`, {
+      componentes: [{ producto_id: 4, cantidad: 1 }],
+    })
+    await expect(apiPostForm('/api/pedidos', form)).rejects.toMatchObject({ status: 409 })
   })
 
   it('accepts demo login and me()', async () => {

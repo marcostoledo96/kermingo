@@ -182,6 +182,8 @@ describe('anonymize-dump', () => {
     ['unmatched parenthesis', 'SELECT (1;'],
     ['executable sensitive insert', "/*!40101 INSERT INTO pedido VALUES (1, 'private') */;"],
     ['qualified executable sensitive insert', "/*!40101 INSERT INTO `demo archive`.`pedido` VALUES (1, 'private') */;"],
+    ['executable sensitive insert before -- comment', "/*!40101 INSERT INTO pedido VALUES (1, 'private') */ -- trailing\n;"],
+    ['executable sensitive insert before # comment', "/*!40101 INSERT INTO pedido VALUES (1, 'private') */ # trailing\n;"],
     ['executable comment inside sensitive insert', "INSERT /*! generated */ INTO pedido VALUES (1, 'private');"],
   ])('fails closed without output for %s', async (_case, sql) => {
     const input = join(dir, 'input.sql')
