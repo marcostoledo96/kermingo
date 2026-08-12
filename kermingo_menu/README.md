@@ -1,8 +1,11 @@
 # Kermingo
 
+> **Estado actual:** portfolio permanente en Vercel en **modo demo** (sin backend Railway).  
+> Docs: [`DOCUMENTACION/IA/MODO-DEMO.md`](DOCUMENTACION/IA/MODO-DEMO.md) · [`REVIVIR-BACKEND.md`](DOCUMENTACION/IA/REVIVIR-BACKEND.md) · [`GUIA-FRONTEND.md`](DOCUMENTACION/IA/GUIA-FRONTEND.md)
+
 Kermingo es una app web hecha para organizar la venta de comida y bebida de un evento scout recaudatorio. La idea es que las familias puedan ver el menú, armar su pedido desde el celular, elegir cómo pagan y seguir el estado de la compra sin depender de planillas sueltas o mensajes perdidos.
 
-El evento está pensado para el **20 de junio de 2026**, en **Estomba 1980**, con una estética argentina, mundialista y scout: bingo, kermesse, comida, disfraces y recaudación para el campamento de verano.
+El evento estuvo pensado para el **20 de junio de 2026**, en **Estomba 1980**, con una estética argentina, mundialista y scout: bingo, kermesse, comida, disfraces y recaudación para el campamento de verano. El sitio público queda como **archivo / demo** con login admin simulado.
 
 ## Para qué sirve
 

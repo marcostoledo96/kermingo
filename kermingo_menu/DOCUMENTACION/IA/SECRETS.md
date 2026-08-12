@@ -57,15 +57,31 @@ Configurar en el dashboard de Railway como variables de entorno del servicio bac
 
 Railway inyecta automáticamente `PORT` como variable de entorno interna.
 
+### Decommission
+
+Tras completar el checklist de `DEPLOY.md` §5:
+
+- Eliminar o rotar `JWT_SECRET`, `DB_*`, `GOOGLE_OAUTH_*` en Railway.
+- Revocar el refresh token OAuth en Google Cloud Console.
+- No reutilizar secrets del entorno de producción demo en commits.
+
+Las variables de esta sección aplican **solo** si se vuelve a hospedar el backend (`REVIVIR-BACKEND.md`).
+
 ---
 
 ## 3. Variables en Vercel (producción)
 
-Configurar en el dashboard de Vercel como variables de entorno del proyecto frontend:
+**Estado demo (portfolio permanente):**
 
 | Variable | Valor |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | URL del backend en Railway (ej: `https://kermingo-backend.up.railway.app`) |
+| `NEXT_PUBLIC_MOCK_API` | `true` |
+| `NEXT_PUBLIC_API_URL` | vacía / no definir |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS` | opcional |
+
+**Estado legacy (API real):** `NEXT_PUBLIC_MOCK_API=false` y `NEXT_PUBLIC_API_URL` apuntando al backend.
+
+Ver `MODO-DEMO.md` y `DEPLOY.md`.
 
 ---
 
