@@ -108,6 +108,11 @@ function findProducto(id: number) {
   return demoProducts.get(id) ?? MOCK_PRODUCTOS.find((p) => p.id === id) ?? null
 }
 
+function isPublicProducto(producto: ApiProducto) {
+  return producto.activo === 1
+    && (producto.tipo !== 'promo' || (producto.componentes_count ?? 0) > 0)
+}
+
 function findPedido(id: number) {
   return MOCK_PEDIDOS.find((p) => p.id === id) ?? null
 }
@@ -445,13 +450,13 @@ export async function mockApiRequest<T>(
 
   if (m === 'GET' && p === '/api/productos') {
     // Public menu expects a bare array from apiGet unwrap
-    return delay([...MOCK_PRODUCTOS, ...demoProducts.values()] as T)
+    return delay([...MOCK_PRODUCTOS, ...demoProducts.values()].filter(isPublicProducto) as T)
   }
 
   if (m === 'GET' && match(p, /^\/api\/productos\/(\d+)$/)) {
     const id = Number(match(p, /^\/api\/productos\/(\d+)$/)![1])
     const prod = findProducto(id)
-    if (!prod) throw new ApiError('Producto no encontrado', 404)
+    if (!prod || !isPublicProducto(prod)) throw new ApiError('Producto no encontrado', 404)
     return delay(prod as T)
   }
 

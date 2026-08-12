@@ -154,8 +154,25 @@ const INSERT_TARGET = new RegExp(
   'i',
 )
 
+function maskComments(statement, includeExecutable = false) {
+  const blockComment = includeExecutable ? '\\/\\*[\\s\\S]*?\\*\\/' : '\\/\\*(?!\\!)[\\s\\S]*?\\*\\/'
+  return statement.replace(
+    new RegExp(`${blockComment}|#[^\\r\\n]*|--(?=[\\x00-\\x20])[^\\r\\n]*`, 'g'),
+    (comment) => comment.replace(/[^\r\n]/g, ' '),
+  )
+}
+
 function sensitiveInsertTarget(statement) {
-  const match = statement.match(INSERT_TARGET)
+  let match = maskComments(statement).match(INSERT_TARGET)
+  if (!match && statement.includes('/*!')) {
+    const executableMatch = maskComments(statement, true).match(INSERT_TARGET)
+    if (executableMatch) {
+      const table = executableMatch.groups.table.replaceAll('`', '').toLowerCase()
+      if (Object.hasOwn(SENSITIVE_TABLES, table)) {
+        throw new Error('Unsafe executable comment: sensitive INSERT is not supported')
+      }
+    }
+  }
   if (!match) return null
   const table = match.groups.table.startsWith('`')
     ? match.groups.table.slice(1, -1).replaceAll('``', '`').toLowerCase()

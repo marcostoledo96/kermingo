@@ -76,6 +76,21 @@ describe('anonymize-dump', () => {
   })
 
   it.each([
+    'INSERT /* generated export */ INTO pedido',
+    'INSERT\n-- generated export\nINTO pedido',
+  ])('scrubs pedido when ordinary comments separate INSERT tokens: %s', async (header) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, `${header} (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');\n`)
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).toContain("'Cliente Demo 1'")
+    expect(result).not.toMatch(/Persona real|2915551111|Mesa 8|Privado/)
+  })
+
+  it.each([
     ['usuario', 'nombre, email, contrasenia_hash', "'Persona', 'persona@example.test', 'private-hash'"],
     ['archivo_drive', 'nombre_original, drive_id, url_publica', "'private.pdf', 'private-drive', 'https://private.test'"],
   ])('scrubs every qualified quoting form for %s', async (table, columns, values) => {
@@ -167,6 +182,7 @@ describe('anonymize-dump', () => {
     ['unmatched parenthesis', 'SELECT (1;'],
     ['executable sensitive insert', "/*!40101 INSERT INTO pedido VALUES (1, 'private') */;"],
     ['qualified executable sensitive insert', "/*!40101 INSERT INTO `demo archive`.`pedido` VALUES (1, 'private') */;"],
+    ['executable comment inside sensitive insert', "INSERT /*! generated */ INTO pedido VALUES (1, 'private');"],
   ])('fails closed without output for %s', async (_case, sql) => {
     const input = join(dir, 'input.sql')
     const output = join(dir, 'output.sql')

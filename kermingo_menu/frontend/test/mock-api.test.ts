@@ -27,6 +27,36 @@ describe('mock API mode', () => {
     expect(productos[0]?.id).toBe(1)
   })
 
+  it('hides a deactivated ephemeral product from the public catalog', async () => {
+    const { apiGet, apiPatch, apiPost } = await import('@/lib/api')
+    const created = await apiPost<{ id: number }>('/api/admin/productos', {
+      nombre: 'Producto temporal', precio: 1000, tipo: 'comida', categorias: ['Merienda'],
+      stock_limitado: 0,
+    })
+
+    await apiPatch(`/api/admin/productos/${created.id}/desactivar`, {})
+    const productos = await apiGet<Array<{ id: number }>>('/api/productos')
+
+    expect(productos).not.toContainEqual(expect.objectContaining({ id: created.id }))
+  })
+
+  it('hides an ephemeral promo until it has components', async () => {
+    const { apiGet, apiPost, apiPut } = await import('@/lib/api')
+    const created = await apiPost<{ id: number }>('/api/admin/productos', {
+      nombre: 'Promo temporal', precio: 4200, tipo: 'promo', categorias: ['Merienda'],
+      stock_limitado: 0,
+    })
+
+    expect(await apiGet<Array<{ id: number }>>('/api/productos'))
+      .not.toContainEqual(expect.objectContaining({ id: created.id }))
+
+    await apiPut(`/api/admin/productos/${created.id}/componentes`, {
+      componentes: [{ producto_id: 10, cantidad: 2 }],
+    })
+    expect(await apiGet<Array<{ id: number }>>('/api/productos'))
+      .toContainEqual(expect.objectContaining({ id: created.id }))
+  })
+
   it('keeps product 14 image fields null in the fixture and public endpoint', async () => {
     const [{ apiGet }, { MOCK_PRODUCTOS }] = await Promise.all([
       import('@/lib/api'),
@@ -119,7 +149,7 @@ describe('mock API mode', () => {
     const id = Number(created.id)
     expect((await apiGet<{ productos: Array<{ id: number }> }>('/api/admin/productos', { estado: 'todos' })).productos)
       .toContainEqual(expect.objectContaining({ id }))
-    await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({ id, nombre: 'Promo nueva' })
+    await expect(apiGet(`/api/productos/${id}`)).rejects.toMatchObject({ status: 404 })
 
     const { apiDelete, apiPatch, apiPostForm, apiPut } = await import('@/lib/api')
     await expect(apiPut(`/api/admin/productos/${id}`, {
