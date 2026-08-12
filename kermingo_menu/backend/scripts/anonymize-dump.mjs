@@ -97,11 +97,31 @@ const SENSITIVE_TABLES = {
   },
 }
 
+const QUOTED_IDENTIFIER = '`(?:``|[^`])+`'
+const UNQUOTED_IDENTIFIER = '(?:[a-zA-Z_$\u0080-\uFFFF][a-zA-Z0-9_$\u0080-\uFFFF]*|[0-9]+[a-zA-Z_$\u0080-\uFFFF][a-zA-Z0-9_$\u0080-\uFFFF]*)'
+const IDENTIFIER = `(?:${QUOTED_IDENTIFIER}|${UNQUOTED_IDENTIFIER})`
+const INSERT_TARGET = new RegExp(
+  `^INSERT\\b(?<modifiers>(?:\\s+[a-zA-Z_]+)*)\\s+INTO\\s+(?:(?<schema>${IDENTIFIER})\\s*\\.\\s*)?(?<table>${IDENTIFIER})(?=\\s|\\()`,
+  'i',
+)
+
+function sensitiveInsertTarget(statement) {
+  const match = statement.match(INSERT_TARGET)
+  if (!match) return null
+  const table = match.groups.table.startsWith('`')
+    ? match.groups.table.slice(1, -1).replaceAll('``', '`').toLowerCase()
+    : match.groups.table.toLowerCase()
+  return Object.hasOwn(SENSITIVE_TABLES, table)
+    ? { table, end: match[0].length, hasModifiers: match.groups.modifiers.trim() !== '' }
+    : null
+}
+
 function anonymizeSensitiveInsert(statement, table, firstSequence) {
-  const parsed = statement.match(
-    new RegExp(`^(INSERT\\s+INTO\\s+\`?${table}\`?\\s*)\\(([^)]*)\\)(\\s+VALUES\\s*)([\\s\\S]+)$`, 'i'),
-  )
-  if (!parsed) {
+  const target = sensitiveInsertTarget(statement)
+  const parsed = target && !target.hasModifiers
+    ? statement.slice(target.end).match(/^(\s*)\(([^)]*)\)(\s+VALUES\s*)([\s\S]+)$/i)
+    : null
+  if (!parsed || target.table !== table) {
     throw new Error(`Unsafe ${table} INSERT: explicit columns and plain VALUES are required`)
   }
 
@@ -131,33 +151,33 @@ function anonymizeSensitiveInsert(statement, table, firstSequence) {
   })
 
   return {
-    sql: `${parsed[1]}(${parsed[2]})${parsed[3]}${scrubbedRows.join(',\n')}`,
+    sql: `${statement.slice(0, target.end)}${parsed[1]}(${parsed[2]})${parsed[3]}${scrubbedRows.join(',\n')}`,
     sequence,
   }
 }
 
 const sequences = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
-const expectedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [
-  table,
-  sql.match(new RegExp(`\\bINTO\\s+\`?${table}\`?\\b`, 'gi'))?.length ?? 0,
-]))
+const expectedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
 const parsedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
 const statements = splitSql(sql, ';')
+for (const statement of statements) {
+  const prefix = statement.match(/^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:#[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0] ?? ''
+  const target = sensitiveInsertTarget(statement.slice(prefix.length))
+  if (target) expectedCounts[target.table] += 1
+}
 sql = statements.map((statement) => {
   const prefix = statement.match(/^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:#[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0] ?? ''
   const executable = statement.slice(prefix.length)
-  for (const table of Object.keys(SENSITIVE_TABLES)) {
-    if (!new RegExp(`^INSERT\\b[\\s\\S]*?\\bINTO\\s+\`?${table}\`?\\b`, 'i').test(executable)) continue
-    const result = anonymizeSensitiveInsert(executable, table, sequences[table])
-    parsedCounts[table] += 1
-    sequences[table] = result.sequence
-    return prefix + result.sql
-  }
-  return statement
+  const target = sensitiveInsertTarget(executable)
+  if (!target) return statement
+  const result = anonymizeSensitiveInsert(executable, target.table, sequences[target.table])
+  parsedCounts[target.table] += 1
+  sequences[target.table] = result.sequence
+  return prefix + result.sql
 }).join(';')
 for (const table of Object.keys(SENSITIVE_TABLES)) {
   if (parsedCounts[table] !== expectedCounts[table]) {
-    throw new Error(`Unsafe ${table} INSERT: not every statement could be parsed`)
+    throw new Error(`Unsafe ${table} INSERT: not every executable statement could be parsed`)
   }
 }
 

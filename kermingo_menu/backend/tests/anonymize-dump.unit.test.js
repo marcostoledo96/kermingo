@@ -53,6 +53,65 @@ describe('anonymize-dump', () => {
     expect(result).toContain('-- Source: anonymized SQL input')
   })
 
+  it.each([
+    'pedido',
+    'demo.pedido',
+    '`demo`.pedido',
+    'demo.`pedido`',
+    '`demo`.`pedido`',
+    '`demo-prod`.`pedido`',
+    '`demo archive`.`pedido`',
+    '`demo``prod`.`pedido`',
+  ])('scrubs pedido INSERT with target %s', async (target) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, `INSERT INTO ${target} (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');\n`)
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).toContain(`INSERT INTO ${target}`)
+    expect(result).toContain("'Cliente Demo 1'")
+    expect(result).not.toMatch(/Persona real|2915551111|Mesa 8|Privado/)
+  })
+
+  it.each([
+    ['usuario', 'nombre, email, contrasenia_hash', "'Persona', 'persona@example.test', 'private-hash'"],
+    ['archivo_drive', 'nombre_original, drive_id, url_publica', "'private.pdf', 'private-drive', 'https://private.test'"],
+  ])('scrubs every qualified quoting form for %s', async (table, columns, values) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    const targets = [`demo.${table}`, `\`demo\`.${table}`, `demo.\`${table}\``, `\`demo\`.\`${table}\``]
+    await writeFile(input, targets.map((target) =>
+      `INSERT INTO ${target} (${columns}) VALUES (${values});`).join('\n'))
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).not.toMatch(/Persona|persona@example|private-hash|private\.pdf|private-drive|private\.test/)
+  })
+
+  it('ignores comments, DDL, and similar table names that mention sensitive tables', async () => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    const sql = [
+      '-- INSERT INTO pedido VALUES (1, \'comment only\')',
+      'CREATE TABLE pedido_backup (id INT)',
+      "INSERT INTO pedido_backup (nombre_cliente) VALUES ('Catalog value')",
+      "INSERT INTO `demo-prod`.`pedido_historico` (nombre_cliente) VALUES ('Historical value')",
+      "INSERT INTO demo.usuario_audit (email) VALUES ('audit@example.test')",
+      '',
+    ].join(';\n')
+    await writeFile(input, sql)
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).toContain("INSERT INTO pedido_backup (nombre_cliente) VALUES ('Catalog value')")
+    expect(result).toContain("INSERT INTO `demo-prod`.`pedido_historico` (nombre_cliente) VALUES ('Historical value')")
+    expect(result).toContain("INSERT INTO demo.usuario_audit (email) VALUES ('audit@example.test')")
+  })
+
   it('fails closed before writing output when a pedido insert has no explicit column list', async () => {
     const input = join(dir, 'input.sql')
     const output = join(dir, 'output.sql')
@@ -98,6 +157,23 @@ describe('anonymize-dump', () => {
     await expect(execFileAsync(process.execPath, [script.pathname, input, output])).rejects.toMatchObject({
       code: 1,
     })
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
+    'demo.pedido',
+    '`demo`.pedido',
+    'demo.`pedido`',
+    '`demo`.`pedido`',
+    '`demo-prod`.`pedido`',
+    '`demo archive`.`pedido`',
+    '`demo``prod`.`pedido`',
+  ])('fails closed without output for qualified %s missing sensitive columns', async (target) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, `INSERT INTO ${target} (id, nombre_cliente) VALUES (1, 'Persona');\n`)
+
+    await expect(execFileAsync(process.execPath, [script.pathname, input, output])).rejects.toMatchObject({ code: 1 })
     await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

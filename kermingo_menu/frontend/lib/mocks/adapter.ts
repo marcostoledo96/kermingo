@@ -14,7 +14,7 @@ import {
   DEMO_ADMIN_PASSWORD,
 } from './mode'
 import { readDemoSession, writeDemoSession, type DemoSessionUser } from './session'
-import type { ApiConfiguracion, ApiPedido } from '../types'
+import type { ApiComponente, ApiConfiguracion, ApiPedido, ApiProducto } from '../types'
 
 const DEMO_NOOP_MESSAGE =
   'Modo demo: esta acción no se guarda. El backend de Railway está apagado.'
@@ -35,8 +35,14 @@ function match(path: string, pattern: RegExp): RegExpMatchArray | null {
 function paginateProductos(query?: Record<string, string | number | undefined>) {
   let list = [...MOCK_PRODUCTOS]
   const estado = query?.estado
-  if (estado === 'activo') list = list.filter((p) => p.activo === 1)
-  if (estado === 'inactivo') list = list.filter((p) => p.activo === 0)
+  if (estado === 'activo') list = list.filter((p) =>
+    p.activo === 1 && p.disponible === 1
+    && (p.stock_limitado === 0 || p.stock_actual === null || p.stock_actual > 0))
+  if (estado === 'agotado') list = list.filter((p) =>
+    p.activo === 1 && p.disponible === 1 && p.stock_limitado === 1 && (p.stock_actual ?? 0) <= 0)
+  if (estado === 'todavia_no_disponible') list = list.filter((p) => p.activo === 1 && p.disponible === 0)
+  if (estado === 'inactivo' || estado === 'desactivado') list = list.filter((p) => p.activo === 0)
+  if (query?.tipo) list = list.filter((p) => p.tipo === query.tipo)
   const limit = Number(query?.limit ?? 100) || 100
   const page = Number(query?.page ?? 1) || 1
   const start = (page - 1) * limit
@@ -109,6 +115,152 @@ function findPedidoByToken(token: string) {
   return saved.find((p) => p.token_seguimiento === token)
     ?? MOCK_PEDIDOS.find((p) => p.token_seguimiento === token)
     ?? null
+}
+
+function objectBody(body: unknown, allowed: string[], message: string): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).some((key) => !allowed.includes(key))) {
+    throw new ApiError(message, 400)
+  }
+  return body as Record<string, unknown>
+}
+
+const PRODUCT_FIELDS = [
+  'nombre', 'descripcion', 'precio', 'tipo', 'categorias', 'stock_limitado', 'stock_actual',
+  'stock_minimo_alerta', 'activo', 'disponible', 'orden',
+]
+let nextDemoProductId = Math.max(...MOCK_PRODUCTOS.map((p) => p.id)) + 1
+
+function integer(value: unknown, min = 0) {
+  return Number.isInteger(Number(value)) && Number(value) >= min
+}
+
+function productValues(body: unknown, creating: boolean) {
+  const data = objectBody(body, PRODUCT_FIELDS, 'Producto inválido')
+  const categories = data.categorias
+  if (categories !== undefined && (!Array.isArray(categories) || categories.length < 1
+      || categories.some((value) => !['Merienda', 'Cena'].includes(String(value))))) {
+    throw new ApiError('Producto inválido', 400)
+  }
+  if ((data.nombre !== undefined && (typeof data.nombre !== 'string' || data.nombre.length < 1 || data.nombre.length > 120))
+    || (data.descripcion !== undefined && (typeof data.descripcion !== 'string' || data.descripcion.length > 500))
+    || (data.precio !== undefined && (!Number.isFinite(Number(data.precio)) || Number(data.precio) < 0))
+    || (data.tipo !== undefined && !['comida', 'bebida', 'promo'].includes(String(data.tipo)))
+    || (data.stock_limitado !== undefined && ![0, 1].includes(Number(data.stock_limitado)))
+    || (data.stock_actual !== undefined && !integer(data.stock_actual))
+    || (data.stock_minimo_alerta !== undefined && !integer(data.stock_minimo_alerta))
+    || (data.activo !== undefined && ![0, 1].includes(Number(data.activo)))
+    || (data.disponible !== undefined && ![0, 1].includes(Number(data.disponible)))
+    || (data.orden !== undefined && !integer(data.orden))) {
+    throw new ApiError('Producto inválido', 400)
+  }
+  if (creating && (!data.nombre || typeof data.nombre !== 'string'
+    || !['comida', 'bebida', 'promo'].includes(String(data.tipo))
+    || !Array.isArray(categories)
+    || ![0, 1].includes(Number(data.stock_limitado))
+    || !Number.isFinite(Number(data.precio)) || Number(data.precio) < 0)) {
+    throw new ApiError('Producto inválido', 400)
+  }
+  return data
+}
+
+function createDemoProducto(body: unknown): ApiProducto {
+  const data = productValues(body, true)
+  const id = nextDemoProductId++
+  const stockLimitado = Number(data.stock_limitado) as 0 | 1
+  return {
+    id,
+    nombre: String(data.nombre),
+    descripcion: data.descripcion === undefined ? null : String(data.descripcion),
+    precio: Number(data.precio),
+    tipo: data.tipo as ApiProducto['tipo'],
+    stock_limitado: stockLimitado,
+    stock_actual: stockLimitado === 0 ? null : data.stock_actual === undefined ? null : Number(data.stock_actual),
+    stock_minimo_alerta: data.stock_minimo_alerta === undefined ? 5 : Number(data.stock_minimo_alerta),
+    activo: data.activo === undefined ? 1 : Number(data.activo) as 0 | 1,
+    disponible: data.disponible === undefined ? 1 : Number(data.disponible) as 0 | 1,
+    orden: data.orden === undefined ? Math.max(...MOCK_PRODUCTOS.map((p) => p.orden)) + 1 : Number(data.orden),
+    imagen_archivo_id: null,
+    imagen_nombre_original: null,
+    imagen_mime_type: null,
+    imagen_tamanio_bytes: null,
+    imagen_url: null,
+    categorias: (data.categorias as string[]).join(','),
+    componentes_count: 0,
+  }
+}
+
+function updateDemoProducto(id: number, body: unknown): ApiProducto {
+  const data = productValues(body, false)
+  const base = findProducto(id) ?? { ...MOCK_PRODUCTOS[0], id, imagen_archivo_id: null,
+    imagen_nombre_original: null, imagen_mime_type: null, imagen_tamanio_bytes: null, imagen_url: null }
+  const updates = Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key,
+    key === 'categorias' ? (value as string[]).join(',') : value,
+  ]))
+  return { ...base, ...updates, id } as ApiProducto
+}
+
+function updateDemoComponentes(body: unknown): ApiComponente[] {
+  const data = objectBody(body, ['componentes'], 'Componentes inválidos')
+  if (!Array.isArray(data.componentes)) throw new ApiError('Componentes inválidos', 400)
+  return data.componentes.map((value) => {
+    const component = objectBody(value, ['producto_id', 'cantidad'], 'Componentes inválidos')
+    const producto = findProducto(Number(component.producto_id))
+    if (!integer(component.producto_id, 1) || !producto || !integer(component.cantidad, 1)) {
+      throw new ApiError('Componentes inválidos', 400)
+    }
+    return {
+      producto_id: producto.id,
+      nombre: producto.nombre,
+      cantidad: Number(component.cantidad),
+      activo: producto.activo,
+      disponible: producto.disponible,
+      stock_limitado: producto.stock_limitado,
+      stock_actual: producto.stock_actual,
+    }
+  })
+}
+
+function editDemoPedido(id: number, body: unknown): ApiPedido {
+  const data = objectBody(body, [
+    'nombre_cliente', 'mesa', 'telefono_cliente', 'observaciones', 'metodo_pago', 'estado_pago', 'items',
+  ], 'Pedido inválido')
+  const pedido = findPedido(id)
+  if (!pedido || Object.keys(data).length === 0) throw new ApiError('Pedido inválido', pedido ? 400 : 404)
+  if ((data.nombre_cliente !== undefined && (typeof data.nombre_cliente !== 'string' || data.nombre_cliente.length < 1 || data.nombre_cliente.length > 150))
+    || (data.mesa !== undefined && (typeof data.mesa !== 'string' || data.mesa.length > 20))
+    || (data.telefono_cliente !== undefined && (typeof data.telefono_cliente !== 'string' || data.telefono_cliente.length > 40))
+    || (data.observaciones !== undefined && (typeof data.observaciones !== 'string' || data.observaciones.length > 500))
+    || (data.metodo_pago !== undefined && !['transferencia', 'efectivo'].includes(String(data.metodo_pago)))
+    || (data.estado_pago !== undefined && !['pendiente', 'comprobante_subido', 'pagado', 'rechazado'].includes(String(data.estado_pago)))) {
+    throw new ApiError('Pedido inválido', 400)
+  }
+  const normalize = (value: unknown) => value === '' || value === null ? null : String(value)
+  const items = data.items === undefined ? pedido.items : (() => {
+    if (!Array.isArray(data.items) || data.items.length === 0) throw new ApiError('Items inválidos', 400)
+    return data.items.map((value) => {
+      const item = objectBody(value, ['producto_id', 'cantidad'], 'Items inválidos')
+      const producto = findProducto(Number(item.producto_id))
+      if (!integer(item.producto_id, 1) || !producto || !integer(item.cantidad, 1)) {
+        throw new ApiError('Items inválidos', 400)
+      }
+      const cantidad = Number(item.cantidad)
+      const precio = Number(producto.precio)
+      return { producto_id: producto.id, nombre_producto: producto.nombre, precio_unitario: precio,
+        cantidad, subtotal: precio * cantidad, imagen_url: producto.imagen_url }
+    })
+  })()
+  return {
+    ...pedido,
+    ...data,
+    mesa: data.mesa === undefined ? pedido.mesa : normalize(data.mesa),
+    telefono_cliente: data.telefono_cliente === undefined ? pedido.telefono_cliente : normalize(data.telefono_cliente),
+    observaciones: data.observaciones === undefined ? pedido.observaciones : normalize(data.observaciones),
+    items,
+    total: items.reduce((sum, item) => sum + Number(item.subtotal), 0),
+    updated_at: new Date().toISOString(),
+  } as ApiPedido
 }
 
 function updateDemoConfig(body: unknown): ApiConfiguracion {
@@ -277,11 +429,7 @@ export async function mockApiRequest<T>(
   }
 
   if (m === 'POST' && p === '/api/admin/productos') {
-    return demoNoop({
-      ...MOCK_PRODUCTOS[0],
-      id: 999,
-      nombre: 'Producto demo (no guardado)',
-    } as T)
+    return demoNoop(createDemoProducto(body) as T)
   }
 
   if (m === 'PUT' && p === '/api/admin/configuracion-tienda') {
@@ -295,15 +443,13 @@ export async function mockApiRequest<T>(
     const idMatch = match(p, /\/(\d+)(?:\/|$)/)
     const id = idMatch ? Number(idMatch[1]) : NaN
     if (p.includes('/componentes') && !Number.isNaN(id)) {
-      return demoNoop((MOCK_COMPONENTES[id] ?? []) as T)
+      return demoNoop(updateDemoComponentes(body) as T)
     }
     if (p.includes('/productos') && !Number.isNaN(id)) {
-      const prod = findProducto(id) ?? MOCK_PRODUCTOS[0]
-      return demoNoop(prod as T)
+      return demoNoop(updateDemoProducto(id, body) as T)
     }
     if (p.includes('/pedidos') && !Number.isNaN(id)) {
-      const pedido = findPedido(id) ?? MOCK_PEDIDOS[0]
-      return demoNoop(pedido as T)
+      return demoNoop(editDemoPedido(id, body) as T)
     }
     if (p.includes('/orden')) {
       return demoNoop(MOCK_PRODUCTOS as T)

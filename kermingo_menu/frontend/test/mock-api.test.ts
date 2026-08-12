@@ -98,6 +98,87 @@ describe('mock API mode', () => {
     ]))
   })
 
+  it('creates an exact nonpersistent ApiProducto from the validated create body', async () => {
+    const { apiGet, apiPost } = await import('@/lib/api')
+    const body = {
+      nombre: 'Promo nueva', precio: 4200, tipo: 'promo', categorias: ['Merienda'],
+      stock_limitado: 0, injected: 'no',
+    }
+
+    await expect(apiPost('/api/admin/productos', body)).rejects.toMatchObject({ status: 400 })
+    delete (body as { injected?: string }).injected
+    const created = await apiPost<Record<string, unknown>>('/api/admin/productos', body)
+
+    expect(created).toEqual({
+      id: expect.any(Number), nombre: 'Promo nueva', descripcion: null, precio: 4200,
+      tipo: 'promo', stock_limitado: 0, stock_actual: null, stock_minimo_alerta: 5,
+      activo: 1, disponible: 1, orden: expect.any(Number), imagen_archivo_id: null,
+      imagen_nombre_original: null, imagen_mime_type: null, imagen_tamanio_bytes: null,
+      imagen_url: null, categorias: 'Merienda', componentes_count: 0,
+    })
+    expect((await apiGet<{ productos: Array<{ id: number }> }>('/api/admin/productos', { estado: 'todos' })).productos)
+      .not.toContainEqual(expect.objectContaining({ id: created.id }))
+  })
+
+  it('echoes validated promo updates and resolves component bodies for new ids', async () => {
+    const { apiPut } = await import('@/lib/api')
+    const updated = await apiPut<Record<string, unknown>>('/api/admin/productos/999', {
+      nombre: 'Promo editada', disponible: 0, categorias: ['Cena'],
+    })
+    const components = await apiPut<Array<Record<string, unknown>>>('/api/admin/productos/999/componentes', {
+      componentes: [{ producto_id: 10, cantidad: 2 }],
+    })
+
+    expect(updated).toEqual(expect.objectContaining({ id: 999, nombre: 'Promo editada', disponible: 0, categorias: 'Cena' }))
+    expect(components).toEqual([expect.objectContaining({ producto_id: 10, nombre: expect.any(String), cantidad: 2 })])
+  })
+
+  it('edits an order from the strict body and recalculates authoritative items and total', async () => {
+    const { apiGet, apiPut } = await import('@/lib/api')
+    const before = await apiGet<Record<string, unknown>>('/api/admin/pedidos/1')
+    const edited = await apiPut<Record<string, unknown>>('/api/admin/pedidos/1', {
+      nombre_cliente: 'Cliente corregido', mesa: '', telefono_cliente: '', observaciones: '',
+      items: [{ producto_id: 5, cantidad: 2 }],
+    })
+
+    expect(edited).toEqual(expect.objectContaining({
+      id: 1, nombre_cliente: 'Cliente corregido', mesa: null, telefono_cliente: null,
+      observaciones: null, total: 5000,
+      items: [expect.objectContaining({ producto_id: 5, nombre_producto: 'Pancho', cantidad: 2, subtotal: 5000 })],
+    }))
+    await expect(apiGet('/api/admin/pedidos/1')).resolves.toEqual(before)
+    await expect(apiPut('/api/admin/pedidos/1', { total: 1 })).rejects.toMatchObject({ status: 400 })
+    await expect(apiPut('/api/admin/pedidos/1', { items: [{ producto_id: 999, cantidad: 1 }] })).rejects.toMatchObject({ status: 400 })
+  })
+
+  it.each([
+    ['activo', (p: { activo: number; disponible: number; stock_limitado: number; stock_actual: number | null }) => p.activo === 1 && p.disponible === 1 && (p.stock_limitado === 0 || p.stock_actual === null || p.stock_actual > 0)],
+    ['agotado', (p: { activo: number; disponible: number; stock_limitado: number; stock_actual: number | null }) => p.activo === 1 && p.disponible === 1 && p.stock_limitado === 1 && (p.stock_actual ?? 0) <= 0],
+    ['todavia_no_disponible', (p: { activo: number; disponible: number }) => p.activo === 1 && p.disponible === 0],
+    ['desactivado', (p: { activo: number }) => p.activo === 0],
+    ['inactivo', (p: { activo: number }) => p.activo === 0],
+  ])('matches buildWhereAdmin behavior for product filter %s', async (estado, predicate) => {
+    const [{ apiGet }, { MOCK_PRODUCTOS }] = await Promise.all([import('@/lib/api'), import('@/lib/mocks/fixtures')])
+    const result = await apiGet<{ productos: typeof MOCK_PRODUCTOS; paginacion: { total: number } }>('/api/admin/productos', { estado })
+    const expected = MOCK_PRODUCTOS.filter(predicate)
+    expect(result.productos).toEqual(expected)
+    expect(result.paginacion.total).toBe(expected.length)
+  })
+
+  it.each(['todos', undefined])('does not apply product state or schedule filters for %s', async (estado) => {
+    const [{ apiGet }, { MOCK_PRODUCTOS }] = await Promise.all([import('@/lib/api'), import('@/lib/mocks/fixtures')])
+    const result = await apiGet<{ productos: typeof MOCK_PRODUCTOS }>('/api/admin/productos', { estado, horario: 'cena' })
+    expect(result.productos).toEqual(MOCK_PRODUCTOS)
+  })
+
+  it('applies the buildWhereAdmin tipo filter without applying horarios', async () => {
+    const [{ apiGet }, { MOCK_PRODUCTOS }] = await Promise.all([import('@/lib/api'), import('@/lib/mocks/fixtures')])
+    const result = await apiGet<{ productos: typeof MOCK_PRODUCTOS }>('/api/admin/productos', {
+      estado: 'todos', tipo: 'promo', horario: 'merienda',
+    })
+    expect(result.productos).toEqual(MOCK_PRODUCTOS.filter((producto) => producto.tipo === 'promo'))
+  })
+
   it('returns only en_preparacion and listo orders from the kitchen endpoint', async () => {
     const { apiGet } = await import('@/lib/api')
     const pedidos = await apiGet<Array<{ id: number; estado_pedido: string }>>(
