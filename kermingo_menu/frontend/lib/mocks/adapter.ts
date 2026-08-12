@@ -14,9 +14,11 @@ import {
   DEMO_ADMIN_PASSWORD,
 } from './mode'
 import { readDemoSession, writeDemoSession, type DemoSessionUser } from './session'
+import type { ApiPedido } from '../types'
 
 const DEMO_NOOP_MESSAGE =
   'Modo demo: esta acción no se guarda. El backend de Railway está apagado.'
+const DEMO_ORDERS_KEY = 'kermingo:demoOrders'
 
 function delay<T>(value: T, ms = 80): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -83,7 +85,70 @@ function findPedido(id: number) {
 }
 
 function findPedidoByToken(token: string) {
-  return MOCK_PEDIDOS.find((p) => p.token_seguimiento === token) ?? null
+  const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
+  return saved.find((p) => p.token_seguimiento === token)
+    ?? MOCK_PEDIDOS.find((p) => p.token_seguimiento === token)
+    ?? null
+}
+
+function createDemoPedido(body: FormData): ApiPedido {
+  if (!(body instanceof FormData)) throw new ApiError('Formulario inválido', 400)
+  const now = new Date().toISOString()
+  const id = Date.now()
+  let requestedItems: Array<{
+    producto_id: number
+    cantidad: number
+  }>
+  try {
+    requestedItems = JSON.parse(String(body.get('items')))
+  } catch {
+    throw new ApiError('Items inválidos', 400)
+  }
+  if (!Array.isArray(requestedItems) || requestedItems.length === 0) {
+    throw new ApiError('El pedido debe incluir items', 400)
+  }
+  if (requestedItems.some((item) =>
+    !Number.isInteger(item.producto_id)
+    || !Number.isInteger(item.cantidad)
+    || item.cantidad < 1
+    || !findProducto(item.producto_id)
+  )) {
+    throw new ApiError('Producto o cantidad inválidos', 400)
+  }
+  const items = requestedItems.map(({ producto_id, cantidad }) => {
+    const producto = findProducto(producto_id)!
+    const precio = Number(producto.precio)
+    return {
+      producto_id,
+      nombre_producto: producto.nombre,
+      precio_unitario: precio,
+      cantidad,
+      subtotal: precio * cantidad,
+      imagen_url: producto.imagen_url,
+    }
+  })
+  const pedido: ApiPedido = {
+    id,
+    numero: `KMG-DEMO-${String(id).slice(-6)}`,
+    token_seguimiento: crypto.randomUUID().replaceAll('-', ''),
+    origen: 'online',
+    nombre_cliente: String(body.get('nombre_cliente') ?? ''),
+    mesa: body.get('mesa') ? String(body.get('mesa')) : null,
+    telefono_cliente: body.get('telefono_cliente') ? String(body.get('telefono_cliente')) : null,
+    telefono_whatsapp: null,
+    estado_pedido: 'en_preparacion',
+    estado_pago: 'pagado',
+    metodo_pago: 'transferencia',
+    total: items.reduce((sum, item) => sum + item.subtotal, 0),
+    observaciones: body.get('observaciones') ? String(body.get('observaciones')) : null,
+    comprobante_archivo_id: null,
+    created_at: now,
+    updated_at: now,
+    items,
+  }
+  const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
+  sessionStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify([...saved, pedido]))
+  return pedido
 }
 
 /** Showcase writes: acknowledge without mutating fixtures. */
@@ -95,7 +160,7 @@ export async function mockApiRequest<T>(
   method: string,
   path: string,
   query?: Record<string, string | number | undefined>,
-  _body?: unknown,
+  body?: unknown,
 ): Promise<T> {
   const m = method.toUpperCase()
   const p = pathOnly(path)
@@ -105,7 +170,7 @@ export async function mockApiRequest<T>(
   }
 
   if (m === 'GET' && p === '/api/configuracion-tienda') {
-    return delay(MOCK_CONFIG as T)
+    return delay({ ...MOCK_CONFIG, estado: 'abierta' } as T)
   }
 
   if (m === 'GET' && p === '/api/admin/configuracion-tienda') {
@@ -172,10 +237,7 @@ export async function mockApiRequest<T>(
 
   // --- Mutations: showcase no-op with plausible payloads ---
   if (m === 'POST' && p === '/api/pedidos') {
-    throw new ApiError(
-      'La tienda está cerrada (modo demo/archivo). No se crean pedidos reales.',
-      400,
-    )
+    return delay(createDemoPedido(body as FormData) as T)
   }
 
   if (m === 'POST' && p === '/api/admin/pedidos/caja') {
