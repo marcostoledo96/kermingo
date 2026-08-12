@@ -19,6 +19,8 @@ import type { ApiComponente, ApiConfiguracion, ApiPedido, ApiProducto } from '..
 const DEMO_NOOP_MESSAGE =
   'Modo demo: esta acción no se guarda. El backend de Railway está apagado.'
 const DEMO_ORDERS_KEY = 'kermingo:demoOrders'
+const demoProducts = new Map<number, ApiProducto>()
+const demoComponents = new Map<number, ApiComponente[]>()
 
 function delay<T>(value: T, ms = 80): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -33,7 +35,7 @@ function match(path: string, pattern: RegExp): RegExpMatchArray | null {
 }
 
 function paginateProductos(query?: Record<string, string | number | undefined>) {
-  let list = [...MOCK_PRODUCTOS]
+  let list = [...MOCK_PRODUCTOS, ...demoProducts.values()]
   const estado = query?.estado
   if (estado === 'activo') list = list.filter((p) =>
     p.activo === 1 && p.disponible === 1
@@ -103,7 +105,7 @@ function paginatePedidos(query?: Record<string, string | number | undefined>) {
 }
 
 function findProducto(id: number) {
-  return MOCK_PRODUCTOS.find((p) => p.id === id) ?? null
+  return demoProducts.get(id) ?? MOCK_PRODUCTOS.find((p) => p.id === id) ?? null
 }
 
 function findPedido(id: number) {
@@ -168,7 +170,7 @@ function createDemoProducto(body: unknown): ApiProducto {
   const data = productValues(body, true)
   const id = nextDemoProductId++
   const stockLimitado = Number(data.stock_limitado) as 0 | 1
-  return {
+  const product: ApiProducto = {
     id,
     nombre: String(data.nombre),
     descripcion: data.descripcion === undefined ? null : String(data.descripcion),
@@ -188,17 +190,21 @@ function createDemoProducto(body: unknown): ApiProducto {
     categorias: (data.categorias as string[]).join(','),
     componentes_count: 0,
   }
+  demoProducts.set(id, product)
+  return product
 }
 
 function updateDemoProducto(id: number, body: unknown): ApiProducto {
   const data = productValues(body, false)
-  const base = findProducto(id) ?? { ...MOCK_PRODUCTOS[0], id, imagen_archivo_id: null,
-    imagen_nombre_original: null, imagen_mime_type: null, imagen_tamanio_bytes: null, imagen_url: null }
+  const base = findProducto(id)
+  if (!base) throw new ApiError('Producto no encontrado', 404)
   const updates = Object.fromEntries(Object.entries(data).map(([key, value]) => [
     key,
     key === 'categorias' ? (value as string[]).join(',') : value,
   ]))
-  return { ...base, ...updates, id } as ApiProducto
+  const product = { ...base, ...updates, id } as ApiProducto
+  if (demoProducts.has(id)) demoProducts.set(id, product)
+  return product
 }
 
 function updateDemoComponentes(body: unknown): ApiComponente[] {
@@ -297,7 +303,7 @@ function updateDemoProductImage(id: number, body: unknown): ApiProducto {
   const producto = findProducto(id)
   if (!producto) throw new ApiError('Producto no encontrado', 404)
   if (!(image instanceof File)) throw new ApiError('Archivo de imagen requerido', 400)
-  return {
+  const updated = {
     ...producto,
     imagen_archivo_id: Date.now(),
     imagen_nombre_original: image.name,
@@ -305,13 +311,38 @@ function updateDemoProductImage(id: number, body: unknown): ApiProducto {
     imagen_tamanio_bytes: image.size,
     imagen_url: `/products/${MOCK_PRODUCTOS.find((value) => value.imagen_url)?.id ?? 1}.png`,
   }
+  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  return updated
 }
 
 function deleteDemoProductImage(id: number): ApiProducto {
   const producto = findProducto(id)
   if (!producto) throw new ApiError('Producto no encontrado', 404)
-  return { ...producto, imagen_archivo_id: null, imagen_nombre_original: null,
+  const updated = { ...producto, imagen_archivo_id: null, imagen_nombre_original: null,
     imagen_mime_type: null, imagen_tamanio_bytes: null, imagen_url: null }
+  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  return updated
+}
+
+function updateDemoProductStock(id: number, body: unknown): ApiProducto {
+  const data = objectBody(body, ['stock_actual'], 'Stock inválido')
+  if (Object.keys(data).length !== 1 || !integer(data.stock_actual)) {
+    throw new ApiError('Stock inválido', 400)
+  }
+  const producto = findProducto(id)
+  if (!producto) throw new ApiError('Producto no encontrado', 404)
+  const updated = { ...producto, stock_actual: Number(data.stock_actual) }
+  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  return updated
+}
+
+function updateDemoProductActive(id: number, active: 0 | 1, body: unknown): ApiProducto {
+  emptyBody(body)
+  const producto = findProducto(id)
+  if (!producto) throw new ApiError('Producto no encontrado', 404)
+  const updated = { ...producto, activo: active }
+  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  return updated
 }
 
 function updateDemoConfig(body: unknown): ApiConfiguracion {
@@ -414,7 +445,7 @@ export async function mockApiRequest<T>(
 
   if (m === 'GET' && p === '/api/productos') {
     // Public menu expects a bare array from apiGet unwrap
-    return delay(MOCK_PRODUCTOS as T)
+    return delay([...MOCK_PRODUCTOS, ...demoProducts.values()] as T)
   }
 
   if (m === 'GET' && match(p, /^\/api\/productos\/(\d+)$/)) {
@@ -437,7 +468,8 @@ export async function mockApiRequest<T>(
 
   if (m === 'GET' && match(p, /^\/api\/admin\/productos\/(\d+)\/componentes$/)) {
     const id = Number(match(p, /^\/api\/admin\/productos\/(\d+)\/componentes$/)![1])
-    return delay((MOCK_COMPONENTES[id] ?? []) as T)
+    if (!findProducto(id)) throw new ApiError('Producto no encontrado', 404)
+    return delay((demoComponents.get(id) ?? MOCK_COMPONENTES[id] ?? []) as T)
   }
 
   if (m === 'GET' && p === '/api/admin/pedidos') {
@@ -529,6 +561,20 @@ export async function mockApiRequest<T>(
     return demoNoop(deleteDemoProductImage(Number(productImageMatch[1])) as T)
   }
 
+  const productStockMatch = match(p, /^\/api\/admin\/productos\/(\d+)\/stock$/)
+  if (m === 'PATCH' && productStockMatch) {
+    return demoNoop(updateDemoProductStock(Number(productStockMatch[1]), body) as T)
+  }
+
+  const productActiveMatch = match(p, /^\/api\/admin\/productos\/(\d+)\/(desactivar|recuperar)$/)
+  if (m === 'PATCH' && productActiveMatch) {
+    return demoNoop(updateDemoProductActive(
+      Number(productActiveMatch[1]),
+      productActiveMatch[2] === 'desactivar' ? 0 : 1,
+      body,
+    ) as T)
+  }
+
   if (/^\/api\/admin\/(?:pedidos\/\d+\/(?:estado|pago|cancelar|comprobante\/aprobar)|cocina\/pedidos\/\d+\/estado|productos\/\d+\/imagen)(?:\/.*)?$/.test(p)) {
     throw new ApiError(`Mock: ruta no implementada (${m} ${p})`, 404)
   }
@@ -540,7 +586,13 @@ export async function mockApiRequest<T>(
     const idMatch = match(p, /\/(\d+)(?:\/|$)/)
     const id = idMatch ? Number(idMatch[1]) : NaN
     if (p.includes('/componentes') && !Number.isNaN(id)) {
-      return demoNoop(updateDemoComponentes(body) as T)
+      if (!findProducto(id)) throw new ApiError('Producto no encontrado', 404)
+      const components = updateDemoComponentes(body)
+      if (demoProducts.has(id)) {
+        demoComponents.set(id, components)
+        demoProducts.set(id, { ...demoProducts.get(id)!, componentes_count: components.length })
+      }
+      return demoNoop(components as T)
     }
     if (p.includes('/productos') && !Number.isNaN(id)) {
       return demoNoop(updateDemoProducto(id, body) as T)

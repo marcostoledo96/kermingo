@@ -98,7 +98,7 @@ describe('mock API mode', () => {
     ]))
   })
 
-  it('creates an exact nonpersistent ApiProducto from the validated create body', async () => {
+  it('keeps a created product coherent through the in-memory adapter lifecycle only', async () => {
     const { apiGet, apiPost } = await import('@/lib/api')
     const body = {
       nombre: 'Promo nueva', precio: 4200, tipo: 'promo', categorias: ['Merienda'],
@@ -116,20 +116,61 @@ describe('mock API mode', () => {
       imagen_nombre_original: null, imagen_mime_type: null, imagen_tamanio_bytes: null,
       imagen_url: null, categorias: 'Merienda', componentes_count: 0,
     })
+    const id = Number(created.id)
     expect((await apiGet<{ productos: Array<{ id: number }> }>('/api/admin/productos', { estado: 'todos' })).productos)
-      .not.toContainEqual(expect.objectContaining({ id: created.id }))
+      .toContainEqual(expect.objectContaining({ id }))
+    await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({ id, nombre: 'Promo nueva' })
+
+    const { apiDelete, apiPatch, apiPostForm, apiPut } = await import('@/lib/api')
+    await expect(apiPut(`/api/admin/productos/${id}`, {
+      nombre: 'Promo editada', stock_limitado: 1, stock_actual: 3,
+    })).resolves.toMatchObject({ id, nombre: 'Promo editada', stock_limitado: 1, stock_actual: 3 })
+    await expect(apiPatch(`/api/admin/productos/${id}/stock`, { stock_actual: 0 }))
+      .resolves.toMatchObject({ id, stock_actual: 0 })
+    expect((await apiGet<{ productos: Array<{ id: number }> }>('/api/admin/productos', { estado: 'agotado' })).productos)
+      .toContainEqual(expect.objectContaining({ id }))
+    await expect(apiPatch(`/api/admin/productos/${id}/desactivar`, {}))
+      .resolves.toMatchObject({ id, activo: 0 })
+    expect((await apiGet<{ productos: Array<{ id: number }> }>('/api/admin/productos', { estado: 'desactivado' })).productos)
+      .toContainEqual(expect.objectContaining({ id }))
+    await expect(apiPatch(`/api/admin/productos/${id}/recuperar`, {}))
+      .resolves.toMatchObject({ id, activo: 1 })
+    await expect(apiPut(`/api/admin/productos/${id}/componentes`, {
+      componentes: [{ producto_id: 10, cantidad: 2 }],
+    })).resolves.toEqual([expect.objectContaining({ producto_id: 10, cantidad: 2 })])
+    await expect(apiGet(`/api/admin/productos/${id}/componentes`))
+      .resolves.toEqual([expect.objectContaining({ producto_id: 10, cantidad: 2 })])
+    await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({ componentes_count: 1 })
+
+    const form = new FormData()
+    form.set('imagen', new File(['demo'], 'synthetic.png', { type: 'image/png' }))
+    await expect(apiPostForm(`/api/admin/productos/${id}/imagen`, form))
+      .resolves.toMatchObject({ id, imagen_nombre_original: 'synthetic.png' })
+    await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({ imagen_nombre_original: 'synthetic.png' })
+    await expect(apiDelete(`/api/admin/productos/${id}/imagen`))
+      .resolves.toMatchObject({ id, imagen_url: null })
+    await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({ imagen_url: null })
+
+    expect(localStorage.length).toBe(0)
+    expect(sessionStorage.length).toBe(0)
+    vi.resetModules()
+    const { apiGet: freshApiGet } = await import('@/lib/api')
+    await expect(freshApiGet(`/api/productos/${id}`)).rejects.toMatchObject({ status: 404 })
   })
 
-  it('echoes validated promo updates and resolves component bodies for new ids', async () => {
-    const { apiPut } = await import('@/lib/api')
-    const updated = await apiPut<Record<string, unknown>>('/api/admin/productos/999', {
+  it('updates a created promo and resolves its component bodies', async () => {
+    const { apiPost, apiPut } = await import('@/lib/api')
+    const created = await apiPost<{ id: number }>('/api/admin/productos', {
+      nombre: 'Promo temporal', precio: 4200, tipo: 'promo', categorias: ['Merienda'], stock_limitado: 0,
+    })
+    const updated = await apiPut<Record<string, unknown>>(`/api/admin/productos/${created.id}`, {
       nombre: 'Promo editada', disponible: 0, categorias: ['Cena'],
     })
-    const components = await apiPut<Array<Record<string, unknown>>>('/api/admin/productos/999/componentes', {
+    const components = await apiPut<Array<Record<string, unknown>>>(`/api/admin/productos/${created.id}/componentes`, {
       componentes: [{ producto_id: 10, cantidad: 2 }],
     })
 
-    expect(updated).toEqual(expect.objectContaining({ id: 999, nombre: 'Promo editada', disponible: 0, categorias: 'Cena' }))
+    expect(updated).toEqual(expect.objectContaining({ id: created.id, nombre: 'Promo editada', disponible: 0, categorias: 'Cena' }))
     expect(components).toEqual([expect.objectContaining({ producto_id: 10, nombre: expect.any(String), cantidad: 2 })])
   })
 

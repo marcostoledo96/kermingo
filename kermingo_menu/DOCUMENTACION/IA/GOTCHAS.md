@@ -523,3 +523,9 @@ items: z.preprocess((val) => {
 **Síntoma:** Antes, los pedidos cancelados solo eran visibles por exclusión (no aparecían en comprobantes ni en tabs operativos de pedidos).
 
 **Regla:** La pantalla `/admin/pedidos` (OrdersScreen) incluye una tab "Cancelados" que consulta `estado_pedido=cancelado`. Esto es un historial de solo lectura — no permite reabrir pedidos. La exclusión de cancelados en comprobantes (`excluir_estado_pedido=cancelado`) sigue activa y no se altera.
+
+## 35. Anonimización SQL requiere un lexer MySQL fail-closed
+
+**Causa:** Separar sentencias o valores con regex o con un parser que solo reconoce comillas simples permite interpretar `;`, `,` y paréntesis dentro de comentarios, strings o identificadores como estructura SQL real.
+
+**Regla:** `backend/scripts/anonymize-dump.mjs` usa un único scanner para sentencias, filas y valores. Solo reconoce delimitadores y paréntesis en estado normal; soporta escapes con backslash y caracteres duplicados, comillas simples/dobles/backticks, comentarios `#`, `--` seguidos de whitespace/control y `/* ... */`. Debe fallar sin escribir output ante estados sin cerrar, comentarios anidados o un INSERT sensible dentro de `/*! ... */`.

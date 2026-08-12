@@ -34,7 +34,7 @@ La sesión admin es **local** (`localStorage` clave `kermingo:demoSession`), no 
 | Pedido simulado | Nace con `estado_pedido='en_preparacion'` y `estado_pago='pagado'` |
 | Seguimiento | Admite los tokens fijos `demodemo…0001` … `0005` y los pedidos creados en la pestaña actual |
 | Admin (lectura) | Pedidos, cocina, productos, reportes, config desde fixtures |
-| Mutaciones admin | Feedback visual / respuesta fake; **no persisten** al recargar |
+| Mutaciones admin | Feedback visual / respuesta fake; los productos creados viven en memoria durante la carga actual y **no persisten** al recargar |
 
 ## Persistencia de la compra simulada
 
@@ -45,6 +45,8 @@ La sesión admin es **local** (`localStorage` clave `kermingo:demoSession`), no 
 - El seguimiento se consulta en `/seguimiento`, por token o mediante el enlace mostrado después de confirmar.
 
 El banner de modo demo permanece visible para evitar que la compra simulada se confunda con una venta real.
+
+Los productos creados desde admin se registran en un `Map` interno del adapter. Durante la carga actual pueden listarse, consultarse, editarse, ajustar stock/estado, configurar componentes y subir o quitar una imagen simulada. El registro desaparece al recargar el módulo y nunca usa `localStorage` ni `sessionStorage`.
 
 ## Archivos clave
 

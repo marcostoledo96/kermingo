@@ -26,32 +26,81 @@ let sql = readFileSync(resolve(inPath), 'utf8')
 // Strip DEFINER clauses that break restores on shared hosts
 sql = sql.replace(/DEFINER=`[^`]+`@`[^`]+`/g, '')
 
-function splitSql(source, delimiter) {
+function scanSql(source, delimiter, trackParentheses = true) {
   const parts = []
   let start = 0
-  let quote = false
+  let state = 'normal'
   let depth = 0
 
   for (let i = 0; i < source.length; i += 1) {
     const char = source[i]
-    if (quote) {
-      if (char === '\\') i += 1
-      else if (char === "'" && source[i + 1] === "'") i += 1
-      else if (char === "'") quote = false
+
+    if (state === 'line-comment') {
+      if (char === '\n' || char === '\r') state = 'normal'
       continue
     }
-    if (char === "'") quote = true
-    else if (char === '(') depth += 1
-    else if (char === ')') depth -= 1
-    else if (char === delimiter && depth === 0) {
+    if (state === 'block-comment') {
+      if (char === '/' && source[i + 1] === '*') throw new Error('Malformed SQL: nested block comment')
+      if (char === '*' && source[i + 1] === '/') {
+        state = 'normal'
+        i += 1
+      }
+      continue
+    }
+    if (state !== 'normal') {
+      const quote = state === 'single-quote' ? "'" : state === 'double-quote' ? '"' : '`'
+      if (char === '\\') i += 1
+      else if (char === quote && source[i + 1] === quote) i += 1
+      else if (char === quote) state = 'normal'
+      continue
+    }
+
+    if (char === "'") state = 'single-quote'
+    else if (char === '"') state = 'double-quote'
+    else if (char === '`') state = 'backtick'
+    else if (char === '#') state = 'line-comment'
+    else if (char === '-' && source[i + 1] === '-' && /[\x00-\x20]/.test(source[i + 2] ?? '')) {
+      state = 'line-comment'
+      i += 1
+    } else if (char === '/' && source[i + 1] === '*') {
+      state = 'block-comment'
+      i += 1
+    } else if (trackParentheses && char === '(') depth += 1
+    else if (trackParentheses && char === ')') depth -= 1
+    else if (char === delimiter && (!trackParentheses || depth === 0)) {
       parts.push(source.slice(start, i).trim())
       start = i + 1
     }
     if (depth < 0) throw new Error('Malformed SQL: unmatched parenthesis')
   }
-  if (quote || depth !== 0) throw new Error('Malformed SQL: unterminated quoted value or tuple')
+  if (state !== 'normal' && state !== 'line-comment') throw new Error('Malformed SQL: unterminated quote or comment')
+  if (depth !== 0) throw new Error('Malformed SQL: unterminated tuple')
   parts.push(source.slice(start).trim())
   return parts
+}
+
+function leadingComments(statement) {
+  let end = 0
+  while (end < statement.length) {
+    const whitespace = statement.slice(end).match(/^\s+/)?.[0]
+    if (whitespace) {
+      end += whitespace.length
+      continue
+    }
+    if (statement[end] === '#' || (statement.startsWith('--', end) && /[\x00-\x20]/.test(statement[end + 2] ?? ''))) {
+      const newline = statement.indexOf('\n', end)
+      end = newline === -1 ? statement.length : newline + 1
+      continue
+    }
+    if (statement.startsWith('/*', end) && !statement.startsWith('/*!', end)) {
+      const close = statement.indexOf('*/', end + 2)
+      if (close === -1) throw new Error('Malformed SQL: unterminated block comment')
+      end = close + 2
+      continue
+    }
+    break
+  }
+  return statement.slice(0, end)
 }
 
 const SENSITIVE_TABLES = {
@@ -116,6 +165,11 @@ function sensitiveInsertTarget(statement) {
     : null
 }
 
+function executableCommentTarget(statement) {
+  const body = statement.match(/^\/\*!\d*\s*([\s\S]*?)\*\/\s*$/)?.[1]
+  return body ? sensitiveInsertTarget(body) : null
+}
+
 function anonymizeSensitiveInsert(statement, table, firstSequence) {
   const target = sensitiveInsertTarget(statement)
   const parsed = target && !target.hasModifiers
@@ -125,19 +179,19 @@ function anonymizeSensitiveInsert(statement, table, firstSequence) {
     throw new Error(`Unsafe ${table} INSERT: explicit columns and plain VALUES are required`)
   }
 
-  const columns = splitSql(parsed[2], ',').map((column) =>
+  const columns = scanSql(parsed[2], ',', false).map((column) =>
     column.replaceAll('`', '').trim().toLowerCase())
   const missing = SENSITIVE_TABLES[table].required.filter((column) => !columns.includes(column))
   if (missing.length > 0) {
     throw new Error(`Unsafe ${table} INSERT: missing required columns: ${missing.join(', ')}`)
   }
-  const rows = splitSql(parsed[4], ',')
+  const rows = scanSql(parsed[4], ',')
   let sequence = firstSequence
   const scrubbedRows = rows.map((row) => {
     if (!row.startsWith('(') || !row.endsWith(')')) {
       throw new Error(`Unsafe ${table} INSERT: only VALUES tuples are supported`)
     }
-    const values = splitSql(row.slice(1, -1), ',')
+    const values = scanSql(row.slice(1, -1), ',')
     if (values.length !== columns.length) {
       throw new Error(`Unsafe ${table} INSERT: column/value count mismatch`)
     }
@@ -159,14 +213,17 @@ function anonymizeSensitiveInsert(statement, table, firstSequence) {
 const sequences = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
 const expectedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
 const parsedCounts = Object.fromEntries(Object.keys(SENSITIVE_TABLES).map((table) => [table, 0]))
-const statements = splitSql(sql, ';')
+const statements = scanSql(sql, ';')
 for (const statement of statements) {
-  const prefix = statement.match(/^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:#[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0] ?? ''
+  const prefix = leadingComments(statement)
+  if (executableCommentTarget(statement.slice(prefix.length))) {
+    throw new Error('Unsafe executable comment: sensitive INSERT is not supported')
+  }
   const target = sensitiveInsertTarget(statement.slice(prefix.length))
   if (target) expectedCounts[target.table] += 1
 }
 sql = statements.map((statement) => {
-  const prefix = statement.match(/^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:#[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/)?.[0] ?? ''
+  const prefix = leadingComments(statement)
   const executable = statement.slice(prefix.length)
   const target = sensitiveInsertTarget(executable)
   if (!target) return statement

@@ -112,6 +112,70 @@ describe('anonymize-dump', () => {
     expect(result).toContain("INSERT INTO demo.usuario_audit (email) VALUES ('audit@example.test')")
   })
 
+  it('splits statements and VALUES only in normal SQL state while preserving comments', async () => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    const sql = [
+      '# ordinary ; comment',
+      '-- ordinary ; comment',
+      '/* ordinary ; comment */',
+      '/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE */;',
+      'SELECT "double; quote )";',
+      'SELECT `backtick``name; )`;',
+      'INSERT INTO pedido (`nombre_cliente`,`telefono_cliente`,`telefono_whatsapp`,`mesa`,`token_seguimiento`,`observaciones`,`total`) VALUES',
+      "('O\\'Connor; Ana','291,555','549291555','Mesa )','abcdefabcdefabcdefabcdefabcdefab','backslash',COALESCE(NULL,3500)),",
+      "('D''Angelo','292','549292','Mesa 2','1234567890abcdef1234567890abcdef','double '' quote',2500),",
+      "('Double quote value','293','549293','Mesa 3','2234567890abcdef1234567890abcdef','ok',2500),",
+      "('Backtick value','294','549294','Mesa 4','3234567890abcdef1234567890abcdef','ok',2500);",
+      "INSERT INTO producto (`id`,`nombre`) VALUES (99,'Catalog; value, with ) paren');",
+      '',
+    ].join('\n')
+    await writeFile(input, sql)
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).toContain('# ordinary ; comment')
+    expect(result).toContain('-- ordinary ; comment')
+    expect(result).toContain('/* ordinary ; comment */')
+    expect(result).toContain('/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE */')
+    expect(result).toContain("INSERT INTO producto (`id`,`nombre`) VALUES (99,'Catalog; value, with ) paren')")
+    expect(result).toContain('COALESCE(NULL,3500)')
+    expect(result).toContain("'Cliente Demo 4'")
+    expect(result).not.toMatch(/O\\'Connor|D''Angelo|Double quote value|Backtick value/)
+  })
+
+  it('treats -- as a comment only when followed by MySQL whitespace or control', async () => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, [
+      "SELECT 4--2; INSERT INTO pedido VALUES (1, 'not hidden');",
+      "--\tINSERT INTO pedido VALUES (2, 'comment only');",
+      '',
+    ].join('\n'))
+
+    await expect(execFileAsync(process.execPath, [script.pathname, input, output])).rejects.toMatchObject({ code: 1 })
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
+    ['single quote', "INSERT INTO producto (id,nombre) VALUES (1,'unterminated);"],
+    ['double quote', 'SELECT "unterminated;'],
+    ['backtick', 'SELECT `unterminated;'],
+    ['block comment', 'SELECT 1; /* unterminated'],
+    ['nested block comment', 'SELECT 1; /* outer /* nested */'],
+    ['unmatched parenthesis', 'SELECT (1;'],
+    ['executable sensitive insert', "/*!40101 INSERT INTO pedido VALUES (1, 'private') */;"],
+    ['qualified executable sensitive insert', "/*!40101 INSERT INTO `demo archive`.`pedido` VALUES (1, 'private') */;"],
+  ])('fails closed without output for %s', async (_case, sql) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, sql)
+
+    await expect(execFileAsync(process.execPath, [script.pathname, input, output])).rejects.toMatchObject({ code: 1 })
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('fails closed before writing output when a pedido insert has no explicit column list', async () => {
     const input = join(dir, 'input.sql')
     const output = join(dir, 'output.sql')

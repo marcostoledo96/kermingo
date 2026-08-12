@@ -236,6 +236,9 @@ El frontend usa **Vitest + React Testing Library** para tests de componentes y h
 | Product promo components | `frontend/test/product-form-dialog.test.tsx`, `frontend/test/products-screen-badge.test.tsx` | focused | Promo component editor, save failure keeps draft, incomplete promo badge |
 | Product availability | `frontend/test/product-availability.test.ts` | 20 | `deriveStockStatus` y `mapProducto` — prioridad no_disponible, disponible/orden mapping, activo/agotado alignment |
 | Demo purchase flow | `frontend/test/demo-purchase-flow.test.tsx` | flujo | Checkout mock, persistencia del token y seguimiento del pedido dinámico en la misma pestaña |
+| Mock API | `frontend/test/mock-api.test.ts` | focused | Contratos mock, filtros y ciclo de vida en memoria de productos sintéticos; `vi.resetModules()` prueba su desaparición sin storage del navegador |
+
+El anonimizador SQL se cubre en `backend/tests/anonymize-dump.unit.test.js`: usa una matriz de comillas, escapes, comentarios MySQL, delimitadores y paréntesis, y verifica fail-closed sin archivo de salida para estados truncados, comentarios de bloque anidados e INSERT sensibles dentro de comentarios ejecutables `/*! ... */`.
 
 **Comandos:**
 ```bash
