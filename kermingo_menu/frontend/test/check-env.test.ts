@@ -14,6 +14,16 @@ describe('assertProductionApiUrl', () => {
     ).toThrow(API_URL_REQUIRED_ERROR)
   })
 
+  it('passes in production when mock API is enabled without API URL', () => {
+    expect(() =>
+      assertProductionApiUrl({
+        nodeEnv: 'production',
+        apiUrl: undefined,
+        mockApi: 'true',
+      }),
+    ).not.toThrow()
+  })
+
   it('passes in production when NEXT_PUBLIC_API_URL is present', () => {
     expect(() =>
       assertProductionApiUrl({
@@ -28,11 +38,11 @@ describe('scripts/check-env.mjs', () => {
   const scriptPath = path.join(process.cwd(), 'scripts', 'check-env.mjs')
 
   it('exits with code 1 when NEXT_PUBLIC_API_URL is missing in production', () => {
-    const result = spawnSync(process.execPath, [scriptPath], {
+    const result = spawnSync(process.execPath, [scriptPath, '--production'], {
       env: {
         ...process.env,
-        NODE_ENV: 'production',
         NEXT_PUBLIC_API_URL: '',
+        NEXT_PUBLIC_MOCK_API: '',
       },
       encoding: 'utf8',
     })
@@ -42,12 +52,25 @@ describe('scripts/check-env.mjs', () => {
     expect(output).toContain(API_URL_REQUIRED_ERROR)
   })
 
-  it('exits with code 0 when NEXT_PUBLIC_API_URL is present in production', () => {
-    const result = spawnSync(process.execPath, [scriptPath], {
+  it('exits with code 0 when mock API is enabled without API URL', () => {
+    const result = spawnSync(process.execPath, [scriptPath, '--production'], {
       env: {
         ...process.env,
-        NODE_ENV: 'production',
+        NEXT_PUBLIC_API_URL: '',
+        NEXT_PUBLIC_MOCK_API: 'true',
+      },
+      encoding: 'utf8',
+    })
+
+    expect(result.status).toBe(0)
+  })
+
+  it('exits with code 0 when NEXT_PUBLIC_API_URL is present in production', () => {
+    const result = spawnSync(process.execPath, [scriptPath, '--production'], {
+      env: {
+        ...process.env,
         NEXT_PUBLIC_API_URL: 'http://localhost:3001',
+        NEXT_PUBLIC_MOCK_API: '',
       },
       encoding: 'utf8',
     })

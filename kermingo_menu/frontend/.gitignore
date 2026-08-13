@@ -9,7 +9,9 @@ __v0_jsx-dev-runtime.ts
 # Environment variables (never commit secrets)
 .env
 .env.*
+.env*
 !.env.example
+!.env.local.example
 
 # Dependencies
 node_modules/
@@ -31,3 +33,4 @@ coverage/
 *.key
 credentials/
 drive-credentials.json
+.vercel

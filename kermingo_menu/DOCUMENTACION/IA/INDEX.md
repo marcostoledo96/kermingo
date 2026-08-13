@@ -44,6 +44,10 @@ La organización actual (14 archivos) **es solo un punto de partida**, inspirada
 | Pregunta | Archivo |
 |---|---|
 | ¿Cómo hacer el deploy? ¿Qué variables de entorno van? | `DEPLOY.md` |
+| ¿El sitio está en modo demo sin Railway? | `MODO-DEMO.md` |
+| ¿Cómo volver a levantar Express + MySQL? | `REVIVIR-BACKEND.md` |
+| ¿Dónde editar el frontend / fixtures / imágenes? | `GUIA-FRONTEND.md` |
+| ¿Handoff Cursor→OpenCode del modo demo / baja Railway? | `HANDOFF-OPENCODE-MOCK-DEMO.md` |
 | ¿Cómo correr los tests? ¿Cómo estructurar uno nuevo? | `TESTING.md` |
 
 ## Errores y decisiones

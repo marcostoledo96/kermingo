@@ -37,3 +37,7 @@ diseno-de-landing-kermingo/
 *.key
 credentials/
 drive-credentials.json
+# Never commit raw production DB dumps (PII). Anonymized archives under
+# backend/src/api/database/archives/*-anonymized.sql are OK to version.
+**/kermingo-prod-RAW.sql
+**/*-prod-RAW.sql

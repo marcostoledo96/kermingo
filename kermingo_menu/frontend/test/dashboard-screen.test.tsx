@@ -183,6 +183,11 @@ function getMetricValue(label: string): string | null {
     expect(getMetricValue('Pagos pend.')).toBe('6')
     expect(getMetricValue('Recaudación')).toBe(ars(12000))
 
+    const metricsGrid = screen.getByRole('heading', { name: /resumen en vivo/i })
+      .closest('section')
+      ?.querySelector('.grid')
+    expect(metricsGrid?.className).toContain('max-[359px]:grid-cols-1')
+
     expect(mockApiGet).toHaveBeenCalledTimes(8)
     expect(mockApiGet).toHaveBeenNthCalledWith(1, '/api/admin/pedidos', {
       limit: 6,

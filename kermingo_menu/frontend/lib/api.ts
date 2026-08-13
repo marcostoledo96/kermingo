@@ -1,14 +1,10 @@
 import { API_BASE } from './config'
 import type { ApiResponse } from './types'
+import { ApiError } from './api-error'
+import { isMockApi } from './mocks/mode'
+import { mockApiRequest } from './mocks/adapter'
 
-export class ApiError extends Error {
-  status: number
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-  }
-}
+export { ApiError }
 
 /**
  * Called by admin session provider when a 401 is detected.
@@ -66,6 +62,14 @@ export async function apiGet<T>(
   path: string,
   query?: Record<string, string | number | undefined>,
 ): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('GET', path, query)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path, query), {
     method: 'GET',
     credentials: 'include',
@@ -76,6 +80,14 @@ export async function apiGet<T>(
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('POST', path, undefined, body)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path), {
     method: 'POST',
     credentials: 'include',
@@ -90,6 +102,14 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('POST', path, undefined, formData)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path), {
     method: 'POST',
     credentials: 'include',
@@ -101,6 +121,14 @@ export async function apiPostForm<T>(path: string, formData: FormData): Promise<
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('PUT', path, undefined, body)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path), {
     method: 'PUT',
     credentials: 'include',
@@ -115,6 +143,14 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('PATCH', path, undefined, body)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path), {
     method: 'PATCH',
     credentials: 'include',
@@ -129,6 +165,14 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
+  if (isMockApi()) {
+    try {
+      return await mockApiRequest<T>('DELETE', path)
+    } catch (err) {
+      if (err instanceof ApiError) handle401(err.status)
+      throw err
+    }
+  }
   const res = await fetch(buildUrl(path), {
     method: 'DELETE',
     credentials: 'include',

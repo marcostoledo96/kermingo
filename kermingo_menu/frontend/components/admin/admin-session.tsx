@@ -12,6 +12,9 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { setOnUnauthorized } from '@/lib/api'
 import { API_BASE } from '@/lib/config'
+import { isMockApi } from '@/lib/mocks/mode'
+import { mockLogout, mockMe } from '@/lib/mocks/adapter'
+import { writeDemoSession } from '@/lib/mocks/session'
 
 /* ---------------------------------------------------------------------------
  * Sesión del panel admin de Kermingo (lado cliente).
@@ -87,6 +90,7 @@ export function AdminSessionProvider({
     if (redirectingRef.current) return
     redirectingRef.current = true
     writeCachedUser(null)
+    writeDemoSession(null)
     setUser(null)
     setStatus('unauthenticated')
     router.replace('/admin')
@@ -97,6 +101,25 @@ export function AdminSessionProvider({
     // until /api/auth/me actually confirms the cookie is valid.
     const cached = readCachedUser()
     if (cached) setUser(cached)
+
+    if (isMockApi()) {
+      try {
+        const demoUser = await mockMe()
+        const uiUser: AdminUser = {
+          name: demoUser.name || demoUser.nombre || 'Admin',
+          email: demoUser.email,
+          role: demoUser.role ?? 'admin',
+        }
+        setUser(uiUser)
+        writeCachedUser(uiUser)
+        setStatus('authenticated')
+        redirectingRef.current = false
+      } catch {
+        writeDemoSession(null)
+        clearAndRedirect()
+      }
+      return
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, {
@@ -163,13 +186,17 @@ export function AdminSessionProvider({
   }, [clearAndRedirect])
 
   const logout = useCallback(async () => {
-    try {
-      await fetch(`${API_BASE}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-    } catch {
-      /* ignore: still clear local state */
+    if (isMockApi()) {
+      await mockLogout()
+    } else {
+      try {
+        await fetch(`${API_BASE}/api/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+        })
+      } catch {
+        /* ignore: still clear local state */
+      }
     }
     writeCachedUser(null)
     setUser(null)

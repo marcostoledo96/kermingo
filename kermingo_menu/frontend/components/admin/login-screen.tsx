@@ -8,8 +8,12 @@ import { ArgentinaStripe } from '@/components/argentina-stripe'
 import { KermingoLogo } from '@/components/kermingo-logo'
 import { useAdminSession, cacheAdminUser } from './admin-session'
 import { API_BASE } from '@/lib/config'
+import { isMockApi } from '@/lib/mocks/mode'
+import { mockLogin } from '@/lib/mocks/adapter'
+import { ApiError } from '@/lib/api-error'
 
 export function shouldShowDemoCredentials(): boolean {
+  if (process.env.NEXT_PUBLIC_MOCK_API === 'true') return true
   return process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS === 'true'
 }
 
@@ -28,6 +32,18 @@ export function AdminLoginScreen() {
     setLoading(true)
     setError(null)
     try {
+      if (isMockApi()) {
+        const usuario = await mockLogin(email.trim(), password)
+        cacheAdminUser({
+          name: usuario.name || usuario.nombre || email.trim(),
+          email: usuario.email,
+          role: 'admin',
+        })
+        await refresh()
+        router.replace('/admin/dashboard')
+        return
+      }
+
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,7 +63,11 @@ export function AdminLoginScreen() {
       await refresh()
       router.replace('/admin/dashboard')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else {
+        setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
+      }
     } finally {
       setLoading(false)
     }

@@ -13,7 +13,7 @@
 4. [Carrito con localStorage](#4-carrito-con-localstorage)
 5. [Diseño y referencia visual](#5-diseño-y-referencia-visual)
 6. [Componentes principales](#6-componentes-principales)
-7. [Generación de ticket PDF](#7-generación-de-ticket-pdf)
+7. [Ticket confirmado](#7-ticket-confirmado)
 8. [Integración con el backend](#8-integración-con-el-backend)
 
 ---
@@ -28,8 +28,6 @@
 | TailwindCSS | 4.x | Estilos utility-first |
 | shadcn/ui | 4.x | Componentes base estilizados |
 | lucide-react | 1.x | Iconos |
-| jsPDF | — | Generación de ticket PDF |
-| qrcode.react | — | Generación de QR scaneable en ticket confirmado |
 | @dnd-kit/core | — | Drag & drop para reordenar productos admin |
 | @dnd-kit/sortable | — | Sortable list para tabla de productos admin |
 
@@ -57,8 +55,8 @@ pnpm build     # Build de producción (ejecuta prebuild check de NEXT_PUBLIC_API
 | `/menu` | `app/menu/page.tsx` | Carta de productos |
 | `/carrito` | `app/carrito/page.tsx` | Carrito y checkout |
 | `/confirmar` | `app/confirmar/page.tsx` | Confirmación de datos |
-| `/confirmado` | `app/confirmado/page.tsx` | Pedido confirmado — incluye QR scaneable con URL de seguimiento |
-| `/seguimiento` | `app/seguimiento/page.tsx` | Seguimiento por token — acepta `?token=` desde QR escaneado |
+| `/confirmado` | `app/confirmado/page.tsx` | Resumen del pedido, impresión con `window.print()` y enlace de seguimiento |
+| `/seguimiento` | `app/seguimiento/page.tsx` | Seguimiento por token; acepta `?token=` desde el enlace de confirmación |
 
 ### Admin
 
@@ -125,9 +123,11 @@ interface CartItem {
 **Comportamiento:**
 - Se agrega/quita/items desde la página de menú.
 - Al confirmar el pedido se envía al backend y se vacía.
-- **Tienda cerrada/demo:** `MenuScreen` y `CheckoutScreen` leen `GET /api/configuracion-tienda` en paralelo. Si `estado !== 'abierta'`, se muestra `mensaje_publico`, se deshabilitan botones de agregar/confirmar y se oculta el carrito. El estado `loading` y errores de red también se manejan con skeletons/retry.
+- **Estado de tienda:** `MenuScreen` y `CheckoutScreen` leen `GET /api/configuracion-tienda` en paralelo. Con API real, si `estado !== 'abierta'`, se muestra `mensaje_publico`, se deshabilitan botones de agregar/confirmar y se oculta el carrito. Con `NEXT_PUBLIC_MOCK_API=true`, el adapter devuelve `abierta` y permite una compra simulada. El estado `loading` y los errores también se manejan con skeletons/retry.
 - **Comprobante validado en frontend:** `CheckoutScreen` rechaza HEIC y archivos >5 MB antes de setear el receipt. El `accept` del file picker es `image/jpeg,image/png,image/webp,application/pdf`. Backend también valida magic bytes como autoridad final.
 - **Checkout público solo acepta transferencia con comprobante** (`CheckoutScreen`). El cliente debe subir un archivo comprobante. El envío usa `apiPostForm` (multipart/form-data) a `POST /api/pedidos`. Efectivo solo está disponible en caja rápida (admin).
+- **Compra simulada:** el comprobante sigue siendo obligatorio y se valida en la UI, pero el adapter mock no guarda ni lee el archivo. Calcula el pedido desde fixtures, lo crea como `en_preparacion` + `pagado` y no cambia stock real.
+- **Persistencia demo:** el detalle dinámico vive en `sessionStorage` (`kermingo:demoOrders`) durante navegación y refresh de la pestaña. El resumen y los tokens existentes viven en `localStorage`; al cerrar la pestaña puede quedar un token sin detalle para una sesión nueva.
 
 ---
 
@@ -187,7 +187,7 @@ Componentes esperados (alineados con la referencia v0):
 | `ReportesScreen` | Reportes admin. Consume `GET /api/admin/reportes`, muestra KPIs de recaudación/pagos/productos, producto estrella, ranking y descarga CSV local de resumen/ranking |
 | `ComprobantesScreen` | Revisión de comprobantes de transferencia. Fetch metadata de `GET /api/admin/pedidos/:id/comprobante` y abre `url_publica` de Drive |
 | `OrderEditModal` | Modal dentro de `OrdersScreen`: corrige datos del cliente, método/estado de pago y productos. Carga detalle completo del pedido, permite cambiar cantidades, quitar productos y agregar productos activos desde `GET /api/admin/productos?estado=activo`. Al guardar envía `PUT /api/admin/pedidos/:id` y bloquea `items` vacío en cliente. |
-| `TicketScreen` | Pantalla de ticket confirmado con QR scaneable y PDF |
+| `TicketScreen` | Pantalla de pedido confirmado con resumen, impresión mediante `window.print()` y enlace a seguimiento |
 | `TrackingScreen` | Pantalla de seguimiento con input manual y auto-carga por `?token=`. **B7:** Cuando `estado_pedido='recibido'` y `estado_pago!='pagado'` muestra "Estamos comprobando tu pago. En cuanto lo verifiquemos, lo mandamos a cocina." |
 
 **Estilos:** TailwindCSS con tokens de color alineados a la paleta Argentina (celeste, azul, amarillo).
@@ -252,20 +252,17 @@ Usa las variables CSS en vez de clases Tailwind genéricas.
 
 ---
 
-## 7. Ticket confirmado y QR
+## 7. Ticket confirmado
 
 La página `/confirmado` muestra el ticket del pedido confirmado con estilo de "talón de kermesse":
 
 - Número KMG, items, total, método de pago, fecha.
-- **QR scaneable** (vía `qrcode.react` / `QRCodeSVG`) que codifica la URL pública de seguimiento: `${origin}/seguimiento?token=${order.token}`.
-- El QR usa SVG renderer a 176×176 CSS px con color `#003B73` (azul corporativo) para impresión nítida, dentro de un contenedor con borde punteado celeste y quiet zone blanca para máxima escaneabilidad.
-- El QR se renderiza solo en cliente (`typeof window !== 'undefined'` guard) para evitar hydration mismatch.
 - Encabezado "Talón de kermesse" en vez de "Pedido confirmado".
 - Sección de retiro con ícono de mostrador y dirección del evento desde `EVENTO.direccion`.
-- Botón de descarga PDF via `jsPDF` (incluye el QR en el PDF).
-- Botón de tracking link debajo del ticket.
+- Botón de impresión mediante `window.print()`.
+- Enlace a `/seguimiento?token=<token>` debajo del ticket.
 
-**Flujo QR → seguimiento:** El usuario escanea el QR → navega a `/seguimiento?token=<token>` → `TrackingScreen` lee `useSearchParams().get('token')`, prioriza el token de URL sobre localStorage, y auto-fetchea el pedido.
+**Flujo confirmación → seguimiento:** El usuario abre el enlace → navega a `/seguimiento?token=<token>` → `TrackingScreen` lee `useSearchParams().get('token')`, prioriza el token de URL sobre `localStorage` y carga el pedido. En modo demo, el detalle creado durante la compra se resuelve desde `sessionStorage` mientras siga abierta la misma pestaña.
 
 ---
 
