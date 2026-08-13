@@ -246,6 +246,19 @@ describe('anonymize-dump', () => {
   })
 
   it.each([
+    "REPLACE INTO pedido (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');",
+    "replace low_priority into `pedido` (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');",
+    "REPLACE /* generated export */ INTO `demo`.`pedido` (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');",
+  ])('fails closed without output for sensitive REPLACE mutation: %s', async (statement) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    await writeFile(input, `${statement}\n`)
+
+    await expect(execFileAsync(process.execPath, [script.pathname, input, output])).rejects.toMatchObject({ code: 1 })
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
     ['usuario', "INSERT INTO usuario (id, nombre, email) VALUES (1, 'Persona', 'persona@example.test');"],
     ['archivo_drive', "INSERT INTO archivo_drive (id, nombre_original, drive_id) VALUES (1, 'private.pdf', 'drive-canary');"],
     ['pedido', "INSERT INTO pedido (id, nombre_cliente) VALUES (1, 'Persona');"],

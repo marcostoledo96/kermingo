@@ -386,6 +386,7 @@ function updateDemoComponentes(body: unknown): ApiComponente[] {
     if (!integer(component.producto_id, 1) || !producto || !integer(component.cantidad, 1)) {
       throw new ApiError('Componentes inválidos', 400)
     }
+    if (producto.activo !== 1) throw new ApiError('Uno o más componentes están desactivados', 400)
     return {
       producto_id: producto.id,
       nombre: producto.nombre,
@@ -576,9 +577,15 @@ function createDemoPedido(body: FormData): ApiPedido {
     updated_at: now,
     items,
   }
-  applyStockDeltas(stockDeltas)
-  const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
+  let saved: ApiPedido[]
+  try {
+    saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
+  } catch {
+    throw new ApiError('Pedidos demo inválidos', 400)
+  }
+  if (!Array.isArray(saved)) throw new ApiError('Pedidos demo inválidos', 400)
   sessionStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify([...saved, pedido]))
+  applyStockDeltas(stockDeltas)
   return pedido
 }
 

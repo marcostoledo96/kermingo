@@ -4,6 +4,7 @@
  * Usage: node anonymize-dump.mjs <input.sql> <output.sql>
  *
  * - Replaces sensitive INSERT values by explicit table/column policy
+ * - Rejects unsupported sensitive REPLACE mutations before writing output
  *
  * Always review the output before committing. Prefer regenerating from a trusted
  * RAW kept outside the repo.
@@ -153,6 +154,10 @@ const INSERT_TARGET = new RegExp(
   `^INSERT\\b(?<modifiers>(?:\\s+[a-zA-Z_]+)*)\\s+INTO\\s+(?:(?<schema>${IDENTIFIER})\\s*\\.\\s*)?(?<table>${IDENTIFIER})(?=\\s|\\()`,
   'i',
 )
+const REPLACE_TARGET = new RegExp(
+  `^REPLACE\\b(?<modifiers>(?:\\s+(?:LOW_PRIORITY|DELAYED))*)\\s*(?:INTO\\s+)?(?:(?<schema>${IDENTIFIER})\\s*\\.\\s*)?(?<table>${IDENTIFIER})(?=\\s|\\()`,
+  'i',
+)
 
 function maskComments(statement, includeExecutable = false) {
   const blockComment = includeExecutable ? '\\/\\*[\\s\\S]*?\\*\\/' : '\\/\\*(?!\\!)[\\s\\S]*?\\*\\/'
@@ -182,9 +187,26 @@ function sensitiveInsertTarget(statement) {
     : null
 }
 
+function sensitiveReplaceTarget(statement) {
+  let match = maskComments(statement).match(REPLACE_TARGET)
+  if (!match && statement.includes('/*!')) {
+    match = maskComments(statement, true).match(REPLACE_TARGET)
+    if (match) throw new Error('Unsafe executable comment: sensitive REPLACE is not supported')
+  }
+  if (!match) return null
+  const table = match.groups.table.startsWith('`')
+    ? match.groups.table.slice(1, -1).replaceAll('``', '`').toLowerCase()
+    : match.groups.table.toLowerCase()
+  return Object.hasOwn(SENSITIVE_TABLES, table) ? { table } : null
+}
+
+function sensitiveMutationTarget(statement) {
+  return sensitiveInsertTarget(statement) ?? sensitiveReplaceTarget(statement)
+}
+
 function executableCommentTarget(statement) {
   const body = statement.match(/^\/\*!\d*\s*([\s\S]*?)\*\//)?.[1]
-  return body ? sensitiveInsertTarget(body) : null
+  return body ? sensitiveMutationTarget(body) : null
 }
 
 function anonymizeSensitiveInsert(statement, table, firstSequence) {
@@ -234,7 +256,11 @@ const statements = scanSql(sql, ';')
 for (const statement of statements) {
   const prefix = leadingComments(statement)
   if (executableCommentTarget(statement.slice(prefix.length))) {
-    throw new Error('Unsafe executable comment: sensitive INSERT is not supported')
+    throw new Error('Unsafe executable comment: sensitive mutation is not supported')
+  }
+  const executable = statement.slice(prefix.length)
+  if (sensitiveReplaceTarget(executable)) {
+    throw new Error('Unsafe sensitive REPLACE: mutation is not supported')
   }
   const target = sensitiveInsertTarget(statement.slice(prefix.length))
   if (target) expectedCounts[target.table] += 1
@@ -242,6 +268,9 @@ for (const statement of statements) {
 sql = statements.map((statement) => {
   const prefix = leadingComments(statement)
   const executable = statement.slice(prefix.length)
+  if (sensitiveReplaceTarget(executable)) {
+    throw new Error('Unsafe sensitive REPLACE: mutation is not supported')
+  }
   const target = sensitiveInsertTarget(executable)
   if (!target) return statement
   const result = anonymizeSensitiveInsert(executable, target.table, sequences[target.table])

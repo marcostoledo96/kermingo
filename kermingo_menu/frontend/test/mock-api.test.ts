@@ -380,6 +380,100 @@ describe('mock API mode', () => {
       .resolves.toMatchObject({ id: 1, estado_pedido: 'listo' })
   })
 
+  it('does not mutate checkout state when existing demo order storage is malformed', async () => {
+    const { apiGet, apiPatch, apiPostForm } = await import('@/lib/api')
+    await apiPatch('/api/admin/productos/1/stock', { stock_actual: 4 })
+    await apiPatch('/api/admin/productos/5/stock', { stock_actual: 3 })
+    await apiPatch('/api/admin/productos/15/stock', { stock_actual: 2 })
+
+    const before = {
+      stocks: await Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))),
+      publicProducts: await apiGet('/api/productos'),
+      adminProducts: await apiGet('/api/admin/productos', { estado: 'todos' }),
+      orders: await apiGet('/api/admin/pedidos', { buscar: 'storage malformed' }),
+      reports: await apiGet<Record<string, unknown>>('/api/admin/reportes'),
+    }
+    const { actualizado_en: _beforeUpdatedAt, ...beforeReports } = before.reports
+    sessionStorage.setItem('kermingo:demoOrders', '{malformed')
+    const form = new FormData()
+    form.set('nombre_cliente', 'storage malformed')
+    form.set('items', JSON.stringify([
+      { producto_id: 1, cantidad: 1 },
+      { producto_id: 24, cantidad: 1 },
+    ]))
+
+    await expect(apiPostForm('/api/pedidos', form)).rejects.toMatchObject({ status: 400 })
+
+    expect(sessionStorage.getItem('kermingo:demoOrders')).toBe('{malformed')
+    await expect(Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))))
+      .resolves.toEqual(before.stocks)
+    await expect(apiGet('/api/productos')).resolves.toEqual(before.publicProducts)
+    await expect(apiGet('/api/admin/productos', { estado: 'todos' })).resolves.toEqual(before.adminProducts)
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'storage malformed' })).resolves.toEqual(before.orders)
+    const { actualizado_en: _afterUpdatedAt, ...afterReports } = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+    expect(afterReports).toEqual(beforeReports)
+  })
+
+  it('does not mutate checkout state when demo order storage cannot be written', async () => {
+    const { apiGet, apiPatch, apiPostForm } = await import('@/lib/api')
+    await apiPatch('/api/admin/productos/1/stock', { stock_actual: 4 })
+    await apiPatch('/api/admin/productos/5/stock', { stock_actual: 3 })
+    await apiPatch('/api/admin/productos/15/stock', { stock_actual: 2 })
+
+    const before = {
+      stocks: await Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))),
+      publicProducts: await apiGet('/api/productos'),
+      adminProducts: await apiGet('/api/admin/productos', { estado: 'todos' }),
+      orders: await apiGet('/api/admin/pedidos', { buscar: 'storage quota' }),
+      reports: await apiGet<Record<string, unknown>>('/api/admin/reportes'),
+    }
+    const { actualizado_en: _beforeUpdatedAt, ...beforeReports } = before.reports
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
+    const form = new FormData()
+    form.set('nombre_cliente', 'storage quota')
+    form.set('items', JSON.stringify([
+      { producto_id: 1, cantidad: 1 },
+      { producto_id: 24, cantidad: 1 },
+    ]))
+
+    try {
+      await expect(apiPostForm('/api/pedidos', form)).rejects.toMatchObject({ name: 'QuotaExceededError' })
+    } finally {
+      setItem.mockRestore()
+    }
+
+    await expect(Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))))
+      .resolves.toEqual(before.stocks)
+    await expect(apiGet('/api/productos')).resolves.toEqual(before.publicProducts)
+    await expect(apiGet('/api/admin/productos', { estado: 'todos' })).resolves.toEqual(before.adminProducts)
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'storage quota' })).resolves.toEqual(before.orders)
+    const { actualizado_en: _afterUpdatedAt, ...afterReports } = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+    expect(afterReports).toEqual(beforeReports)
+  })
+
+  it('rejects inactive promo components atomically and preserves the working promo checkout', async () => {
+    const { apiGet, apiPatch, apiPostForm, apiPut } = await import('@/lib/api')
+    const beforeComponents = await apiGet('/api/admin/productos/23/componentes')
+    const beforePromo = (await apiGet<Array<{ id: number }>>('/api/productos/23'))
+    await apiPatch('/api/admin/productos/11/desactivar', {})
+
+    await expect(apiPut('/api/admin/productos/23/componentes', {
+      componentes: [{ producto_id: 11, cantidad: 1 }],
+    })).rejects.toMatchObject({ status: 400, message: 'Uno o más componentes están desactivados' })
+
+    await expect(apiGet('/api/admin/productos/23/componentes')).resolves.toEqual(beforeComponents)
+    await expect(apiGet('/api/productos/23')).resolves.toEqual(beforePromo)
+
+    const form = new FormData()
+    form.set('nombre_cliente', 'promo remains valid')
+    form.set('items', JSON.stringify([{ producto_id: 23, cantidad: 1 }]))
+    await expect(apiPostForm('/api/pedidos', form)).resolves.toMatchObject({
+      items: [expect.objectContaining({ producto_id: 23, cantidad: 1 })],
+    })
+  })
+
   it('uploads and persists a seeded product image without creating an object URL', async () => {
     const objectUrlSpy = vi.spyOn(URL, 'createObjectURL')
     const { apiGet, apiPostForm } = await import('@/lib/api')
