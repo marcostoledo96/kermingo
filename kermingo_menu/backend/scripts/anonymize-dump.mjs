@@ -88,8 +88,8 @@ function leadingComments(statement) {
       continue
     }
     if (statement[end] === '#' || (statement.startsWith('--', end) && /[\x00-\x20]/.test(statement[end + 2] ?? ''))) {
-      const newline = statement.indexOf('\n', end)
-      end = newline === -1 ? statement.length : newline + 1
+      const newline = statement.slice(end).search(/[\r\n]/)
+      end = newline === -1 ? statement.length : end + newline + 1
       continue
     }
     if (statement.startsWith('/*', end) && !statement.startsWith('/*!', end)) {

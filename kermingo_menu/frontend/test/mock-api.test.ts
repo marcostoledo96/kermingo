@@ -625,6 +625,92 @@ describe('mock API mode', () => {
     await expect(apiGet('/api/productos/15')).resolves.toMatchObject({ stock_actual: beforeCoca.stock_actual - 1 })
   })
 
+  it('decrements direct and promo-component stock across online checkouts atomically', async () => {
+    const { apiGet, apiPatch, apiPostForm } = await import('@/lib/api')
+    await apiPatch('/api/admin/productos/1/stock', { stock_actual: 2 })
+    await apiPatch('/api/admin/productos/5/stock', { stock_actual: 1 })
+    await apiPatch('/api/admin/productos/15/stock', { stock_actual: 1 })
+
+    const form = (nombre_cliente: string, producto_id: number, cantidad: number) => {
+      const value = new FormData()
+      value.set('nombre_cliente', nombre_cliente)
+      value.set('items', JSON.stringify([{ producto_id, cantidad }]))
+      return value
+    }
+
+    await expect(apiPostForm('/api/pedidos', form('Online atómico 1', 1, 1)))
+      .resolves.toMatchObject({ origen: 'online', items: [{ producto_id: 1, cantidad: 1 }] })
+    await expect(apiPostForm('/api/pedidos', form('Online atómico 2', 24, 1)))
+      .resolves.toMatchObject({ origen: 'online', items: [{ producto_id: 24, cantidad: 1 }] })
+
+    await expect(apiGet('/api/productos/1')).resolves.toMatchObject({ stock_actual: 0 })
+    await expect(apiGet('/api/productos/5')).resolves.toMatchObject({ stock_actual: 0 })
+    await expect(apiGet('/api/productos/15')).resolves.toMatchObject({ stock_actual: 0 })
+    const beforeFailedCheckout = {
+      products: await Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))),
+      adminProducts: await apiGet('/api/admin/productos', { estado: 'todos' }),
+      orders: await apiGet('/api/admin/pedidos', { buscar: 'Online atómico' }),
+      reports: await apiGet<Record<string, unknown>>('/api/admin/reportes'),
+    }
+    expect(beforeFailedCheckout.adminProducts.productos).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 1, stock_actual: 0 }),
+      expect.objectContaining({ id: 5, stock_actual: 0 }),
+      expect.objectContaining({ id: 15, stock_actual: 0 }),
+    ]))
+
+    await expect(apiPostForm('/api/pedidos', form('Online atómico fallido', 1, 1)))
+      .rejects.toMatchObject({ status: 409 })
+
+    await expect(Promise.all([1, 5, 15].map((id) => apiGet(`/api/productos/${id}`))))
+      .resolves.toEqual(beforeFailedCheckout.products)
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'Online atómico' }))
+      .resolves.toEqual(beforeFailedCheckout.orders)
+    await expect(apiGet('/api/admin/productos', { estado: 'todos' }))
+      .resolves.toEqual(beforeFailedCheckout.adminProducts)
+    const afterFailedReports = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+    expect({ ...afterFailedReports, actualizado_en: beforeFailedCheckout.reports.actualizado_en })
+      .toEqual({ ...beforeFailedCheckout.reports, actualizado_en: beforeFailedCheckout.reports.actualizado_en })
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'Online atómico fallido' }))
+      .resolves.toMatchObject({ pedidos: [], paginacion: { total: 0 } })
+  })
+
+  it('persists a valid product reorder and rejects invalid batches atomically', async () => {
+    const { apiGet, apiPatch } = await import('@/lib/api')
+    const expectedOrder = [
+      { id: 2, orden: 0 }, { id: 3, orden: 1 }, { id: 1, orden: 2 },
+    ]
+    const reordered = await apiPatch<Array<{ id: number; orden: number }>>('/api/admin/productos/orden', {
+      ordenes: [{ id: 1, orden: 2 }, { id: 2, orden: 0 }, { id: 3, orden: 1 }],
+    })
+    expect(reordered.slice(0, 3).map(({ id, orden }) => ({ id, orden }))).toEqual(expectedOrder)
+
+    const publicProducts = await apiGet<Array<{ id: number; orden: number }>>('/api/productos')
+    const adminProducts = await apiGet<{ productos: Array<{ id: number; orden: number }> }>(
+      '/api/admin/productos', { estado: 'todos' },
+    )
+    expect(publicProducts.slice(0, 3).map(({ id, orden }) => ({ id, orden }))).toEqual(expectedOrder)
+    expect(adminProducts.productos.slice(0, 3).map(({ id, orden }) => ({ id, orden }))).toEqual(expectedOrder)
+
+    const beforeInvalidBatch = {
+      publicProducts: await apiGet('/api/productos'),
+      adminProducts: await apiGet('/api/admin/productos', { estado: 'todos' }),
+    }
+    for (const body of [
+      { ordenes: [{ id: 0, orden: 1 }] },
+      { ordenes: [{ id: 1, orden: -1 }] },
+      { ordenes: [{ id: 1, orden: 1 }, { id: 1, orden: 2 }] },
+      { ordenes: [{ id: 999, orden: 1 }] },
+      { ordenes: [{ id: '1', orden: 1 }] },
+    ]) {
+      await expect(apiPatch('/api/admin/productos/orden', body)).rejects.toMatchObject({
+        name: 'ApiError',
+      })
+      await expect(apiGet('/api/productos')).resolves.toEqual(beforeInvalidBatch.publicProducts)
+      await expect(apiGet('/api/admin/productos', { estado: 'todos' }))
+        .resolves.toEqual(beforeInvalidBatch.adminProducts)
+    }
+  })
+
   it('rejects malformed and insufficient caja sales atomically', async () => {
     const { apiGet, apiPatch, apiPost } = await import('@/lib/api')
     await apiPatch('/api/admin/productos/1/stock', { stock_actual: 1 })

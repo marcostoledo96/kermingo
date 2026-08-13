@@ -216,6 +216,24 @@ describe('anonymize-dump', () => {
     await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it.each([
+    ['-- generated export', '\r'],
+    ['# generated export', '\r'],
+    ['-- generated export', '\r\n'],
+    ['# generated export', '\r\n'],
+  ])('scrubs explicit-column pedido INSERT after a leading %s comment with %j line ending', async (comment, lineEnding) => {
+    const input = join(dir, 'input.sql')
+    const output = join(dir, 'output.sql')
+    const sql = `${comment}${lineEnding}INSERT INTO pedido (nombre_cliente, telefono_cliente, telefono_whatsapp, mesa, token_seguimiento, observaciones) VALUES ('Persona real', '2915551111', '5492915551111', 'Mesa 8', 'abcdefabcdefabcdefabcdefabcdefab', 'Privado');${lineEnding}`
+    await writeFile(input, sql)
+
+    await execFileAsync(process.execPath, [script.pathname, input, output])
+    const result = await readFile(output, 'utf8')
+
+    expect(result).toContain("'Cliente Demo 1'")
+    expect(result).not.toMatch(/Persona real|2915551111|Mesa 8|Privado/)
+  })
+
   it('fails closed on unsupported pedido insert modifiers', async () => {
     const input = join(dir, 'input.sql')
     const output = join(dir, 'output.sql')

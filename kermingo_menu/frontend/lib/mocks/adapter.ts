@@ -25,7 +25,7 @@ function mergedProducts() {
   return [
     ...MOCK_PRODUCTOS.map((producto) => demoProducts.get(producto.id) ?? producto),
     ...[...demoProducts.values()].filter((producto) => !seededIds.has(producto.id)),
-  ]
+  ].sort((a, b) => a.orden - b.orden || a.id - b.id)
 }
 
 function mergedPedidos() {
@@ -556,7 +556,7 @@ function createDemoPedido(body: FormData): ApiPedido {
   if (!Array.isArray(requestedItems) || requestedItems.length === 0) {
     throw new ApiError('El pedido debe incluir items', 400)
   }
-  const { items } = prepareOrderItems(requestedItems)
+  const { items, stockDeltas } = prepareOrderItems(requestedItems)
   const pedido: ApiPedido = {
     id,
     numero: `KMG-DEMO-${String(id).slice(-6)}`,
@@ -576,6 +576,7 @@ function createDemoPedido(body: FormData): ApiPedido {
     updated_at: now,
     items,
   }
+  applyStockDeltas(stockDeltas)
   const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
   sessionStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify([...saved, pedido]))
   return pedido
@@ -717,6 +718,29 @@ export async function mockApiRequest<T>(
 
   if (m === 'POST' && p === '/api/admin/productos') {
     return demoNoop(createDemoProducto(body) as T)
+  }
+
+  if (m === 'PATCH' && p === '/api/admin/productos/orden') {
+    const data = objectBody(body, ['ordenes'], 'Ordenes inválidas')
+    if (!Array.isArray(data.ordenes) || data.ordenes.length === 0) {
+      throw new ApiError('Ordenes inválidas', 400)
+    }
+    const seen = new Set<number>()
+    const ordenes = data.ordenes.map((value) => {
+      const item = objectBody(value, ['id', 'orden'], 'Ordenes inválidas')
+      const id = Number(item.id)
+      const orden = Number(item.orden)
+      if (!Number.isInteger(item.id) || !Number.isInteger(item.orden)
+        || !integer(id, 1) || !integer(orden) || seen.has(id) || !findProducto(id)) {
+        throw new ApiError('Ordenes inválidas', 400)
+      }
+      seen.add(id)
+      return { id, orden }
+    })
+    for (const { id, orden } of ordenes) {
+      demoProducts.set(id, { ...findProducto(id)!, orden })
+    }
+    return demoNoop(mergedProducts() as T)
   }
 
   if (m === 'PUT' && p === '/api/admin/configuracion-tienda') {
