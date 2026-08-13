@@ -225,6 +225,32 @@ describe('mock API mode', () => {
     await expect(apiPut('/api/admin/pedidos/1', { items: [{ producto_id: 999, cantidad: 1 }] })).rejects.toMatchObject({ status: 400 })
   })
 
+  it('rejects changing a receipt-bearing transfer order to cash without mutating it', async () => {
+    const { apiGet, apiPut } = await import('@/lib/api')
+    const before = await apiGet('/api/admin/pedidos/3')
+
+    await expect(apiPut('/api/admin/pedidos/3', { metodo_pago: 'efectivo' }))
+      .rejects.toMatchObject({
+        name: 'ApiError',
+        status: 400,
+        message: 'No se puede cambiar a efectivo un pedido con comprobante adjunto',
+      })
+    await expect(apiGet('/api/admin/pedidos/3')).resolves.toEqual(before)
+  })
+
+  it('rejects an oversized promo edit after aggregating components and leaves the order unchanged', async () => {
+    const { apiGet, apiPut } = await import('@/lib/api')
+    const before = await apiGet('/api/admin/pedidos/3')
+
+    await expect(apiPut('/api/admin/pedidos/3', {
+      items: [
+        { producto_id: 23, cantidad: 5 },
+        { producto_id: 23, cantidad: 5 },
+      ],
+    })).rejects.toMatchObject({ name: 'ApiError', status: 409, message: 'Stock insuficiente' })
+    await expect(apiGet('/api/admin/pedidos/3')).resolves.toEqual(before)
+  })
+
   it('keeps the requested admin state across refetch', async () => {
     const { apiGet, apiPatch } = await import('@/lib/api')
     const updated = await apiPatch<Record<string, unknown>>('/api/admin/pedidos/1/estado', {
@@ -275,14 +301,26 @@ describe('mock API mode', () => {
   it('returns cancelar and aprobar mutations with their contract states', async () => {
     const { apiPatch } = await import('@/lib/api')
 
-    await expect(apiPatch('/api/admin/pedidos/1/cancelar', {}))
-      .resolves.toMatchObject({ id: 1, estado_pedido: 'cancelado' })
+    await expect(apiPatch('/api/admin/pedidos/4/cancelar', {}))
+      .resolves.toMatchObject({ id: 4, estado_pedido: 'cancelado' })
     await expect(apiPatch('/api/admin/pedidos/3/comprobante/aprobar', {}))
       .resolves.toMatchObject({ id: 3, estado_pago: 'pagado', estado_pedido: 'en_preparacion' })
-    await expect(apiPatch('/api/admin/pedidos/1/cancelar', { extra: true }))
+    await expect(apiPatch('/api/admin/pedidos/4/cancelar', { extra: true }))
       .rejects.toMatchObject({ status: 400 })
     await expect(apiPatch('/api/admin/pedidos/3/comprobante/aprobar', { extra: true }))
       .rejects.toMatchObject({ status: 400 })
+  })
+
+  it('rejects cancelling a ready order and leaves its detail unchanged', async () => {
+    const { apiGet, apiPatch } = await import('@/lib/api')
+    const before = await apiGet('/api/admin/pedidos/5')
+
+    await expect(apiPatch('/api/admin/pedidos/5/cancelar', {})).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 400,
+      message: 'Solo se puede cancelar pedidos en estado en preparación',
+    })
+    await expect(apiGet('/api/admin/pedidos/5')).resolves.toEqual(before)
   })
 
   it('returns a nonpersistent kitchen order with the requested state', async () => {
@@ -467,6 +505,37 @@ describe('mock API mode', () => {
       producto_top: expectedRanking[0],
       ranking_productos: expectedRanking,
     })
+  })
+
+  it('updates reports after payment and excludes a cancelled paid order', async () => {
+    const { apiGet, apiPatch } = await import('@/lib/api')
+    const before = await apiGet<{
+      total_recaudado: number
+      pedidos_pagados: number
+      productos_vendidos: number
+      ranking_productos: Array<{ producto_id: number; cantidad: number }>
+    }>('/api/admin/reportes')
+
+    await apiPatch('/api/admin/pedidos/3/pago', { estado_pago: 'pagado' })
+    const afterPayment = await apiGet<typeof before>('/api/admin/reportes')
+    expect(afterPayment).toMatchObject({
+      total_recaudado: before.total_recaudado + 3500,
+      pedidos_pagados: before.pedidos_pagados + 1,
+      productos_vendidos: before.productos_vendidos + 1,
+    })
+    expect(afterPayment.ranking_productos).toContainEqual(
+      expect.objectContaining({ producto_id: 23, cantidad: 1 }),
+    )
+
+    await apiPatch('/api/admin/pedidos/4/cancelar', {})
+    const afterCancellation = await apiGet<typeof before>('/api/admin/reportes')
+    expect(afterCancellation).toMatchObject({
+      total_recaudado: afterPayment.total_recaudado - 6500,
+      pedidos_pagados: afterPayment.pedidos_pagados - 1,
+      productos_vendidos: afterPayment.productos_vendidos - 1,
+    })
+    expect(afterCancellation.ranking_productos)
+      .not.toContainEqual(expect.objectContaining({ producto_id: 24 }))
   })
 
   it('creates a complete demo order from FormData without network', async () => {
