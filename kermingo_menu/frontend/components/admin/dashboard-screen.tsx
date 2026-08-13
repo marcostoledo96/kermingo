@@ -312,7 +312,7 @@ export function DashboardScreen() {
 
         <section>
           <SectionTitle>Resumen en vivo</SectionTitle>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 sm:grid-cols-3 lg:grid-cols-6">
             <MetricCard icon={Clock} label="Pendientes" value={state.metrics.pendientes} />
             <MetricCard icon={ChefHat} label="Preparando" value={state.metrics.preparando} />
             <MetricCard icon={CheckCircle2} label="Listos" value={state.metrics.listos} />
