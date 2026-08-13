@@ -40,6 +40,40 @@ describe('mock API mode', () => {
     expect(productos).not.toContainEqual(expect.objectContaining({ id: created.id }))
   })
 
+  it('persists seeded product mutations across refetches and checkout', async () => {
+    const { apiDelete, apiGet, apiPatch, apiPostForm, apiPut } = await import('@/lib/api')
+
+    await apiPut('/api/admin/productos/1', { nombre: 'Pizza demo editada', precio: 4100 })
+    await apiPatch('/api/admin/productos/1/stock', { stock_actual: 1 })
+    const image = new FormData()
+    image.set('imagen', new File(['demo'], 'pizza-demo.png', { type: 'image/png' }))
+    await apiPostForm('/api/admin/productos/1/imagen', image)
+
+    await expect(apiGet('/api/productos/1')).resolves.toMatchObject({
+      nombre: 'Pizza demo editada', precio: 4100, stock_actual: 1,
+      imagen_nombre_original: 'pizza-demo.png',
+    })
+    await expect(apiGet<{ productos: Array<Record<string, unknown>> }>('/api/admin/productos', { estado: 'todos' }))
+      .resolves.toMatchObject({ productos: expect.arrayContaining([
+        expect.objectContaining({ id: 1, nombre: 'Pizza demo editada', stock_actual: 1 }),
+      ]) })
+
+    const checkout = new FormData()
+    checkout.set('items', JSON.stringify([{ producto_id: 1, cantidad: 2 }]))
+    await expect(apiPostForm('/api/pedidos', checkout)).rejects.toMatchObject({ status: 409 })
+
+    await apiPatch('/api/admin/productos/1/desactivar', {})
+    expect(await apiGet<Array<{ id: number }>>('/api/productos'))
+      .not.toContainEqual(expect.objectContaining({ id: 1 }))
+    await expect(apiGet('/api/productos/1')).rejects.toMatchObject({ status: 404 })
+    await expect(apiGet<{ productos: Array<Record<string, unknown>> }>('/api/admin/productos', { estado: 'desactivado' }))
+      .resolves.toMatchObject({ productos: expect.arrayContaining([expect.objectContaining({ id: 1, activo: 0 })]) })
+
+    await apiPatch('/api/admin/productos/1/recuperar', {})
+    await apiDelete('/api/admin/productos/1/imagen')
+    await expect(apiGet('/api/productos/1')).resolves.toMatchObject({ activo: 1, imagen_url: null })
+  })
+
   it('hides an ephemeral promo until it has components', async () => {
     const { apiGet, apiPost, apiPut } = await import('@/lib/api')
     const created = await apiPost<{ id: number }>('/api/admin/productos', {
@@ -238,6 +272,22 @@ describe('mock API mode', () => {
     await expect(apiGet('/api/admin/pedidos/3')).resolves.toEqual(before)
   })
 
+  it('rejects a paid-order payment regression without changing order or reports', async () => {
+    const { apiGet, apiPut } = await import('@/lib/api')
+    const beforeOrder = await apiGet('/api/admin/pedidos/2')
+    const { actualizado_en: _beforeTimestamp, ...beforeReports } = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+
+    await expect(apiPut('/api/admin/pedidos/2', { estado_pago: 'pendiente' }))
+      .rejects.toMatchObject({ name: 'ApiError', status: 400 })
+    await expect(apiPut('/api/admin/pedidos/2', {
+      metodo_pago: 'transferencia', estado_pago: 'rechazado',
+    })).rejects.toMatchObject({ name: 'ApiError', status: 400 })
+
+    await expect(apiGet('/api/admin/pedidos/2')).resolves.toEqual(beforeOrder)
+    const { actualizado_en: _afterTimestamp, ...afterReports } = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+    expect(afterReports).toEqual(beforeReports)
+  })
+
   it('rejects an oversized promo edit after aggregating components and leaves the order unchanged', async () => {
     const { apiGet, apiPut } = await import('@/lib/api')
     const before = await apiGet('/api/admin/pedidos/3')
@@ -330,10 +380,9 @@ describe('mock API mode', () => {
       .resolves.toMatchObject({ id: 1, estado_pedido: 'listo' })
   })
 
-  it('uploads a product image from exact FormData without persisting or creating an object URL', async () => {
+  it('uploads and persists a seeded product image without creating an object URL', async () => {
     const objectUrlSpy = vi.spyOn(URL, 'createObjectURL')
     const { apiGet, apiPostForm } = await import('@/lib/api')
-    const before = await apiGet<Record<string, unknown>>('/api/productos/14')
     const form = new FormData()
     form.set('imagen', new File(['demo'], 'producto.png', { type: 'image/png' }))
 
@@ -348,7 +397,7 @@ describe('mock API mode', () => {
       imagen_url: expect.stringMatching(/^\/products\/\d+\.png$/),
     })
     expect(objectUrlSpy).not.toHaveBeenCalled()
-    await expect(apiGet('/api/productos/14')).resolves.toEqual(before)
+    await expect(apiGet('/api/productos/14')).resolves.toEqual(uploaded)
   })
 
   it('strictly validates product image upload FormData', async () => {
@@ -362,9 +411,8 @@ describe('mock API mode', () => {
     await expect(apiPostForm('/api/admin/productos/1/imagen', extra)).rejects.toMatchObject({ status: 400 })
   })
 
-  it('deletes all five product image fields without persisting', async () => {
+  it('deletes and persists all five seeded product image fields', async () => {
     const { apiDelete, apiGet } = await import('@/lib/api')
-    const before = await apiGet<Record<string, unknown>>('/api/productos/1')
     const deleted = await apiDelete<Record<string, unknown>>('/api/admin/productos/1/imagen')
 
     expect(deleted).toMatchObject({
@@ -375,7 +423,7 @@ describe('mock API mode', () => {
       imagen_tamanio_bytes: null,
       imagen_url: null,
     })
-    await expect(apiGet('/api/productos/1')).resolves.toEqual(before)
+    await expect(apiGet('/api/productos/1')).resolves.toEqual(deleted)
     const { mockApiRequest } = await import('@/lib/mocks/adapter')
     await expect(mockApiRequest('DELETE', '/api/admin/productos/1/imagen', undefined, {}))
       .rejects.toMatchObject({ status: 400 })
@@ -536,6 +584,93 @@ describe('mock API mode', () => {
     })
     expect(afterCancellation.ranking_productos)
       .not.toContainEqual(expect.objectContaining({ producto_id: 24 }))
+  })
+
+  it('creates a caja order visible downstream and decrements direct and promo stock', async () => {
+    const { apiGet, apiPost } = await import('@/lib/api')
+    const beforePizza = await apiGet<{ stock_actual: number }>('/api/productos/1')
+    const beforePancho = await apiGet<{ stock_actual: number }>('/api/productos/5')
+    const beforeCoca = await apiGet<{ stock_actual: number }>('/api/productos/15')
+    const beforeReports = await apiGet<{ total_efectivo: number; pedidos_pagados: number }>('/api/admin/reportes')
+
+    const created = await apiPost<{
+      id: number; numero: string; origen: string; estado_pedido: string; estado_pago: string
+      metodo_pago: string; total: number; items: Array<{ producto_id: number; cantidad: number; subtotal: number }>
+    }>('/api/admin/pedidos/caja', {
+      nombre_cliente: 'Caja TDD', metodo_pago: 'efectivo', estado_pago: 'pendiente',
+      estado_pedido: 'recibido',
+      items: [{ producto_id: 1, cantidad: 2 }, { producto_id: 24, cantidad: 1 }],
+    })
+
+    expect(created).toMatchObject({
+      id: expect.any(Number), numero: expect.stringMatching(/^KMG-DEMO-/), origen: 'caja',
+      estado_pedido: 'en_preparacion', estado_pago: 'pagado', metodo_pago: 'efectivo', total: 13500,
+      items: [
+        { producto_id: 1, cantidad: 2, subtotal: 7000 },
+        { producto_id: 24, cantidad: 1, subtotal: 6500 },
+      ],
+    })
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'Caja TDD' })).resolves.toMatchObject({
+      pedidos: [expect.objectContaining({ id: created.id, total: 13500 })], paginacion: { total: 1 },
+    })
+    await expect(apiGet('/api/admin/cocina/pedidos')).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: created.id, estado_pedido: 'en_preparacion' })]),
+    )
+    await expect(apiGet('/api/admin/reportes')).resolves.toMatchObject({
+      total_efectivo: beforeReports.total_efectivo + 13500,
+      pedidos_pagados: beforeReports.pedidos_pagados + 1,
+    })
+    await expect(apiGet('/api/productos/1')).resolves.toMatchObject({ stock_actual: beforePizza.stock_actual - 3 })
+    await expect(apiGet('/api/productos/5')).resolves.toMatchObject({ stock_actual: beforePancho.stock_actual - 1 })
+    await expect(apiGet('/api/productos/15')).resolves.toMatchObject({ stock_actual: beforeCoca.stock_actual - 1 })
+  })
+
+  it('rejects malformed and insufficient caja sales atomically', async () => {
+    const { apiGet, apiPatch, apiPost } = await import('@/lib/api')
+    await apiPatch('/api/admin/productos/1/stock', { stock_actual: 1 })
+    const beforeProduct = await apiGet('/api/productos/1')
+    const beforeOrders = await apiGet('/api/admin/pedidos', { buscar: 'Caja atómica' })
+    const beforeReports = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+
+    await expect(apiPost('/api/admin/pedidos/caja', {
+      nombre_cliente: 'Caja atómica', metodo_pago: 'efectivo',
+      items: [{ producto_id: 1, cantidad: 2 }],
+    })).rejects.toMatchObject({ status: 409 })
+    await expect(apiPost('/api/admin/pedidos/caja', {
+      nombre_cliente: 'Caja atómica', metodo_pago: 'efectivo', items: [],
+    })).rejects.toMatchObject({ status: 400 })
+
+    await expect(apiGet('/api/productos/1')).resolves.toEqual(beforeProduct)
+    await expect(apiGet('/api/admin/pedidos', { buscar: 'Caja atómica' })).resolves.toEqual(beforeOrders)
+    const afterReports = await apiGet<Record<string, unknown>>('/api/admin/reportes')
+    expect({ ...afterReports, actualizado_en: beforeReports.actualizado_en }).toEqual(beforeReports)
+  })
+
+  it('restores direct and promo-component stock exactly once on cancellation', async () => {
+    const { apiGet, apiPatch, apiPost } = await import('@/lib/api')
+    const initial = await Promise.all([1, 5, 15].map((id) =>
+      apiGet<{ stock_actual: number }>(`/api/productos/${id}`)))
+    const created = await apiPost<{ id: number }>('/api/admin/pedidos/caja', {
+      nombre_cliente: 'Caja cancelar', metodo_pago: 'transferencia',
+      items: [{ producto_id: 1, cantidad: 2 }, { producto_id: 24, cantidad: 1 }],
+    })
+
+    await expect(apiPatch(`/api/admin/pedidos/${created.id}/cancelar`, {}))
+      .resolves.toMatchObject({ id: created.id, estado_pedido: 'cancelado' })
+    for (const [index, id] of [1, 5, 15].entries()) {
+      await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({
+        stock_actual: initial[index].stock_actual,
+      })
+    }
+
+    await expect(apiPatch(`/api/admin/pedidos/${created.id}/cancelar`, {}))
+      .rejects.toMatchObject({ status: 400 })
+    await expect(apiPatch('/api/admin/pedidos/5/cancelar', {})).rejects.toMatchObject({ status: 400 })
+    for (const [index, id] of [1, 5, 15].entries()) {
+      await expect(apiGet(`/api/productos/${id}`)).resolves.toMatchObject({
+        stock_actual: initial[index].stock_actual,
+      })
+    }
   })
 
   it('creates a complete demo order from FormData without network', async () => {

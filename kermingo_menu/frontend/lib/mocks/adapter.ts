@@ -20,8 +20,20 @@ const demoProducts = new Map<number, ApiProducto>()
 const demoComponents = new Map<number, ApiComponente[]>()
 const demoPedidos = new Map<number, ApiPedido>()
 
+function mergedProducts() {
+  const seededIds = new Set(MOCK_PRODUCTOS.map((producto) => producto.id))
+  return [
+    ...MOCK_PRODUCTOS.map((producto) => demoProducts.get(producto.id) ?? producto),
+    ...[...demoProducts.values()].filter((producto) => !seededIds.has(producto.id)),
+  ]
+}
+
 function mergedPedidos() {
-  return MOCK_PEDIDOS.map((pedido) => demoPedidos.get(pedido.id) ?? pedido)
+  const seededIds = new Set(MOCK_PEDIDOS.map((pedido) => pedido.id))
+  return [
+    ...MOCK_PEDIDOS.map((pedido) => demoPedidos.get(pedido.id) ?? pedido),
+    ...[...demoPedidos.values()].filter((pedido) => !seededIds.has(pedido.id)),
+  ]
 }
 
 function delay<T>(value: T, ms = 80): Promise<T> {
@@ -37,7 +49,7 @@ function match(path: string, pattern: RegExp): RegExpMatchArray | null {
 }
 
 function paginateProductos(query?: Record<string, string | number | undefined>) {
-  let list = [...MOCK_PRODUCTOS, ...demoProducts.values()]
+  let list = mergedProducts()
   const estado = query?.estado
   if (estado === 'activo') list = list.filter((p) =>
     p.activo === 1 && p.disponible === 1
@@ -214,7 +226,28 @@ function integer(value: unknown, min = 0) {
 
 type RequestedItem = { producto_id: number; cantidad: number }
 
-function orderItems(requestedItems: RequestedItem[], previousItems: RequestedItem[] = []) {
+const paymentTransitions: Record<
+  ApiPedido['metodo_pago'],
+  Partial<Record<ApiPedido['estado_pago'], readonly ApiPedido['estado_pago'][]>>
+> = {
+  efectivo: { pendiente: ['pagado'], pagado: [] },
+  transferencia: {
+    pendiente: ['pagado', 'comprobante_subido'],
+    comprobante_subido: ['pagado', 'rechazado'],
+    rechazado: ['pendiente', 'comprobante_subido', 'pagado'],
+    pagado: [],
+  },
+} as const
+
+function validPaymentTransition(
+  from: ApiPedido['estado_pago'],
+  to: ApiPedido['estado_pago'],
+  method: ApiPedido['metodo_pago'],
+) {
+  return from === to || paymentTransitions[method][from]?.includes(to)
+}
+
+function prepareOrderItems(requestedItems: RequestedItem[], previousItems: RequestedItem[] = []) {
   const expand = (items: RequestedItem[], requirements: Map<number, number>, validate = true) => {
     for (const item of items) {
       const producto = findProducto(item.producto_id)
@@ -252,12 +285,26 @@ function orderItems(requestedItems: RequestedItem[], previousItems: RequestedIte
       throw new ApiError('Stock insuficiente', 409)
     }
   }
-  return requestedItems.map(({ producto_id, cantidad }) => {
+  const items = requestedItems.map(({ producto_id, cantidad }) => {
     const producto = findProducto(producto_id)!
     const precio = Number(producto.precio)
     return { producto_id, nombre_producto: producto.nombre, precio_unitario: precio,
       cantidad, subtotal: precio * cantidad, imagen_url: producto.imagen_url }
   })
+  const stockDeltas = new Map<number, number>()
+  for (const id of new Set([...requirements.keys(), ...restored.keys()])) {
+    stockDeltas.set(id, (restored.get(id) ?? 0) - (requirements.get(id) ?? 0))
+  }
+  return { items, stockDeltas }
+}
+
+function applyStockDeltas(stockDeltas: Map<number, number>) {
+  for (const [id, delta] of stockDeltas) {
+    const producto = findProducto(id)
+    if (producto?.stock_limitado === 1 && delta !== 0) {
+      demoProducts.set(id, { ...producto, stock_actual: (producto.stock_actual ?? 0) + delta })
+    }
+  }
 }
 
 function productValues(body: unknown, creating: boolean) {
@@ -326,7 +373,7 @@ function updateDemoProducto(id: number, body: unknown): ApiProducto {
     key === 'categorias' ? (value as string[]).join(',') : value,
   ]))
   const product = { ...base, ...updates, id } as ApiProducto
-  if (demoProducts.has(id)) demoProducts.set(id, product)
+  demoProducts.set(id, product)
   return product
 }
 
@@ -368,6 +415,19 @@ function editDemoPedido(id: number, body: unknown): ApiPedido {
   if (data.metodo_pago === 'efectivo' && pedido.comprobante_archivo_id) {
     throw new ApiError('No se puede cambiar a efectivo un pedido con comprobante adjunto', 400)
   }
+  const metodoPago = (data.metodo_pago ?? pedido.metodo_pago) as ApiPedido['metodo_pago']
+  if (data.estado_pago !== undefined && !validPaymentTransition(
+    pedido.estado_pago,
+    data.estado_pago as ApiPedido['estado_pago'],
+    metodoPago,
+  )) {
+    throw new ApiError('Transición de pago no válida', 400)
+  }
+  const estadoPago = data.estado_pago as ApiPedido['estado_pago'] | undefined
+    ?? (data.metodo_pago !== undefined && metodoPago !== pedido.metodo_pago
+      && pedido.estado_pago !== 'pagado' && !(pedido.estado_pago in paymentTransitions[metodoPago])
+      ? 'pendiente'
+      : pedido.estado_pago)
   const normalize = (value: unknown) => value === '' || value === null ? null : String(value)
   const items = data.items === undefined ? pedido.items : (() => {
     if (!Array.isArray(data.items) || data.items.length === 0) throw new ApiError('Items inválidos', 400)
@@ -375,11 +435,14 @@ function editDemoPedido(id: number, body: unknown): ApiPedido {
       const item = objectBody(value, ['producto_id', 'cantidad'], 'Items inválidos')
       return { producto_id: Number(item.producto_id), cantidad: Number(item.cantidad) }
     })
-    return orderItems(requested, pedido.items)
+    const prepared = prepareOrderItems(requested, pedido.items)
+    applyStockDeltas(prepared.stockDeltas)
+    return prepared.items
   })()
   return saveDemoPedido({
     ...pedido,
     ...data,
+    estado_pago: estadoPago,
     mesa: data.mesa === undefined ? pedido.mesa : normalize(data.mesa),
     telefono_cliente: data.telefono_cliente === undefined ? pedido.telefono_cliente : normalize(data.telefono_cliente),
     observaciones: data.observaciones === undefined ? pedido.observaciones : normalize(data.observaciones),
@@ -431,7 +494,7 @@ function updateDemoProductImage(id: number, body: unknown): ApiProducto {
     imagen_tamanio_bytes: image.size,
     imagen_url: `/products/${MOCK_PRODUCTOS.find((value) => value.imagen_url)?.id ?? 1}.png`,
   }
-  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  demoProducts.set(id, updated)
   return updated
 }
 
@@ -440,7 +503,7 @@ function deleteDemoProductImage(id: number): ApiProducto {
   if (!producto) throw new ApiError('Producto no encontrado', 404)
   const updated = { ...producto, imagen_archivo_id: null, imagen_nombre_original: null,
     imagen_mime_type: null, imagen_tamanio_bytes: null, imagen_url: null }
-  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  demoProducts.set(id, updated)
   return updated
 }
 
@@ -452,7 +515,7 @@ function updateDemoProductStock(id: number, body: unknown): ApiProducto {
   const producto = findProducto(id)
   if (!producto) throw new ApiError('Producto no encontrado', 404)
   const updated = { ...producto, stock_actual: Number(data.stock_actual) }
-  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  demoProducts.set(id, updated)
   return updated
 }
 
@@ -461,7 +524,7 @@ function updateDemoProductActive(id: number, active: 0 | 1, body: unknown): ApiP
   const producto = findProducto(id)
   if (!producto) throw new ApiError('Producto no encontrado', 404)
   const updated = { ...producto, activo: active }
-  if (demoProducts.has(id)) demoProducts.set(id, updated)
+  demoProducts.set(id, updated)
   return updated
 }
 
@@ -493,7 +556,7 @@ function createDemoPedido(body: FormData): ApiPedido {
   if (!Array.isArray(requestedItems) || requestedItems.length === 0) {
     throw new ApiError('El pedido debe incluir items', 400)
   }
-  const items = orderItems(requestedItems)
+  const { items } = prepareOrderItems(requestedItems)
   const pedido: ApiPedido = {
     id,
     numero: `KMG-DEMO-${String(id).slice(-6)}`,
@@ -516,6 +579,46 @@ function createDemoPedido(body: FormData): ApiPedido {
   const saved = JSON.parse(sessionStorage.getItem(DEMO_ORDERS_KEY) ?? '[]') as ApiPedido[]
   sessionStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify([...saved, pedido]))
   return pedido
+}
+
+function createDemoCajaPedido(body: unknown): ApiPedido {
+  const data = objectBody(body, [
+    'nombre_cliente', 'mesa', 'telefono_cliente', 'observaciones', 'metodo_pago',
+    'estado_pago', 'estado_pedido', 'items',
+  ], 'Pedido inválido')
+  if (typeof data.nombre_cliente !== 'string' || data.nombre_cliente.length < 1
+    || !['efectivo', 'transferencia'].includes(String(data.metodo_pago))
+    || !Array.isArray(data.items) || data.items.length === 0) {
+    throw new ApiError('Pedido inválido', 400)
+  }
+  const requested = data.items.map((value) => {
+    const item = objectBody(value, ['producto_id', 'cantidad'], 'Items inválidos')
+    return { producto_id: Number(item.producto_id), cantidad: Number(item.cantidad) }
+  })
+  const { items, stockDeltas } = prepareOrderItems(requested)
+  const now = new Date().toISOString()
+  const id = Date.now()
+  const pedido: ApiPedido = {
+    id,
+    numero: `KMG-DEMO-${String(id).slice(-6)}`,
+    token_seguimiento: crypto.randomUUID().replaceAll('-', ''),
+    origen: 'caja',
+    nombre_cliente: data.nombre_cliente,
+    mesa: data.mesa ? String(data.mesa) : null,
+    telefono_cliente: data.telefono_cliente ? String(data.telefono_cliente) : null,
+    telefono_whatsapp: null,
+    estado_pedido: 'en_preparacion',
+    estado_pago: 'pagado',
+    metodo_pago: data.metodo_pago as ApiPedido['metodo_pago'],
+    total: items.reduce((sum, item) => sum + Number(item.subtotal), 0),
+    observaciones: data.observaciones ? String(data.observaciones) : null,
+    comprobante_archivo_id: null,
+    created_at: now,
+    updated_at: now,
+    items,
+  }
+  applyStockDeltas(stockDeltas)
+  return saveDemoPedido(pedido)
 }
 
 /** Showcase writes: acknowledge without mutating fixtures. */
@@ -546,7 +649,7 @@ export async function mockApiRequest<T>(
 
   if (m === 'GET' && p === '/api/productos') {
     // Public menu expects a bare array from apiGet unwrap
-    return delay([...MOCK_PRODUCTOS, ...demoProducts.values()].filter(isPublicProducto) as T)
+    return delay(mergedProducts().filter(isPublicProducto) as T)
   }
 
   if (m === 'GET' && match(p, /^\/api\/productos\/(\d+)$/)) {
@@ -609,7 +712,7 @@ export async function mockApiRequest<T>(
   }
 
   if (m === 'POST' && p === '/api/admin/pedidos/caja') {
-    return demoNoop({ numero: 'KMG-DEMO', id: 999, message: DEMO_NOOP_MESSAGE } as T)
+    return delay(createDemoCajaPedido(body) as T)
   }
 
   if (m === 'POST' && p === '/api/admin/productos') {
@@ -638,6 +741,12 @@ export async function mockApiRequest<T>(
     if (!['recibido', 'en_preparacion'].includes(pedido.estado_pedido)) {
       throw new ApiError('Solo se puede cancelar pedidos en estado en preparación', 400)
     }
+    const requested = pedido.items.map((item) => ({
+      producto_id: item.producto_id,
+      cantidad: item.cantidad,
+    }))
+    const { stockDeltas } = prepareOrderItems([], requested)
+    applyStockDeltas(stockDeltas)
     return demoNoop(saveDemoPedido({ ...pedido, estado_pedido: 'cancelado', updated_at: new Date().toISOString() }) as T)
   }
 
@@ -692,10 +801,8 @@ export async function mockApiRequest<T>(
     if (p.includes('/componentes') && !Number.isNaN(id)) {
       if (!findProducto(id)) throw new ApiError('Producto no encontrado', 404)
       const components = updateDemoComponentes(body)
-      if (demoProducts.has(id)) {
-        demoComponents.set(id, components)
-        demoProducts.set(id, { ...demoProducts.get(id)!, componentes_count: components.length })
-      }
+      demoComponents.set(id, components)
+      demoProducts.set(id, { ...findProducto(id)!, componentes_count: components.length })
       return demoNoop(components as T)
     }
     if (p.includes('/productos') && !Number.isNaN(id)) {
